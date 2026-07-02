@@ -1,0 +1,9 @@
+title: |-
+  Update
+  Section
+  Positions
+tooltip: >-
+  Read the stored chamber-section associations and move/rotate each section view
+  back to its position relative to its chamber. Use after a chamber has been
+  moved or rotated so its sections follow. Chambers are re-found by Mark, with
+  ElementId as a backup.
