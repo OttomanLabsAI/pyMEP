@@ -1,0 +1,11 @@
+title: |-
+  Create
+  Sections
+tooltip: >-
+  Pick chamber family instances and create four section views around each -
+  one per side, each looking inward toward the chamber centre and aligned to
+  the chamber's rotation. Sections are named "{Mark} SIDE A".."{Mark} SIDE D"
+  from the chamber's Mark. Asks for the offset, height and depth (mm) and the
+  section type(s). Each section's placement relative to its chamber is stored
+  automatically, so Update Positions can re-place it after the chamber moves -
+  no separate associate step needed. Run in any view.
