@@ -1,0 +1,6 @@
+tooltip: >-
+  Select ducts / conduit and electrical equipment, run, then pick a
+  Toposolid. Cuts a vertical void straight up out of the chosen Toposolid
+  using the true bottom outline of each selected element, rising just past
+  the top of the solid so the cut clears the surface. No 45 degree batter
+  yet - this is the straight vertical cut only.

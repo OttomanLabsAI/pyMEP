@@ -1,0 +1,5 @@
+tooltip: >-
+  Select a gully and a manhole (in any order), then run. Draws a downpipe from
+  the gully's outlet, a 90 degree bend, and a horizontal pipe into the centre
+  of the manhole. Pipe size is taken from the gully outlet and snapped to the
+  pipe type's available sizes.
