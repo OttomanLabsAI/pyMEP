@@ -1,0 +1,8 @@
+title: |-
+  Match
+  Sections
+tooltip: >-
+  Match existing section views to their nearest chamber, then rename them
+  "{Mark} SIDE A/B" and/or store the chamber-section associations that
+  Update Positions reads. Only needed for manually-drawn sections -
+  Create Sections names and associates its own sections automatically.
