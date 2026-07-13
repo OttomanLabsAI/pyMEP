@@ -47,7 +47,7 @@ Settings used (all on the categorised Settings dialog):
     drop_pipe_height_param        - target for CSV z_off_4 (default 'Height')
 """
 
-__title__  = "Place\nStructures"
+__title__  = "Place Structures\n(CSV)"
 __author__ = "Glent Group"
 
 import sys

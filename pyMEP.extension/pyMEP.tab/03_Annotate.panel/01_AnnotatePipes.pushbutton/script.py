@@ -19,7 +19,7 @@ Layout:
     or dx == 0 and dy >= 0) before computing the perpendicular. That
     way parallel pipes drawn in opposite start/end order still get
     labels on the same side of the run.
-  - Perpendicular is +90° CCW: a +X pipe gets labels above (+Y); a +Y
+  - Perpendicular is +90 deg CCW: a +X pipe gets labels above (+Y); a +Y
     pipe gets labels to the left (-X).
   - The leader exits whichever side of the text is closer to the pipe.
 
@@ -169,7 +169,7 @@ for pipe in pipes:
         continue   # zero-length pipe in XY (purely vertical or degenerate)
     ux = dx / mag
     uy = dy / mag
-    # Perpendicular = +90° CCW in XY. For a +X pipe this points +Y
+    # Perpendicular = +90 deg CCW in XY. For a +X pipe this points +Y
     # (label above); for a +Y pipe this points -X (label to the left).
     px = -uy
     py = ux

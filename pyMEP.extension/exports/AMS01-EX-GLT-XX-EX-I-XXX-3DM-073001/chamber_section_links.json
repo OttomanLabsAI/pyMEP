@@ -1,0 +1,938 @@
+{
+  "3390250": {
+    "chamber_eid": 3068373, 
+    "chamber_mark": "FIBER01", 
+    "local_offset_ft": [
+      6.5616797900262789, 
+      -10.228720549263834, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      2000.0000000000098, 
+      -3117.7140234156168, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -269.99999999999989, 
+    "rel_angle_rad": -4.7123889803846879, 
+    "section_name": "FIBER01 SIDE A", 
+    "side": "A"
+  }, 
+  "3390259": {
+    "chamber_eid": 3068373, 
+    "chamber_mark": "FIBER01", 
+    "local_offset_ft": [
+      10.301055400852114, 
+      6.5616797900262416, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      3139.7616861797246, 
+      1999.9999999999984, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -179.99999999999991, 
+    "rel_angle_rad": -3.1415926535897918, 
+    "section_name": "FIBER01 SIDE B", 
+    "side": "B"
+  }, 
+  "3390268": {
+    "chamber_eid": 3068373, 
+    "chamber_mark": "FIBER01", 
+    "local_offset_ft": [
+      -6.5616797900262167, 
+      10.228720549263826, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      -1999.9999999999909, 
+      3117.7140234156145, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -90.000000000000043, 
+    "rel_angle_rad": -1.5707963267948974, 
+    "section_name": "FIBER01 SIDE C", 
+    "side": "C"
+  }, 
+  "3390277": {
+    "chamber_eid": 3068373, 
+    "chamber_mark": "FIBER01", 
+    "local_offset_ft": [
+      -10.301055400851908, 
+      -6.5616797900262389, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      -3139.7616861796619, 
+      -1999.9999999999977, 
+      -2307.5
+    ], 
+    "rel_angle_deg": 2.5444437451708134e-14, 
+    "rel_angle_rad": 4.4408920985006262e-16, 
+    "section_name": "FIBER01 SIDE D", 
+    "side": "D"
+  }, 
+  "3390286": {
+    "chamber_eid": 3074114, 
+    "chamber_mark": "FIBER02", 
+    "local_offset_ft": [
+      6.5616797900262274, 
+      -5.741469816274809, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      1999.9999999999941, 
+      -1750.0000000005618, 
+      -2307.5
+    ], 
+    "rel_angle_deg": 89.999999999999957, 
+    "rel_angle_rad": 1.5707963267948959, 
+    "section_name": "FIBER02 SIDE A", 
+    "side": "A"
+  }, 
+  "3390295": {
+    "chamber_eid": 3074114, 
+    "chamber_mark": "FIBER02", 
+    "local_offset_ft": [
+      6.5616797900278465, 
+      6.5616797900262389, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      2000.0000000004877, 
+      1999.9999999999977, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -180.0, 
+    "rel_angle_rad": -3.1415926535897931, 
+    "section_name": "FIBER02 SIDE B", 
+    "side": "B"
+  }, 
+  "3390304": {
+    "chamber_eid": 3074114, 
+    "chamber_mark": "FIBER02", 
+    "local_offset_ft": [
+      -6.5616797900262274, 
+      5.741469816274809, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      -1999.9999999999941, 
+      1750.0000000005618, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -90.000000000000043, 
+    "rel_angle_rad": -1.5707963267948974, 
+    "section_name": "FIBER02 SIDE C", 
+    "side": "C"
+  }, 
+  "3390313": {
+    "chamber_eid": 3074114, 
+    "chamber_mark": "FIBER02", 
+    "local_offset_ft": [
+      -6.5616797900278465, 
+      -6.5616797900262531, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      -2000.0000000004877, 
+      -2000.000000000002, 
+      -2307.5
+    ], 
+    "rel_angle_deg": 0.0, 
+    "rel_angle_rad": 0.0, 
+    "section_name": "FIBER02 SIDE D", 
+    "side": "D"
+  }, 
+  "3390322": {
+    "chamber_eid": 3300150, 
+    "chamber_mark": "FIBER03", 
+    "local_offset_ft": [
+      6.5616797900261918, 
+      -5.7414698162729918, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      1999.9999999999834, 
+      -1750.000000000008, 
+      -2307.5
+    ], 
+    "rel_angle_deg": 89.999999999999872, 
+    "rel_angle_rad": 1.5707963267948943, 
+    "section_name": "FIBER03 SIDE A", 
+    "side": "A"
+  }, 
+  "3390331": {
+    "chamber_eid": 3300150, 
+    "chamber_mark": "FIBER03", 
+    "local_offset_ft": [
+      6.5616797900262718, 
+      6.5616797900262469, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      2000.0000000000077, 
+      2000.0000000000002, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -180.0, 
+    "rel_angle_rad": -3.1415926535897931, 
+    "section_name": "FIBER03 SIDE B", 
+    "side": "B"
+  }, 
+  "3390340": {
+    "chamber_eid": 3300150, 
+    "chamber_mark": "FIBER03", 
+    "local_offset_ft": [
+      -6.5616797900262487, 
+      5.7414698162729927, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      -2000.0000000000007, 
+      1750.0000000000082, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -90.000000000000128, 
+    "rel_angle_rad": -1.5707963267948988, 
+    "section_name": "FIBER03 SIDE C", 
+    "side": "C"
+  }, 
+  "3390349": {
+    "chamber_eid": 3300150, 
+    "chamber_mark": "FIBER03", 
+    "local_offset_ft": [
+      -6.5616797900262718, 
+      -6.5616797900262469, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      -2000.0000000000077, 
+      -2000.0000000000002, 
+      -2307.5
+    ], 
+    "rel_angle_deg": 0.0, 
+    "rel_angle_rad": 0.0, 
+    "section_name": "FIBER03 SIDE D", 
+    "side": "D"
+  }, 
+  "3390358": {
+    "chamber_eid": 3299200, 
+    "chamber_mark": "FIBER04", 
+    "local_offset_ft": [
+      6.5616797900261918, 
+      -5.2493438320213182, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      1999.9999999999834, 
+      -1600.0000000000978, 
+      -2307.5
+    ], 
+    "rel_angle_deg": 89.999999999999872, 
+    "rel_angle_rad": 1.5707963267948943, 
+    "section_name": "FIBER04 SIDE A", 
+    "side": "A"
+  }, 
+  "3390367": {
+    "chamber_eid": 3299200, 
+    "chamber_mark": "FIBER04", 
+    "local_offset_ft": [
+      6.5616797900265107, 
+      6.5616797900262673, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      2000.0000000000805, 
+      2000.0000000000064, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -179.99999999999994, 
+    "rel_angle_rad": -3.1415926535897922, 
+    "section_name": "FIBER04 SIDE B", 
+    "side": "B"
+  }, 
+  "3390376": {
+    "chamber_eid": 3299200, 
+    "chamber_mark": "FIBER04", 
+    "local_offset_ft": [
+      -6.5616797900262487, 
+      5.2493438320213608, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      -2000.0000000000007, 
+      1600.0000000001107, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -90.000000000000142, 
+    "rel_angle_rad": -1.570796326794899, 
+    "section_name": "FIBER04 SIDE C", 
+    "side": "C"
+  }, 
+  "3390385": {
+    "chamber_eid": 3299200, 
+    "chamber_mark": "FIBER04", 
+    "local_offset_ft": [
+      -6.5616797900265107, 
+      -6.5616797900262531, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      -2000.0000000000805, 
+      -2000.000000000002, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -7.6333312355124402e-14, 
+    "rel_angle_rad": -1.3322676295501878e-15, 
+    "section_name": "FIBER04 SIDE D", 
+    "side": "D"
+  }, 
+  "3390394": {
+    "chamber_eid": 3217313, 
+    "chamber_mark": "FIBER05", 
+    "local_offset_ft": [
+      6.5616797900262203, 
+      -6.561679790026302, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      1999.999999999992, 
+      -2000.0000000000168, 
+      -2307.5
+    ], 
+    "rel_angle_deg": 89.999999999999886, 
+    "rel_angle_rad": 1.5707963267948946, 
+    "section_name": "FIBER05 SIDE A", 
+    "side": "A"
+  }, 
+  "3390403": {
+    "chamber_eid": 3217313, 
+    "chamber_mark": "FIBER05", 
+    "local_offset_ft": [
+      6.561679790026302, 
+      6.5616797900262203, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      2000.0000000000168, 
+      1999.999999999992, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -180.00000000000009, 
+    "rel_angle_rad": -3.1415926535897949, 
+    "section_name": "FIBER05 SIDE B", 
+    "side": "B"
+  }, 
+  "3390412": {
+    "chamber_eid": 3217313, 
+    "chamber_mark": "FIBER05", 
+    "local_offset_ft": [
+      -6.5616797900262203, 
+      6.561679790026302, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      -1999.999999999992, 
+      2000.0000000000168, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -90.000000000000114, 
+    "rel_angle_rad": -1.5707963267948986, 
+    "section_name": "FIBER05 SIDE C", 
+    "side": "C"
+  }, 
+  "3390421": {
+    "chamber_eid": 3217313, 
+    "chamber_mark": "FIBER05", 
+    "local_offset_ft": [
+      -6.561679790026302, 
+      -6.5616797900262203, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      -2000.0000000000168, 
+      -1999.999999999992, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -1.1449996853268659e-13, 
+    "rel_angle_rad": -1.9984014443252818e-15, 
+    "section_name": "FIBER05 SIDE D", 
+    "side": "D"
+  }, 
+  "3390430": {
+    "chamber_eid": 3221206, 
+    "chamber_mark": "FIBER06", 
+    "local_offset_ft": [
+      6.561679790026254, 
+      -5.7414698162731064, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      2000.0000000000023, 
+      -1750.000000000043, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -270.00000000000011, 
+    "rel_angle_rad": -4.7123889803846915, 
+    "section_name": "FIBER06 SIDE A", 
+    "side": "A"
+  }, 
+  "3390439": {
+    "chamber_eid": 3221206, 
+    "chamber_mark": "FIBER06", 
+    "local_offset_ft": [
+      6.5616797900264281, 
+      6.5616797900262078, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      2000.0000000000553, 
+      1999.9999999999882, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -179.99999999999997, 
+    "rel_angle_rad": -3.1415926535897927, 
+    "section_name": "FIBER06 SIDE B", 
+    "side": "B"
+  }, 
+  "3390448": {
+    "chamber_eid": 3221206, 
+    "chamber_mark": "FIBER06", 
+    "local_offset_ft": [
+      -6.5616797900261972, 
+      5.7414698162731064, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      -1999.999999999985, 
+      1750.000000000043, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -450.00000000000011, 
+    "rel_angle_rad": -7.8539816339744846, 
+    "section_name": "FIBER06 SIDE C", 
+    "side": "C"
+  }, 
+  "3390457": {
+    "chamber_eid": 3221206, 
+    "chamber_mark": "FIBER06", 
+    "local_offset_ft": [
+      -6.5616797900264281, 
+      -6.5616797900262647, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      -2000.0000000000553, 
+      -2000.0000000000055, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -360.0, 
+    "rel_angle_rad": -6.2831853071795862, 
+    "section_name": "FIBER06 SIDE D", 
+    "side": "D"
+  }, 
+  "3390466": {
+    "chamber_eid": 3299533, 
+    "chamber_mark": "FIBER07", 
+    "local_offset_ft": [
+      6.5616797900262327, 
+      -5.7414698162729678, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      1999.9999999999959, 
+      -1750.0000000000007, 
+      -2307.5
+    ], 
+    "rel_angle_deg": 90.0, 
+    "rel_angle_rad": 1.5707963267948966, 
+    "section_name": "FIBER07 SIDE A", 
+    "side": "A"
+  }, 
+  "3390475": {
+    "chamber_eid": 3299533, 
+    "chamber_mark": "FIBER07", 
+    "local_offset_ft": [
+      6.5616797900262327, 
+      6.5616797900262327, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      1999.9999999999959, 
+      1999.9999999999959, 
+      -2307.5
+    ], 
+    "rel_angle_deg": 180.0, 
+    "rel_angle_rad": 3.1415926535897931, 
+    "section_name": "FIBER07 SIDE B", 
+    "side": "B"
+  }, 
+  "3390484": {
+    "chamber_eid": 3299533, 
+    "chamber_mark": "FIBER07", 
+    "local_offset_ft": [
+      -6.5616797900262327, 
+      5.7414698162729678, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      -1999.9999999999959, 
+      1750.0000000000007, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -90.0, 
+    "rel_angle_rad": -1.5707963267948966, 
+    "section_name": "FIBER07 SIDE C", 
+    "side": "C"
+  }, 
+  "3390493": {
+    "chamber_eid": 3299533, 
+    "chamber_mark": "FIBER07", 
+    "local_offset_ft": [
+      -6.5616797900262895, 
+      -6.5616797900262327, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      -2000.0000000000132, 
+      -1999.9999999999959, 
+      -2307.5
+    ], 
+    "rel_angle_deg": 0.0, 
+    "rel_angle_rad": 0.0, 
+    "section_name": "FIBER07 SIDE D", 
+    "side": "D"
+  }, 
+  "3390502": {
+    "chamber_eid": 3202886, 
+    "chamber_mark": "FIBER08", 
+    "local_offset_ft": [
+      6.5616797900262327, 
+      -5.741469816272911, 
+      -7.570538057742783
+    ], 
+    "local_offset_mm": [
+      1999.9999999999959, 
+      -1749.9999999999834, 
+      -2307.5000000000005
+    ], 
+    "rel_angle_deg": 90.0, 
+    "rel_angle_rad": 1.5707963267948966, 
+    "section_name": "FIBER08 SIDE A", 
+    "side": "A"
+  }, 
+  "3390511": {
+    "chamber_eid": 3202886, 
+    "chamber_mark": "FIBER08", 
+    "local_offset_ft": [
+      6.5616797900262327, 
+      6.5616797900262327, 
+      -7.570538057742783
+    ], 
+    "local_offset_mm": [
+      1999.9999999999959, 
+      1999.9999999999959, 
+      -2307.5000000000005
+    ], 
+    "rel_angle_deg": 180.0, 
+    "rel_angle_rad": 3.1415926535897931, 
+    "section_name": "FIBER08 SIDE B", 
+    "side": "B"
+  }, 
+  "3390520": {
+    "chamber_eid": 3202886, 
+    "chamber_mark": "FIBER08", 
+    "local_offset_ft": [
+      -6.5616797900262327, 
+      5.741469816272911, 
+      -7.570538057742783
+    ], 
+    "local_offset_mm": [
+      -1999.9999999999959, 
+      1749.9999999999834, 
+      -2307.5000000000005
+    ], 
+    "rel_angle_deg": -90.0, 
+    "rel_angle_rad": -1.5707963267948966, 
+    "section_name": "FIBER08 SIDE C", 
+    "side": "C"
+  }, 
+  "3390529": {
+    "chamber_eid": 3202886, 
+    "chamber_mark": "FIBER08", 
+    "local_offset_ft": [
+      -6.5616797900262327, 
+      -6.5616797900262327, 
+      -7.570538057742783
+    ], 
+    "local_offset_mm": [
+      -1999.9999999999959, 
+      -1999.9999999999959, 
+      -2307.5000000000005
+    ], 
+    "rel_angle_deg": 0.0, 
+    "rel_angle_rad": 0.0, 
+    "section_name": "FIBER08 SIDE D", 
+    "side": "D"
+  }, 
+  "3390538": {
+    "chamber_eid": 3094395, 
+    "chamber_mark": "FIBER11", 
+    "local_offset_ft": [
+      6.5616797900261625, 
+      -6.5960376197520389, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      1999.9999999999743, 
+      -2010.4722665004215, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -270.00000000000006, 
+    "rel_angle_rad": -4.7123889803846906, 
+    "section_name": "FIBER11 SIDE A", 
+    "side": "A"
+  }, 
+  "3390547": {
+    "chamber_eid": 3094395, 
+    "chamber_mark": "FIBER11", 
+    "local_offset_ft": [
+      7.2738196262587778, 
+      6.5616797900262354, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      2217.0602220836754, 
+      1999.9999999999966, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -180.00000000000014, 
+    "rel_angle_rad": -3.1415926535897958, 
+    "section_name": "FIBER11 SIDE B_2", 
+    "side": "B"
+  }, 
+  "3390556": {
+    "chamber_eid": 3094395, 
+    "chamber_mark": "FIBER11", 
+    "local_offset_ft": [
+      -6.5616797900262807, 
+      6.5960376197520851, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      -2000.0000000000105, 
+      2010.4722665004356, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -450.00000000000006, 
+    "rel_angle_rad": -7.8539816339744837, 
+    "section_name": "FIBER11 SIDE C", 
+    "side": "C"
+  }, 
+  "3390565": {
+    "chamber_eid": 3094395, 
+    "chamber_mark": "FIBER11", 
+    "local_offset_ft": [
+      -7.2738196262587778, 
+      -6.5616797900262354, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      -2217.0602220836754, 
+      -1999.9999999999966, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -359.99999999999989, 
+    "rel_angle_rad": -6.2831853071795845, 
+    "section_name": "FIBER11 SIDE D_2", 
+    "side": "D"
+  }, 
+  "3390574": {
+    "chamber_eid": 2863071, 
+    "chamber_mark": "FIBER21", 
+    "local_offset_ft": [
+      6.5616797900262469, 
+      -5.7414698162730859, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      2000.0000000000002, 
+      -1750.0000000000366, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -270.0, 
+    "rel_angle_rad": -4.7123889803846897, 
+    "section_name": "FIBER21 SIDE A", 
+    "side": "A"
+  }, 
+  "3390583": {
+    "chamber_eid": 2863071, 
+    "chamber_mark": "FIBER21", 
+    "local_offset_ft": [
+      6.5616797900263357, 
+      6.5616797900262425, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      2000.0000000000273, 
+      1999.9999999999989, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -179.99999999999997, 
+    "rel_angle_rad": -3.1415926535897927, 
+    "section_name": "FIBER21 SIDE B_2", 
+    "side": "B"
+  }, 
+  "3390592": {
+    "chamber_eid": 2863071, 
+    "chamber_mark": "FIBER21", 
+    "local_offset_ft": [
+      -6.5616797900262496, 
+      5.7414698162730859, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      -2000.0000000000009, 
+      1750.0000000000366, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -450.0, 
+    "rel_angle_rad": -7.8539816339744828, 
+    "section_name": "FIBER21 SIDE C", 
+    "side": "C"
+  }, 
+  "3390601": {
+    "chamber_eid": 2863071, 
+    "chamber_mark": "FIBER21", 
+    "local_offset_ft": [
+      -6.5616797900263348, 
+      -6.5616797900262567, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      -2000.0000000000268, 
+      -2000.0000000000032, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -360.0, 
+    "rel_angle_rad": -6.2831853071795862, 
+    "section_name": "FIBER21 SIDE D_2", 
+    "side": "D"
+  }, 
+  "3390610": {
+    "chamber_eid": 2863090, 
+    "chamber_mark": "FIBER22", 
+    "local_offset_ft": [
+      6.5616797900262469, 
+      -5.7414698162731055, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      2000.0000000000002, 
+      -1750.0000000000425, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -270.0, 
+    "rel_angle_rad": -4.7123889803846897, 
+    "section_name": "FIBER22 SIDE A", 
+    "side": "A"
+  }, 
+  "3390619": {
+    "chamber_eid": 2863090, 
+    "chamber_mark": "FIBER22", 
+    "local_offset_ft": [
+      6.5616797900263695, 
+      6.5616797900262656, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      2000.0000000000375, 
+      2000.0000000000059, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -180.00000000000009, 
+    "rel_angle_rad": -3.1415926535897949, 
+    "section_name": "FIBER22 SIDE B_2", 
+    "side": "B"
+  }, 
+  "3390628": {
+    "chamber_eid": 2863090, 
+    "chamber_mark": "FIBER22", 
+    "local_offset_ft": [
+      -6.5616797900262469, 
+      5.7414698162731055, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      -2000.0000000000002, 
+      1750.0000000000425, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -450.0, 
+    "rel_angle_rad": -7.8539816339744828, 
+    "section_name": "FIBER22 SIDE C", 
+    "side": "C"
+  }, 
+  "3390637": {
+    "chamber_eid": 2863090, 
+    "chamber_mark": "FIBER22", 
+    "local_offset_ft": [
+      -6.5616797900263704, 
+      -6.5616797900262371, 
+      -7.5705380577427812
+    ], 
+    "local_offset_mm": [
+      -2000.0000000000377, 
+      -1999.999999999997, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -360.00000000000011, 
+    "rel_angle_rad": -6.283185307179588, 
+    "section_name": "FIBER22 SIDE D_2", 
+    "side": "D"
+  }, 
+  "3390646": {
+    "chamber_eid": 3202523, 
+    "chamber_mark": "FIBER09", 
+    "local_offset_ft": [
+      4.9212598425197029, 
+      -5.741469816272911, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      1500.0000000000055, 
+      -1749.9999999999834, 
+      -2307.5
+    ], 
+    "rel_angle_deg": 90.0, 
+    "rel_angle_rad": 1.5707963267948966, 
+    "section_name": "FIBER09 SIDE A", 
+    "side": "A"
+  }, 
+  "3390655": {
+    "chamber_eid": 3202523, 
+    "chamber_mark": "FIBER09", 
+    "local_offset_ft": [
+      6.5616797900262327, 
+      4.9212598425197029, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      1999.9999999999959, 
+      1500.0000000000055, 
+      -2307.5
+    ], 
+    "rel_angle_deg": 180.0, 
+    "rel_angle_rad": 3.1415926535897931, 
+    "section_name": "FIBER09 SIDE B", 
+    "side": "B"
+  }, 
+  "3390664": {
+    "chamber_eid": 3202523, 
+    "chamber_mark": "FIBER09", 
+    "local_offset_ft": [
+      -4.9212598425197029, 
+      5.741469816272911, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      -1500.0000000000055, 
+      1749.9999999999834, 
+      -2307.5
+    ], 
+    "rel_angle_deg": -90.0, 
+    "rel_angle_rad": -1.5707963267948966, 
+    "section_name": "FIBER09 SIDE C", 
+    "side": "C"
+  }, 
+  "3390673": {
+    "chamber_eid": 3202523, 
+    "chamber_mark": "FIBER09", 
+    "local_offset_ft": [
+      -6.5616797900262327, 
+      -4.9212598425197029, 
+      -7.5705380577427821
+    ], 
+    "local_offset_mm": [
+      -1999.9999999999959, 
+      -1500.0000000000055, 
+      -2307.5
+    ], 
+    "rel_angle_deg": 0.0, 
+    "rel_angle_rad": 0.0, 
+    "section_name": "FIBER09 SIDE D", 
+    "side": "D"
+  }, 
+  "3390682": {
+    "chamber_eid": 3094428, 
+    "chamber_mark": "FIBER10", 
+    "local_offset_ft": [
+      4.9212598425196461, 
+      -5.7414698162730327, 
+      -7.7526246719160099
+    ], 
+    "local_offset_mm": [
+      1499.9999999999882, 
+      -1750.0000000000205, 
+      -2363.0
+    ], 
+    "rel_angle_deg": -270.0, 
+    "rel_angle_rad": -4.7123889803846897, 
+    "section_name": "FIBER10 SIDE A", 
+    "side": "A"
+  }, 
+  "3390691": {
+    "chamber_eid": 3094428, 
+    "chamber_mark": "FIBER10", 
+    "local_offset_ft": [
+      6.5616797900262975, 
+      4.9212598425197109, 
+      -7.7526246719160099
+    ], 
+    "local_offset_mm": [
+      2000.0000000000155, 
+      1500.000000000008, 
+      -2363.0
+    ], 
+    "rel_angle_deg": -180.00000000000017, 
+    "rel_angle_rad": -3.1415926535897962, 
+    "section_name": "FIBER10 SIDE B", 
+    "side": "B"
+  }, 
+  "3390700": {
+    "chamber_eid": 3094428, 
+    "chamber_mark": "FIBER10", 
+    "local_offset_ft": [
+      -4.9212598425197598, 
+      5.7414698162730327, 
+      -7.7526246719160099
+    ], 
+    "local_offset_mm": [
+      -1500.0000000000227, 
+      1750.0000000000205, 
+      -2363.0
+    ], 
+    "rel_angle_deg": -90.0, 
+    "rel_angle_rad": -1.5707963267948966, 
+    "section_name": "FIBER10 SIDE C", 
+    "side": "C"
+  }, 
+  "3390709": {
+    "chamber_eid": 3094428, 
+    "chamber_mark": "FIBER10", 
+    "local_offset_ft": [
+      -6.5616797900262975, 
+      -4.9212598425196541, 
+      -7.7526246719160099
+    ], 
+    "local_offset_mm": [
+      -2000.0000000000155, 
+      -1499.9999999999907, 
+      -2363.0
+    ], 
+    "rel_angle_deg": -1.7811106216195694e-13, 
+    "rel_angle_rad": -3.1086244689504383e-15, 
+    "section_name": "FIBER10 SIDE D", 
+    "side": "D"
+  }
+}
