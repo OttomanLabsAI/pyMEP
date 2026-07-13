@@ -28,7 +28,7 @@ clr.AddReference("RevitAPI")
 from Autodesk.Revit.DB import (
     BuiltInParameter, FilteredElementCollector, FilteredWorksetCollector,
     Level, Transaction, SubTransaction, WorksetKind, XYZ, FamilySymbol,
-    Line, ElementTransformUtils,
+    Line, ElementTransformUtils, Family,
 )
 from Autodesk.Revit.DB.Structure import StructuralType
 
@@ -41,6 +41,8 @@ from pymep_structures_place import (
     RIM_PARAM_NAMES, INVERT_PARAM_NAMES,
     _activate, _set_named_param_length_m,
 )
+
+__version__ = "1.5"
 
 EXPORT_KIND = "ol-utilities-structures"
 
@@ -164,6 +166,78 @@ def rows_by_layer(rows):
 
 
 # ---------------------------------------------------------------------------
+# family parameter probing (for the L/W/H/DIA mapping prompts)
+# ---------------------------------------------------------------------------
+def probe_instance_param_names(doc, symbol):
+    """Names of the writable, Double-storage INSTANCE parameters of
+    ``symbol`` - found by creating a temporary instance inside a
+    transaction that is rolled back (nothing stays in the model).
+    Falls back to reading an existing instance of the same type."""
+    names = set()
+
+    def _harvest(inst):
+        for p in inst.Parameters:
+            try:
+                if p.IsReadOnly:
+                    continue
+                if str(p.StorageType) != "Double":
+                    continue
+                nm = p.Definition.Name
+                if nm:
+                    names.add(nm)
+            except Exception:
+                continue
+
+    lvl = None
+    for l in FilteredElementCollector(doc).OfClass(Level):
+        lvl = l
+        break
+    t = Transaction(doc, "Probe family params")
+    t.Start()
+    try:
+        try:
+            _activate(doc, symbol)
+        except Exception:
+            pass
+        inst = None
+        if lvl is not None:
+            try:
+                inst = doc.Create.NewFamilyInstance(
+                    XYZ(0, 0, 0), symbol, lvl, StructuralType.NonStructural)
+            except Exception:
+                inst = None
+        if inst is None:
+            inst = doc.Create.NewFamilyInstance(
+                XYZ(0, 0, 0), symbol, StructuralType.NonStructural)
+        try:
+            doc.Regenerate()
+        except Exception:
+            pass
+        _harvest(inst)
+    except Exception:
+        pass
+    finally:
+        try:
+            t.RollBack()
+        except Exception:
+            pass
+
+    if not names:
+        try:
+            from Autodesk.Revit.DB import FamilyInstance
+            for fi in FilteredElementCollector(doc).OfClass(FamilyInstance):
+                try:
+                    if fi.Symbol.Id == symbol.Id:
+                        _harvest(fi)
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            pass
+    return sorted(names)
+
+
+# ---------------------------------------------------------------------------
 # per-layer types
 # ---------------------------------------------------------------------------
 _BAD_TYPE_CHARS = u"\\:{}[]|;<>?`~\n\r\t"
@@ -224,7 +298,7 @@ def ensure_layer_types(doc, base_symbol, layers, log=None):
 # placement
 # ---------------------------------------------------------------------------
 def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
-                               workset_name="", log=None):
+                               workset_name="", log=None, param_map=None):
     """Place every row with its layer's type. Sizes and levels are written
     to INSTANCE parameters only. Returns (created, failed, mode)."""
     if not rows:
@@ -396,6 +470,17 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
             pass
         lvl_elev = lvl.Elevation
         moved = 0
+
+        def _names_for(key, fallback):
+            if param_map is None:
+                return fallback
+            nm = param_map.get(key)
+            return [nm] if nm else []
+
+        H_NAMES = _names_for("H", HEIGHT_PARAM_NAMES)
+        L_NAMES = _names_for("L", LENGTH_PARAM_NAMES)
+        W_NAMES = _names_for("W", WIDTH_PARAM_NAMES)
+        D_NAMES = _names_for("DIA", DIA_PARAM_NAMES)
         for (inst, r, p, pz) in placed:
             sub = SubTransaction(doc)
             try:
@@ -442,25 +527,25 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
                     if nm:
                         _hit(nm)
                 if r.get("depth_m") is not None:
-                    nm = _set_named_param_length_m(inst, HEIGHT_PARAM_NAMES,
+                    nm = _set_named_param_length_m(inst, H_NAMES,
                                                    r["depth_m"])
                     if nm:
                         _hit(nm)
                 if r["shape"] == "box":
                     if r.get("length_m") is not None:
                         nm = _set_named_param_length_m(
-                            inst, LENGTH_PARAM_NAMES, r["length_m"])
+                            inst, L_NAMES, r["length_m"])
                         if nm:
                             _hit(nm)
                     if r.get("width_m") is not None:
                         nm = _set_named_param_length_m(
-                            inst, WIDTH_PARAM_NAMES, r["width_m"])
+                            inst, W_NAMES, r["width_m"])
                         if nm:
                             _hit(nm)
                 else:
                     if r.get("dia_m"):
                         nm = _set_named_param_length_m(
-                            inst, DIA_PARAM_NAMES, r["dia_m"])
+                            inst, D_NAMES, r["dia_m"])
                         if nm:
                             _hit(nm)
                 nm = _try_text(inst, LAYER_PARAM_NAMES, r["layer"])
@@ -527,17 +612,54 @@ def run_place(shape):
     doc = revit.doc
 
     log("### Place {} chambers from a dashboard export".format(label.lower()))
+    log("pymep_dashboard **v{}**".format(__version__))
 
     # 1. family FIRST -------------------------------------------------------
+    from pymep_structures_place import list_family_symbols as _raw_syms
+
+    def _counts():
+        raw = _raw_syms(doc)
+        fams = [f for f in FilteredElementCollector(doc).OfClass(Family)]
+        return raw, len(fams)
+
     syms = list_chamber_symbols(doc)
-    if not syms:
-        forms.alert(
-            "No point-placeable families are loaded in this project.\n\n"
-            "(Curtain-wall mullions / system panels don't count - they are "
-            "system types.)\n\nLoad your chamber family first: Insert > "
-            "Load Family (e.g. 'Generic Cylinder' with DIA/H, or your "
-            "L/W/H box). If it was here before, a Purge Unused after "
-            "deleting instances removes it.", exitscript=True)
+    while not syms:
+        raw, n_fams = _counts()
+        choice = forms.alert(
+            "pymep_dashboard v{}\n\n"
+            "No point-placeable family types found.\n"
+            "  - loadable families in this project: {}\n"
+            "  - family types of any kind (incl. curtain system): {}\n\n"
+            "If the first number is 0, this project has no families "
+            "loaded - I can load an .rfa for you now.\n"
+            "If it is NOT 0, pick 'Show all types anyway' and tell me "
+            "what you see.".format(__version__, n_fams, len(raw)),
+            title="Place chambers",
+            options=["Load a family (.rfa)...",
+                     "Show all types anyway", "Cancel"])
+        if choice == "Load a family (.rfa)...":
+            rfa = forms.pick_file(file_ext="rfa",
+                                  title="Pick the chamber family (.rfa)")
+            if rfa:
+                t = Transaction(doc, "Load dashboard family")
+                t.Start()
+                try:
+                    ok = doc.LoadFamily(rfa)
+                    t.Commit()
+                    log("Loaded family: **{}** ({})".format(
+                        rfa, "ok" if ok else "already loaded / unchanged"))
+                except Exception as ex:
+                    t.RollBack()
+                    forms.alert("Could not load:\n{}".format(ex))
+            syms = list_chamber_symbols(doc)
+        elif choice == "Show all types anyway":
+            syms = _raw_syms(doc)
+            if not syms:
+                forms.alert("This project contains zero family types of any "
+                            "kind. Load a family first.", exitscript=True)
+            break
+        else:
+            forms.alert("Cancelled.", exitscript=True)
 
     class SymOpt(object):
         def __init__(self, lbl, sym):
@@ -553,6 +675,32 @@ def run_place(shape):
         forms.alert("No family picked.", exitscript=True)
     base_symbol = sym_pick.sym
     log("Family: **{}**".format(sym_pick.name))
+
+    # 1b. map the size parameters (asked up front) ---------------------------
+    keys = ["L", "W", "H"] if shape == "box" else ["DIA", "H"]
+    pnames = probe_instance_param_names(doc, base_symbol)
+    param_map = None
+    if pnames:
+        param_map = {}
+        SKIP = "(skip - do not write this one)"
+        for k in keys:
+            ku = k.upper()
+            ordered = sorted(pnames, key=lambda n: (
+                0 if n.upper() == ku else (1 if ku in n.upper() else 2),
+                n.lower()))
+            pick = forms.SelectFromList.show(
+                ordered + [SKIP],
+                title="Map '{}' -> which instance parameter of {}?".format(
+                    k, sym_pick.name),
+                button_name="Map {}".format(k), multiselect=False)
+            if not pick:
+                forms.alert("Mapping cancelled.", exitscript=True)
+            param_map[k] = None if pick == SKIP else pick
+        log("Param map: " + ", ".join(
+            "{} -> {}".format(k, param_map[k] or "(skip)") for k in keys))
+    else:
+        log("Could not probe the family's instance parameters - falling "
+            "back to automatic name matching (L/W/H/DIA tried first).")
 
     # 2. dashboard export ---------------------------------------------------
     json_path = forms.pick_file(
@@ -607,8 +755,8 @@ def run_place(shape):
     # 4. confirm + go --------------------------------------------------------
     if forms.alert(
             "Place {} {} chambers from:\n  {}\n\nFamily: {}\n"
-            "Types: one per layer ({})\nAll sizes/levels -> instance "
-            "parameters\nZ: via 'Offset from level' (level at 0)\n"
+            "Types: one per layer ({})\nSizes -> mapped instance params "
+            "(see output window)\nZ: via 'Offset from level' (level at 0)\n"
             "Workset: {}\nLevel (auto): {}\n\nPlace now?".format(
                 len(rows), label.lower(), meta.get("source"),
                 sym_pick.name, len(by_layer),
@@ -620,7 +768,7 @@ def run_place(shape):
                                           by_layer.keys(), log=log)
     created, failed, mode, instances = place_dashboard_structures(
         doc, rows, symbols_by_layer, host_level_name=host_level_name,
-        workset_name=workset_name, log=log)
+        workset_name=workset_name, log=log, param_map=param_map)
     if instances:
         try:
             ids = [i.Id for i in instances]
