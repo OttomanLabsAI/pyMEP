@@ -43,6 +43,50 @@ from pymep_structures_place import (
 
 EXPORT_KIND = "ol-utilities-structures"
 
+# Curtain-wall system types (mullion profiles, system panels) are
+# FamilySymbol-class but can never be point-placed as a chamber.
+_CURTAIN_CAT_IDS = None
+
+
+def _curtain_cat_ids():
+    global _CURTAIN_CAT_IDS
+    if _CURTAIN_CAT_IDS is None:
+        from Autodesk.Revit.DB import BuiltInCategory
+        ids = set()
+        for bic in ("OST_CurtainWallMullions", "OST_CurtainWallPanels",
+                    "OST_CurtainWallMullionsCut", "OST_Curtain_Systems"):
+            try:
+                ids.add(int(getattr(BuiltInCategory, bic)))
+            except Exception:
+                pass
+        _CURTAIN_CAT_IDS = ids
+    return _CURTAIN_CAT_IDS
+
+
+_OK_PLACEMENT = ("OneLevelBased", "WorkPlaneBased", "TwoLevelsBased")
+
+
+def list_chamber_symbols(doc):
+    """list_family_symbols filtered to types that can actually be placed
+    at a point: loadable families, no curtain-wall system types."""
+    from pymep_structures_place import list_family_symbols
+    out = []
+    for lbl, sym in list_family_symbols(doc):
+        try:
+            cat = sym.Category
+            if cat is not None and cat.Id.IntegerValue in _curtain_cat_ids():
+                continue
+        except Exception:
+            pass
+        try:
+            fpt = str(sym.Family.FamilyPlacementType)
+            if fpt not in _OK_PLACEMENT:
+                continue
+        except Exception:
+            pass    # can't tell - keep it, placement errors will report
+        out.append((lbl, sym))
+    return out
+
 # Candidate INSTANCE parameter names for the plan dimensions and the
 # chamber height. First match wins; every hit is reported so you can see
 # exactly which parameter carried each value.
@@ -449,7 +493,7 @@ def run_place(shape):
     Family is asked FIRST, then the dashboard export, then workset."""
     from pyrevit import revit, forms, script
     from pymep_config import get_pipe_host_level_name
-    from pymep_structures_place import list_family_symbols, list_worksets
+    from pymep_structures_place import list_worksets
     from pymep_log import Logger
 
     label = "BOX" if shape == "box" else "CYLINDRICAL"
@@ -460,10 +504,15 @@ def run_place(shape):
     log("### Place {} chambers from a dashboard export".format(label.lower()))
 
     # 1. family FIRST -------------------------------------------------------
-    syms = list_family_symbols(doc)
+    syms = list_chamber_symbols(doc)
     if not syms:
-        forms.alert("This project has no loadable family types. Load your "
-                    "chamber family first.", exitscript=True)
+        forms.alert(
+            "No point-placeable families are loaded in this project.\n\n"
+            "(Curtain-wall mullions / system panels don't count - they are "
+            "system types.)\n\nLoad your chamber family first: Insert > "
+            "Load Family (e.g. 'Generic Cylinder' with DIA/H, or your "
+            "L/W/H box). If it was here before, a Purge Unused after "
+            "deleting instances removes it.", exitscript=True)
 
     class SymOpt(object):
         def __init__(self, lbl, sym):
