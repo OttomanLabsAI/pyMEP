@@ -42,7 +42,7 @@ from pymep_structures_place import (
     _activate, _set_named_param_length_m,
 )
 
-__version__ = "1.7"
+__version__ = "1.8"
 
 EXPORT_KIND = "ol-utilities-structures"
 
@@ -292,6 +292,34 @@ def ensure_layer_types(doc, base_symbol, layers, log=None):
     _say(log, "Types: **{}** created ({}), **{}** reused.".format(
         len(made), ", ".join(made) or "-", len(out) - len(made)))
     return out
+
+
+def _set_all_named_length_m(inst, names, value_m):
+    """Like _set_named_param_length_m, but when a name matches it writes
+    EVERY writable Double parameter carrying that name - family parameter
+    and same-named project parameter both receive the value, so duplicated
+    definitions can never disagree. Returns the matched name or None."""
+    for nm in names:
+        try:
+            plist = inst.GetParameters(nm)
+        except Exception:
+            plist = None
+        if not plist:
+            continue
+        wrote = False
+        for p in plist:
+            try:
+                if p is None or p.IsReadOnly:
+                    continue
+                if str(p.StorageType) != "Double":
+                    continue
+                p.Set(mm2ft(value_m * 1000.0))
+                wrote = True
+            except Exception:
+                pass
+        if wrote:
+            return nm
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -555,34 +583,34 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
                     except Exception:
                         pass
                 if r.get("rim_m") is not None:
-                    nm = _set_named_param_length_m(inst, RIM_PARAM_NAMES,
-                                                   r["rim_m"])
+                    nm = _set_all_named_length_m(inst, RIM_PARAM_NAMES,
+                                                 r["rim_m"])
                     if nm:
                         _hit(nm)
                 if r.get("sump_m") is not None:
-                    nm = _set_named_param_length_m(inst, INVERT_PARAM_NAMES,
-                                                   r["sump_m"])
+                    nm = _set_all_named_length_m(inst, INVERT_PARAM_NAMES,
+                                                 r["sump_m"])
                     if nm:
                         _hit(nm)
                 if r.get("depth_m") is not None:
-                    nm = _set_named_param_length_m(inst, H_NAMES,
-                                                   r["depth_m"])
+                    nm = _set_all_named_length_m(inst, H_NAMES,
+                                                 r["depth_m"])
                     if nm:
                         _hit(nm)
                 if r["shape"] == "box":
                     if r.get("length_m") is not None:
-                        nm = _set_named_param_length_m(
+                        nm = _set_all_named_length_m(
                             inst, L_NAMES, r["length_m"])
                         if nm:
                             _hit(nm)
                     if r.get("width_m") is not None:
-                        nm = _set_named_param_length_m(
+                        nm = _set_all_named_length_m(
                             inst, W_NAMES, r["width_m"])
                         if nm:
                             _hit(nm)
                 else:
                     if r.get("dia_m"):
-                        nm = _set_named_param_length_m(
+                        nm = _set_all_named_length_m(
                             inst, D_NAMES, r["dia_m"])
                         if nm:
                             _hit(nm)
