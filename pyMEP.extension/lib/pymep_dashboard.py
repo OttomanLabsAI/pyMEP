@@ -42,7 +42,7 @@ from pymep_structures_place import (
     _activate, _set_named_param_length_m,
 )
 
-__version__ = "1.6"
+__version__ = "1.7"
 
 EXPORT_KIND = "ol-utilities-structures"
 
@@ -297,7 +297,7 @@ def ensure_layer_types(doc, base_symbol, layers, log=None):
 # ---------------------------------------------------------------------------
 # transform solving (validated BEFORE anything is created)
 # ---------------------------------------------------------------------------
-def solve_points(doc, rows, log=None):
+def solve_points(doc, rows, log=None, force_offset=None):
     """Solve the survey->internal transform for ``rows``: the Settings
     offset first, then the model's own project position. Every attempt is
     logged with the resulting distance. Returns (pts, mode, offsets) where
@@ -351,6 +351,11 @@ def solve_points(doc, rows, log=None):
         candidates.append(("model project position", pp))
     except Exception:
         pass
+
+    if force_offset is not None:
+        candidates = [("export origin (site at internal origin)",
+                       (float(force_offset[0]), float(force_offset[1]),
+                        float(force_offset[2]), float(force_offset[3])))]
 
     tried = []
     for name, off in candidates:
@@ -786,14 +791,47 @@ def run_place(shape):
         workset_name = "" if ws_pick == ACTIVE else ws_pick
 
     # 4. transform first - fail here and NOTHING gets created ----------------
+    pts_info = None
     try:
         pts_info = solve_points(doc, rows, log=log)
     except Exception as ex:
         import traceback
         log(traceback.format_exc())
-        forms.alert("Transform failed - nothing was created.\n\n{}\n\n"
-                    "Full details are in the output window.".format(ex),
-                    exitscript=True)
+        o = meta.get("origin") or {}
+        oe, on = o.get("easting"), o.get("northing")
+        if oe is not None and on is not None:
+            choice = forms.alert(
+                "{}\n\nThis model has no usable georeference, so I can "
+                "place the site at the model's INTERNAL ORIGIN instead, "
+                "using the export origin as the offset:\n"
+                "    E {:.3f}    N {:.3f}    rot 0\n\n"
+                "Everything stays correctly positioned relative to itself "
+                "(model X/Y will equal the dashboard's local metres); you "
+                "can set shared coordinates later.".format(ex, oe, on),
+                title="No georeference",
+                options=["Place at internal origin",
+                         "Place + save offset to Settings", "Cancel"])
+            if choice and choice.startswith("Place"):
+                if "save" in choice:
+                    try:
+                        from pymep_config import load_settings, save_settings
+                        s = load_settings()
+                        s["landxml_off_e_m"] = str(oe)
+                        s["landxml_off_n_m"] = str(on)
+                        s["landxml_off_z_m"] = "0.0"
+                        s["landxml_rot_deg"] = "0.0"
+                        save_settings(s)
+                        log("Saved to Settings: E {}  N {}  Z 0  rot 0"
+                            .format(oe, on))
+                    except Exception as ex2:
+                        log("Could not save Settings: {}".format(ex2))
+                pts_info = solve_points(
+                    doc, rows, log=log,
+                    force_offset=(float(oe), float(on), 0.0, 0.0))
+        if pts_info is None:
+            forms.alert("Transform failed - nothing was created.\n\n{}"
+                        "\n\nFull details are in the output window."
+                        .format(ex), exitscript=True)
 
     # 5. confirm + go --------------------------------------------------------
     if forms.alert(
