@@ -46,14 +46,14 @@ EXPORT_KIND = "ol-utilities-structures"
 # Candidate INSTANCE parameter names for the plan dimensions and the
 # chamber height. First match wins; every hit is reported so you can see
 # exactly which parameter carried each value.
-WIDTH_PARAM_NAMES = ["Width", "Internal Width", "Chamber Width",
-                     "Plan Width", "W", "Breadth"]
-LENGTH_PARAM_NAMES = ["Length", "Internal Length", "Chamber Length",
-                      "Plan Length", "L"]
-DIA_PARAM_NAMES = ["Diameter", "Internal Diameter", "Chamber Diameter",
-                   "Nominal Diameter", "Dia", "D", "OD"]
-HEIGHT_PARAM_NAMES = ["Height", "Chamber Depth", "Internal Depth",
-                      "Chamber Height", "Depth", "H"]
+WIDTH_PARAM_NAMES = ["W", "Width", "Internal Width", "Chamber Width",
+                     "Plan Width", "Breadth"]
+LENGTH_PARAM_NAMES = ["L", "Length", "Internal Length", "Chamber Length",
+                      "Plan Length"]
+DIA_PARAM_NAMES = ["DIA", "Dia", "Diameter", "Internal Diameter",
+                   "Chamber Diameter", "Nominal Diameter", "D", "OD"]
+HEIGHT_PARAM_NAMES = ["H", "Height", "Chamber Depth", "Internal Depth",
+                      "Chamber Height", "Depth"]
 LAYER_PARAM_NAMES = ["Layer", "Network", "System Name"]
 
 
@@ -83,13 +83,15 @@ def read_export(path):
     rows = []
     for s in data.get("structures", []):
         rim = s.get("rim_m")
+        sump = s.get("sump_m")
+        z = sump if sump is not None else (rim if rim is not None else 0.0)
         rows.append({
             "name": s.get("name") or "?",
             "layer": s.get("layer") or "(no layer)",
             "shape": s.get("shape"),
             "x": float(s["easting"]),
             "y": float(s["northing"]),
-            "z_m": float(rim) if rim is not None else 0.0,
+            "z_m": float(z),
             "rim_m": rim,
             "sump_m": s.get("sump_m"),
             "depth_m": s.get("depth_m"),
@@ -213,13 +215,15 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
         return XYZ(rx / 0.3048, ry / 0.3048, (z_m - off_z_m) / 0.3048)
 
     def transform_all(fn):
+        # TRUE 3D placement: X/Y to the survey position, Z to the structure's
+        # SUMP (base) elevation - the family is assumed to grow +H upward
+        # from its origin (L/W/H and DIA/H placeholder families).
         out = []
         m_abs = 0.0
         for r in rows:
             p = fn(r["x"], r["y"], r["z_m"])
-            p = XYZ(p.X, p.Y, 0.0)     # rim goes in as a parameter, not Z
             out.append((p, r))
-            mm = max(abs(p.X), abs(p.Y), abs(p.Z))
+            mm = max(abs(p.X), abs(p.Y))
             if mm > m_abs:
                 m_abs = mm
         return out, m_abs
@@ -261,21 +265,41 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
             _activate(doc, sym)
         except Exception:
             pass
+    errors = {}
     for (p, r) in pts:
+        sym = symbols_by_layer[r["layer"]]
+        inst = None
         try:
-            sym = symbols_by_layer[r["layer"]]
             inst = doc.Create.NewFamilyInstance(
                 p, sym, lvl, StructuralType.NonStructural)
+        except Exception as ex1:
+            try:
+                # some families refuse the level overload - place free,
+                # the level association is cosmetic for these placeholders
+                inst = doc.Create.NewFamilyInstance(
+                    p, sym, StructuralType.NonStructural)
+            except Exception as ex2:
+                msg = "{} / {}".format(ex1, ex2)[:160]
+                errors[msg] = errors.get(msg, 0) + 1
+        if inst is None:
+            failed += 1
+            continue
+        try:
             if ws_id is not None:
                 wp = inst.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM)
                 if wp is not None and not wp.IsReadOnly:
                     wp.Set(ws_id.IntegerValue)
-            created += 1
-            placed.append((inst, r))
         except Exception:
-            failed += 1
+            pass
+        created += 1
+        placed.append((inst, r, p))
     t.Commit()
     _say(log, "Created **{}** instances (failed {}).".format(created, failed))
+    if errors:
+        _say(log, "Placement errors (family '{}'):".format(
+            safe_name(list(symbols_by_layer.values())[0])))
+        for msg, n in sorted(errors.items(), key=lambda kv: -kv[1])[:3]:
+            _say(log, "  - x{}: {}".format(n, msg))
 
     # ---- instance params, isolated pass ------------------------------------
     hits = {}
@@ -303,7 +327,8 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
             doc.Regenerate()
         except Exception:
             pass
-        for (inst, r) in placed:
+        lvl_elev = lvl.Elevation
+        for (inst, r, p) in placed:
             sub = SubTransaction(doc)
             try:
                 sub.Start()
@@ -314,18 +339,22 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
                         mark_set += 1
                 except Exception:
                     pass
-                if r.get("rim_m") is not None:
-                    off_ft = mm2ft(r["rim_m"] * 1000.0)
-                    for bip in (BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM,
-                                BuiltInParameter.INSTANCE_ELEVATION_PARAM):
-                        try:
-                            op = inst.get_Parameter(bip)
-                            if op is not None and not op.IsReadOnly:
+                # pin the vertical position: offset-from-level = placed Z
+                # minus the level elevation, so the base sits at the sump
+                # regardless of which overload / behaviour placed it
+                off_ft = p.Z - lvl_elev
+                for bip in (BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM,
+                            BuiltInParameter.INSTANCE_ELEVATION_PARAM):
+                    try:
+                        op = inst.get_Parameter(bip)
+                        if op is not None and not op.IsReadOnly:
+                            if abs(op.AsDouble() - off_ft) > 1e-6:
                                 op.Set(off_ft)
-                                offset_set += 1
-                                break
-                        except Exception:
-                            pass
+                            offset_set += 1
+                            break
+                    except Exception:
+                        pass
+                if r.get("rim_m") is not None:
                     nm = _set_named_param_length_m(inst, RIM_PARAM_NAMES,
                                                    r["rim_m"])
                     if nm:
@@ -376,8 +405,9 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
                     pass
         t2.Commit()
 
-    _say(log, "Mark set on **{}**; Offset-from-Host (rim) on **{}**.".format(
-        mark_set, offset_set))
+    _say(log, "Placed at TRUE elevations (base = sump level). Mark set on "
+              "**{}**; vertical offset pinned on **{}**.".format(
+                  mark_set, offset_set))
     if hits:
         _say(log, "Instance params written: " + ", ".join(
             "'%s' x%d" % (k, v)
@@ -482,7 +512,8 @@ def run_place(shape):
     if forms.alert(
             "Place {} {} chambers from:\n  {}\n\nFamily: {}\n"
             "Types: one per layer ({})\nAll sizes/levels -> instance "
-            "parameters\nWorkset: {}\nLevel (auto): {}\n\nPlace now?".format(
+            "parameters\nZ: true elevations, base at sump\n"
+            "Workset: {}\nLevel (auto): {}\n\nPlace now?".format(
                 len(rows), label.lower(), meta.get("source"),
                 sym_pick.name, len(by_layer),
                 workset_name or ACTIVE, host_level_name),
@@ -494,6 +525,15 @@ def run_place(shape):
     created, failed, mode = place_dashboard_structures(
         doc, rows, symbols_by_layer, host_level_name=host_level_name,
         workset_name=workset_name, log=log)
-    forms.alert("Placed {} of {} {} chambers.\nTransform: {}\n\nSee the "
-                "output window for the parameter report.".format(
-                    created, len(rows), label.lower(), mode))
+    if created == 0:
+        forms.alert("Nothing was placed ({} attempted).\n\nThe exact "
+                    "placement errors are listed in the output window - "
+                    "send them to me. Most likely causes: the family "
+                    "rejects point placement (work-plane based) or the "
+                    "survey offset in Settings doesn't match this model."
+                    .format(len(rows)))
+    else:
+        forms.alert("Placed {} of {} {} chambers at true elevations.\n"
+                    "Transform: {}\n\nSee the output window for the "
+                    "parameter report.".format(
+                        created, len(rows), label.lower(), mode))
