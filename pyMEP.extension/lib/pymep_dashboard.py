@@ -28,6 +28,7 @@ clr.AddReference("RevitAPI")
 from Autodesk.Revit.DB import (
     BuiltInParameter, FilteredElementCollector, FilteredWorksetCollector,
     Level, Transaction, SubTransaction, WorksetKind, XYZ, FamilySymbol,
+    Line, ElementTransformUtils,
 )
 from Autodesk.Revit.DB.Structure import StructuralType
 
@@ -63,12 +64,15 @@ def _curtain_cat_ids():
     return _CURTAIN_CAT_IDS
 
 
-_OK_PLACEMENT = ("OneLevelBased", "WorkPlaneBased", "TwoLevelsBased")
+# Only these can NEVER be placed at a point - everything else stays,
+# including Generic Models, Electrical Fixtures, hosted and face-based.
+_BAD_PLACEMENT = ("CurveBased", "CurveBasedDetail", "ViewBased",
+                  "CurveDrivenStructural", "Adaptive")
 
 
 def list_chamber_symbols(doc):
-    """list_family_symbols filtered to types that can actually be placed
-    at a point: loadable families, no curtain-wall system types."""
+    """list_family_symbols minus curtain-wall system types and
+    curve/view/adaptive families that cannot take point placement."""
     from pymep_structures_place import list_family_symbols
     out = []
     for lbl, sym in list_family_symbols(doc):
@@ -79,8 +83,7 @@ def list_chamber_symbols(doc):
         except Exception:
             pass
         try:
-            fpt = str(sym.Family.FamilyPlacementType)
-            if fpt not in _OK_PLACEMENT:
+            if str(sym.Family.FamilyPlacementType) in _BAD_PLACEMENT:
                 continue
         except Exception:
             pass    # can't tell - keep it, placement errors will report
@@ -128,7 +131,9 @@ def read_export(path):
     for s in data.get("structures", []):
         rim = s.get("rim_m")
         sump = s.get("sump_m")
-        z = sump if sump is not None else (rim if rim is not None else 0.0)
+        z = s.get("z_m")
+        if z is None:
+            z = sump if sump is not None else (rim if rim is not None else 0.0)
         rows.append({
             "name": s.get("name") or "?",
             "layer": s.get("layer") or "(no layer)",
@@ -136,6 +141,7 @@ def read_export(path):
             "x": float(s["easting"]),
             "y": float(s["northing"]),
             "z_m": float(z),
+            "rot_deg": float(s.get("rotation_deg") or 0.0),
             "rim_m": rim,
             "sump_m": s.get("sump_m"),
             "depth_m": s.get("depth_m"),
@@ -259,14 +265,14 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
         return XYZ(rx / 0.3048, ry / 0.3048, (z_m - off_z_m) / 0.3048)
 
     def transform_all(fn):
-        # TRUE 3D placement: X/Y to the survey position, Z to the structure's
-        # SUMP (base) elevation - the family is assumed to grow +H upward
-        # from its origin (L/W/H and DIA/H placeholder families).
+        # Level-hosted placement: the instance goes in ON the level (Z=0);
+        # the structure's Z (sump/base) is carried separately and driven
+        # into 'Offset from level', so the family grows +H upward from it.
         out = []
         m_abs = 0.0
         for r in rows:
             p = fn(r["x"], r["y"], r["z_m"])
-            out.append((p, r))
+            out.append((XYZ(p.X, p.Y, 0.0), p.Z, r))
             mm = max(abs(p.X), abs(p.Y))
             if mm > m_abs:
                 m_abs = mm
@@ -318,7 +324,8 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
         except Exception:
             pass
     errors = {}
-    for (p, r) in pts:
+    rot_base = math.radians(rot_deg) if mode.startswith("explicit") else 0.0
+    for (p, pz, r) in pts:
         sym = symbols_by_layer[r["layer"]]
         inst = None
         try:
@@ -336,6 +343,14 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
         if inst is None:
             failed += 1
             continue
+        # plan rotation: survey transform rotation + per-structure rotation
+        rot = rot_base + math.radians(r.get("rot_deg", 0.0))
+        if abs(rot) > 1e-9:
+            try:
+                axis = Line.CreateBound(p, XYZ(p.X, p.Y, p.Z + 10.0))
+                ElementTransformUtils.RotateElement(doc, inst.Id, axis, rot)
+            except Exception:
+                pass
         try:
             if ws_id is not None:
                 wp = inst.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM)
@@ -344,7 +359,7 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
         except Exception:
             pass
         created += 1
-        placed.append((inst, r, p))
+        placed.append((inst, r, p, pz))
     t.Commit()
     _say(log, "Created **{}** instances (failed {}).".format(created, failed))
     if errors:
@@ -380,7 +395,8 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
         except Exception:
             pass
         lvl_elev = lvl.Elevation
-        for (inst, r, p) in placed:
+        moved = 0
+        for (inst, r, p, pz) in placed:
             sub = SubTransaction(doc)
             try:
                 sub.Start()
@@ -391,10 +407,10 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
                         mark_set += 1
                 except Exception:
                     pass
-                # pin the vertical position: offset-from-level = placed Z
-                # minus the level elevation, so the base sits at the sump
-                # regardless of which overload / behaviour placed it
-                off_ft = p.Z - lvl_elev
+                # Offset from level = structure Z (sump) minus the level
+                # elevation - with your Level 0 at 0 this is simply the Z.
+                off_ft = pz - lvl_elev
+                ok = False
                 for bip in (BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM,
                             BuiltInParameter.INSTANCE_ELEVATION_PARAM):
                     try:
@@ -403,7 +419,16 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
                             if abs(op.AsDouble() - off_ft) > 1e-6:
                                 op.Set(off_ft)
                             offset_set += 1
+                            ok = True
                             break
+                    except Exception:
+                        pass
+                if not ok and abs(off_ft) > 1e-6:
+                    # family exposes no offset param - physically move it up
+                    try:
+                        ElementTransformUtils.MoveElement(
+                            doc, inst.Id, XYZ(0, 0, off_ft))
+                        moved += 1
                     except Exception:
                         pass
                 if r.get("rim_m") is not None:
@@ -457,14 +482,14 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
                     pass
         t2.Commit()
 
-    _say(log, "Placed at TRUE elevations (base = sump level). Mark set on "
-              "**{}**; vertical offset pinned on **{}**.".format(
-                  mark_set, offset_set))
+    _say(log, "Hosted on the level at Z=0; 'Offset from level' driven to "
+              "the structure Z on **{}** (physically moved: {}). Mark set "
+              "on **{}**.".format(offset_set, moved, mark_set))
     if placed:
         f2m = 0.3048
-        xs = [pp.X for (_i, _r, pp) in placed]
-        ys = [pp.Y for (_i, _r, pp) in placed]
-        zs = [pp.Z for (_i, _r, pp) in placed]
+        xs = [pp.X for (_i, _r, pp, _z) in placed]
+        ys = [pp.Y for (_i, _r, pp, _z) in placed]
+        zs = [zz for (_i, _r, _pp, zz) in placed]
         _say(log, "Internal position span (m): X {:.1f} .. {:.1f}   "
                   "Y {:.1f} .. {:.1f}   Z {:.2f} .. {:.2f}".format(
                       min(xs)*f2m, max(xs)*f2m, min(ys)*f2m, max(ys)*f2m,
@@ -482,7 +507,7 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
         _say(log, "NOTE: no named size/level parameters matched this family - "
                   "tell me its parameter names and I'll add them to the "
                   "candidate lists in pymep_dashboard.py.")
-    return created, failed, mode, [i for (i, _r, _p) in placed]
+    return created, failed, mode, [i for (i, _r, _p, _z) in placed]
 
 
 # ---------------------------------------------------------------------------
@@ -583,7 +608,7 @@ def run_place(shape):
     if forms.alert(
             "Place {} {} chambers from:\n  {}\n\nFamily: {}\n"
             "Types: one per layer ({})\nAll sizes/levels -> instance "
-            "parameters\nZ: true elevations, base at sump\n"
+            "parameters\nZ: via 'Offset from level' (level at 0)\n"
             "Workset: {}\nLevel (auto): {}\n\nPlace now?".format(
                 len(rows), label.lower(), meta.get("source"),
                 sym_pick.name, len(by_layer),
