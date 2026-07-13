@@ -1,3 +1,3 @@
-# pyMEP - pre-git snapshot 2026-07-02 15:12:37
+# pyMEP - pre-git snapshot 2026-07-13 13:45:22
 
 Recovered from the local superseded-copies archive; this lineage predates git version control (tags v0.1.1-v0.1.13, merged into main's history for the record).

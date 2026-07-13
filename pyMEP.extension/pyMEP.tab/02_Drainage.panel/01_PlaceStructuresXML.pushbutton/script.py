@@ -18,7 +18,7 @@ Flow:
      invert levels written to instance params when matching ones exist.
 """
 
-__title__  = "Place\nStructures"
+__title__  = "Place Structures\n(LandXML)"
 __author__ = "Glent Group"
 
 import os

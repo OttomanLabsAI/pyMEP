@@ -329,8 +329,8 @@ else:
 n_total = len(records)
 suffix  = get_annotate_suffix() or "PVCU DUCTS"
 
-# Line 1: single rectangle  -> '3x1 - 3No.200Ø'  (Ø = U+00D8)
-#         multiple rectangles -> '3x2 + 2x1 - 8No.110Ø'
+# Line 1: single rectangle  -> '3x1 - 3No.200\xd8'  (\xd8 = U+00D8 O-slash)
+#         multiple rectangles -> '3x2 + 2x1 - 8No.110\xd8'
 # Line 2: suffix (from settings)
 try:
     _text_t = unicode      # IronPython 2.7 / CPython 2

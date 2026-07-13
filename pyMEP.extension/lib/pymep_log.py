@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Shared logging — writes to pyRevit output *and* a timestamped file."""
+"""Shared logging - writes to pyRevit output *and* a timestamped file."""
 
 import os
 import datetime
