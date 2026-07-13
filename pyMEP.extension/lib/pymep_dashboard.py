@@ -42,7 +42,7 @@ from pymep_structures_place import (
     _activate, _set_named_param_length_m,
 )
 
-__version__ = "1.5"
+__version__ = "1.6"
 
 EXPORT_KIND = "ol-utilities-structures"
 
@@ -295,53 +295,31 @@ def ensure_layer_types(doc, base_symbol, layers, log=None):
 
 
 # ---------------------------------------------------------------------------
-# placement
+# transform solving (validated BEFORE anything is created)
 # ---------------------------------------------------------------------------
-def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
-                               workset_name="", log=None, param_map=None):
-    """Place every row with its layer's type. Sizes and levels are written
-    to INSTANCE parameters only. Returns (created, failed, mode)."""
+def solve_points(doc, rows, log=None):
+    """Solve the survey->internal transform for ``rows``: the Settings
+    offset first, then the model's own project position. Every attempt is
+    logged with the resulting distance. Returns (pts, mode, offsets) where
+    pts is [(plan XYZ at Z=0, z_internal_ft, row), ...] and offsets is
+    (off_e_m, off_n_m, off_z_m, rot_deg). Raises with the full numbers if
+    nothing lands within the sanity limit - in that case NOTHING has been
+    created or modified."""
     if not rows:
         raise ValueError("No structures to place.")
-
     try:
         from pymep_config import get_landxml_survey_transform
-        off_e_m, off_n_m, off_z_m, rot_deg = get_landxml_survey_transform()
+        s_off = get_landxml_survey_transform()
     except Exception:
-        off_e_m, off_n_m = HEL18_OFF_E_M, HEL18_OFF_N_M
-        off_z_m, rot_deg = HEL18_OFF_Z_M, HEL18_ROT_DEG
+        s_off = (HEL18_OFF_E_M, HEL18_OFF_N_M, HEL18_OFF_Z_M, HEL18_ROT_DEG)
 
-    lvl = None
-    for l in FilteredElementCollector(doc).OfClass(Level):
-        if _el_name(l) == host_level_name:
-            lvl = l
-            break
-    if lvl is None:
-        raise ValueError("Level '{}' not found.".format(host_level_name))
+    cx = sum(r["x"] for r in rows) / len(rows)
+    cy = sum(r["y"] for r in rows) / len(rows)
+    _say(log, "Export centroid: E **{:.1f}**  N **{:.1f}**".format(cx, cy))
 
-    # ---- transform (georef first, explicit fallback) ----------------------
     loc = doc.ActiveProjectLocation
-    inv = loc.GetTotalTransform().Inverse if loc is not None else None
-
-    def to_internal_georef(e_m, n_m, z_m):
-        shared = XYZ(mm2ft(e_m * 1000.0), mm2ft(n_m * 1000.0),
-                     mm2ft(z_m * 1000.0))
-        return inv.OfPoint(shared)
-
-    th = math.radians(rot_deg)
-    c, s = math.cos(th), math.sin(th)
-
-    def to_internal_explicit(e_m, n_m, z_m):
-        dx = e_m - off_e_m
-        dy = n_m - off_n_m
-        rx = dx * c - dy * s
-        ry = dx * s + dy * c
-        return XYZ(rx / 0.3048, ry / 0.3048, (z_m - off_z_m) / 0.3048)
 
     def transform_all(fn):
-        # Level-hosted placement: the instance goes in ON the level (Z=0);
-        # the structure's Z (sump/base) is carried separately and driven
-        # into 'Offset from level', so the family grows +H upward from it.
         out = []
         m_abs = 0.0
         for r in rows:
@@ -352,30 +330,85 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
                 m_abs = mm
         return out, m_abs
 
-    pts = None
-    mode = None
-    max_abs = None
-    if inv is not None and USE_MODEL_GEOREFERENCE:
-        pts, max_abs = transform_all(to_internal_georef)
-        mode = "model georeference"
-    if pts is None or max_abs > _LIMIT_FT:
-        pts, max_abs = transform_all(to_internal_explicit)
-        mode = "explicit survey transform"
-    if max_abs > _LIMIT_FT:
-        raise RuntimeError(
-            "Structures land {:.0f} km from the origin - the survey offset "
-            "doesn't match this model. Set the LandXML E/N offset in "
-            "Settings > Pipes-Coordinates. Current: E {:.4f}  N {:.4f}."
-            .format(max_abs * 0.0003048, off_e_m, off_n_m))
-    _say(log, "Transform used: **{}**".format(mode))
-    _say(log, "Offsets applied: E **{:.4f}**  N **{:.4f}**  Z **{:.3f}**  "
-              "rot **{:.2f}** deg".format(off_e_m, off_n_m, off_z_m, rot_deg))
-    if abs(rot_deg) > 0.01:
-        _say(log, "CAUTION: a **{:.2f} deg** rotation from Settings is being "
-                  "applied. If instances land off-site, this is the usual "
-                  "culprit - Settings falls back to the site default per "
-                  "field, so an unset rotation inherits another project's "
-                  "value.".format(rot_deg))
+    def explicit_fn(e0, n0, z0, rd):
+        th = math.radians(rd)
+        c, s = math.cos(th), math.sin(th)
+
+        def fn(e_m, n_m, z_m):
+            dx = e_m - e0
+            dy = n_m - n0
+            return XYZ((dx * c - dy * s) / 0.3048,
+                       (dx * s + dy * c) / 0.3048,
+                       (z_m - z0) / 0.3048)
+        return fn
+
+    candidates = [("Settings offset", s_off)]
+    pp = None
+    try:
+        pos = loc.GetProjectPosition(XYZ.Zero)
+        pp = (pos.EastWest * 0.3048, pos.NorthSouth * 0.3048,
+              pos.Elevation * 0.3048, math.degrees(pos.Angle))
+        candidates.append(("model project position", pp))
+    except Exception:
+        pass
+
+    tried = []
+    for name, off in candidates:
+        pts, m = transform_all(explicit_fn(off[0], off[1], off[2], off[3]))
+        km = m * 0.0003048
+        tried.append((name, off, km))
+        _say(log, "{}: E {:.3f}  N {:.3f}  rot {:.2f} deg -> max |XY| "
+                  "**{:.2f} km**".format(name, off[0], off[1], off[3], km))
+        if m <= _LIMIT_FT:
+            _say(log, "Transform used: **{}**".format(name))
+            if abs(off[3]) > 0.01:
+                _say(log, "(a **{:.2f} deg** plan rotation is applied to "
+                          "every instance)".format(off[3]))
+            return pts, name, off
+
+    lines = ["No transform brings the structures within {:.1f} km of the "
+             "model origin - NOTHING was created.".format(
+                 _LIMIT_FT * 0.0003048),
+             "Export centroid: E {:.1f}  N {:.1f}".format(cx, cy)]
+    for name, off, km in tried:
+        lines.append("  {}: E {:.3f}  N {:.3f}  rot {:.2f} -> {:.1f} km"
+                     .format(name, off[0], off[1], off[3], km))
+    if pp is not None:
+        lines.append("Fix: Settings > Pipes-Coordinates should hold the OS "
+                     "coordinates of this model's internal origin. The "
+                     "model itself reports E {:.3f}  N {:.3f}  rot {:.2f} "
+                     "deg - enter those.".format(pp[0], pp[1], pp[3]))
+    else:
+        lines.append("Fix: set Settings > Pipes-Coordinates E/N to the OS "
+                     "coordinates of this model's internal origin (near "
+                     "E {:.0f}  N {:.0f} if the origin sits on the site)."
+                     .format(cx, cy))
+    raise RuntimeError("\n".join(lines))
+
+
+# ---------------------------------------------------------------------------
+# placement
+# ---------------------------------------------------------------------------
+def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
+                               workset_name="", log=None, param_map=None,
+                               pts_info=None):
+    """Place every row with its layer's type. Sizes and levels are written
+    to INSTANCE parameters only. Returns (created, failed, mode)."""
+    if not rows:
+        raise ValueError("No structures to place.")
+
+    lvl = None
+    for l in FilteredElementCollector(doc).OfClass(Level):
+        if _el_name(l) == host_level_name:
+            lvl = l
+            break
+    if lvl is None:
+        raise ValueError("Level '{}' not found.".format(host_level_name))
+
+    # ---- transform: pre-solved by solve_points (or solved now) ------------
+    if pts_info is None:
+        pts_info = solve_points(doc, rows, log=log)
+    pts, mode, offs = pts_info
 
     # ---- workset -----------------------------------------------------------
     ws_id = None
@@ -398,7 +431,7 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
         except Exception:
             pass
     errors = {}
-    rot_base = math.radians(rot_deg) if mode.startswith("explicit") else 0.0
+    rot_base = math.radians(offs[3] or 0.0)
     for (p, pz, r) in pts:
         sym = symbols_by_layer[r["layer"]]
         inst = None
@@ -752,7 +785,17 @@ def run_place(shape):
             forms.alert("No workset picked - aborting.", exitscript=True)
         workset_name = "" if ws_pick == ACTIVE else ws_pick
 
-    # 4. confirm + go --------------------------------------------------------
+    # 4. transform first - fail here and NOTHING gets created ----------------
+    try:
+        pts_info = solve_points(doc, rows, log=log)
+    except Exception as ex:
+        import traceback
+        log(traceback.format_exc())
+        forms.alert("Transform failed - nothing was created.\n\n{}\n\n"
+                    "Full details are in the output window.".format(ex),
+                    exitscript=True)
+
+    # 5. confirm + go --------------------------------------------------------
     if forms.alert(
             "Place {} {} chambers from:\n  {}\n\nFamily: {}\n"
             "Types: one per layer ({})\nSizes -> mapped instance params "
@@ -764,11 +807,18 @@ def run_place(shape):
             title="Confirm", options=["Place", "Cancel"]) != "Place":
         forms.alert("Cancelled.", exitscript=True)
 
-    symbols_by_layer = ensure_layer_types(doc, base_symbol,
-                                          by_layer.keys(), log=log)
-    created, failed, mode, instances = place_dashboard_structures(
-        doc, rows, symbols_by_layer, host_level_name=host_level_name,
-        workset_name=workset_name, log=log, param_map=param_map)
+    try:
+        symbols_by_layer = ensure_layer_types(doc, base_symbol,
+                                              by_layer.keys(), log=log)
+        created, failed, mode, instances = place_dashboard_structures(
+            doc, rows, symbols_by_layer, host_level_name=host_level_name,
+            workset_name=workset_name, log=log, param_map=param_map,
+            pts_info=pts_info)
+    except Exception as ex:
+        import traceback
+        log(traceback.format_exc())
+        forms.alert("Placement stopped: {}\n\nFull details are in the "
+                    "output window.".format(ex), exitscript=True)
     if instances:
         try:
             ids = [i.Id for i in instances]
