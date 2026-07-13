@@ -1,0 +1,499 @@
+# -*- coding: utf-8 -*-
+"""Place chambers from an OttomanLabs utilities-dashboard export.
+
+The 3D dashboard (GBR1-DCZZ viewer) exports a JSON of the structures that
+are currently in view - each with its layer (network), shape (box / cyl),
+OS coordinates, rim / sump levels and plan dimensions.
+
+This module drives the two Dashboard-panel buttons:
+
+  * one FAMILY is asked for FIRST,
+  * one TYPE per layer is created (duplicated from the picked type and
+    named exactly after the layer, e.g. "SW - Phase 1"),
+  * every size / level value is written to INSTANCE parameters - the types
+    carry no dimensions, they only tag which layer an instance belongs to,
+  * placement uses the SAME survey->internal transform as the pipe placer
+    (model georeference first, explicit survey offset fallback), at Z=0
+    with the rim driven through Offset-from-Host - matching
+    pymep_structures_place so everything lands in one frame.
+"""
+
+import io
+import json
+import math
+
+import clr
+clr.AddReference("RevitAPI")
+
+from Autodesk.Revit.DB import (
+    BuiltInParameter, FilteredElementCollector, FilteredWorksetCollector,
+    Level, Transaction, SubTransaction, WorksetKind, XYZ, FamilySymbol,
+)
+from Autodesk.Revit.DB.Structure import StructuralType
+
+from pymep_revit import safe_name, mm2ft
+from pymep_landxml_place2 import (
+    HEL18_OFF_E_M, HEL18_OFF_N_M, HEL18_OFF_Z_M, HEL18_ROT_DEG,
+    USE_MODEL_GEOREFERENCE, clean_mark, _LIMIT_FT, _el_name,
+)
+from pymep_structures_place import (
+    RIM_PARAM_NAMES, INVERT_PARAM_NAMES,
+    _activate, _set_named_param_length_m,
+)
+
+EXPORT_KIND = "ol-utilities-structures"
+
+# Candidate INSTANCE parameter names for the plan dimensions and the
+# chamber height. First match wins; every hit is reported so you can see
+# exactly which parameter carried each value.
+WIDTH_PARAM_NAMES = ["Width", "Internal Width", "Chamber Width",
+                     "Plan Width", "W", "Breadth"]
+LENGTH_PARAM_NAMES = ["Length", "Internal Length", "Chamber Length",
+                      "Plan Length", "L"]
+DIA_PARAM_NAMES = ["Diameter", "Internal Diameter", "Chamber Diameter",
+                   "Nominal Diameter", "Dia", "D", "OD"]
+HEIGHT_PARAM_NAMES = ["Height", "Chamber Depth", "Internal Depth",
+                      "Chamber Height", "Depth", "H"]
+LAYER_PARAM_NAMES = ["Layer", "Network", "System Name"]
+
+
+def _say(log, m):
+    if log is not None:
+        log(m)
+
+
+# ---------------------------------------------------------------------------
+# export reading
+# ---------------------------------------------------------------------------
+def read_export(path):
+    """Read a dashboard structures export. Returns (meta, rows).
+
+    meta: dict with source / generated / scope / origin / epsg.
+    rows: list of dicts - name, layer, shape ('box'|'cyl'), x (easting m),
+          y (northing m), z_m (rim, for the transform), rim_m, sump_m,
+          depth_m, length_m, width_m, dia_m, material, desc.
+    """
+    with io.open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if data.get("kind") != EXPORT_KIND:
+        raise ValueError(
+            "Not a dashboard structures export (kind='{}', expected '{}'). "
+            "Use the EXPORT button in the 3D dashboard.".format(
+                data.get("kind"), EXPORT_KIND))
+    rows = []
+    for s in data.get("structures", []):
+        rim = s.get("rim_m")
+        rows.append({
+            "name": s.get("name") or "?",
+            "layer": s.get("layer") or "(no layer)",
+            "shape": s.get("shape"),
+            "x": float(s["easting"]),
+            "y": float(s["northing"]),
+            "z_m": float(rim) if rim is not None else 0.0,
+            "rim_m": rim,
+            "sump_m": s.get("sump_m"),
+            "depth_m": s.get("depth_m"),
+            "length_m": s.get("length_m"),
+            "width_m": s.get("width_m"),
+            "dia_m": s.get("dia_m"),
+            "material": s.get("material"),
+            "desc": s.get("desc"),
+        })
+    meta = {k: data.get(k) for k in
+            ("source", "generated", "scope", "origin", "epsg", "count")}
+    return meta, rows
+
+
+def rows_by_layer(rows):
+    out = {}
+    for r in rows:
+        out.setdefault(r["layer"], []).append(r)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# per-layer types
+# ---------------------------------------------------------------------------
+_BAD_TYPE_CHARS = u"\\:{}[]|;<>?`~\n\r\t"
+
+
+def type_name_for_layer(layer):
+    name = u"".join((u"-" if ch in _BAD_TYPE_CHARS else ch) for ch in layer)
+    name = name.strip()
+    return name or u"Layer"
+
+
+def ensure_layer_types(doc, base_symbol, layers, log=None):
+    """One FamilySymbol per layer, named after the layer, duplicated from
+    ``base_symbol``. Existing types of the same family are reused.
+    Returns {layer: FamilySymbol}. Runs its own transaction."""
+    fam = base_symbol.Family
+    existing = {}
+    for sid in fam.GetFamilySymbolIds():
+        s = doc.GetElement(sid)
+        nm = _el_name(s)
+        if nm:
+            existing[nm] = s
+
+    out = {}
+    made = []
+    t = Transaction(doc, "Dashboard layer types")
+    t.Start()
+    try:
+        for layer in sorted(set(layers)):
+            tname = type_name_for_layer(layer)
+            sym = existing.get(tname)
+            if sym is None:
+                try:
+                    sym = base_symbol.Duplicate(tname)
+                    existing[tname] = sym
+                    made.append(tname)
+                except Exception:
+                    # name raced into existence / duplicate - re-scan
+                    for sid in fam.GetFamilySymbolIds():
+                        s = doc.GetElement(sid)
+                        if _el_name(s) == tname:
+                            sym = s
+                            break
+            if sym is None:
+                raise RuntimeError(
+                    "Could not create or find type '{}'.".format(tname))
+            out[layer] = sym
+        t.Commit()
+    except Exception:
+        t.RollBack()
+        raise
+    _say(log, "Types: **{}** created ({}), **{}** reused.".format(
+        len(made), ", ".join(made) or "-", len(out) - len(made)))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# placement
+# ---------------------------------------------------------------------------
+def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
+                               workset_name="", log=None):
+    """Place every row with its layer's type. Sizes and levels are written
+    to INSTANCE parameters only. Returns (created, failed, mode)."""
+    if not rows:
+        raise ValueError("No structures to place.")
+
+    try:
+        from pymep_config import get_landxml_survey_transform
+        off_e_m, off_n_m, off_z_m, rot_deg = get_landxml_survey_transform()
+    except Exception:
+        off_e_m, off_n_m = HEL18_OFF_E_M, HEL18_OFF_N_M
+        off_z_m, rot_deg = HEL18_OFF_Z_M, HEL18_ROT_DEG
+
+    lvl = None
+    for l in FilteredElementCollector(doc).OfClass(Level):
+        if _el_name(l) == host_level_name:
+            lvl = l
+            break
+    if lvl is None:
+        raise ValueError("Level '{}' not found.".format(host_level_name))
+
+    # ---- transform (georef first, explicit fallback) ----------------------
+    loc = doc.ActiveProjectLocation
+    inv = loc.GetTotalTransform().Inverse if loc is not None else None
+
+    def to_internal_georef(e_m, n_m, z_m):
+        shared = XYZ(mm2ft(e_m * 1000.0), mm2ft(n_m * 1000.0),
+                     mm2ft(z_m * 1000.0))
+        return inv.OfPoint(shared)
+
+    th = math.radians(rot_deg)
+    c, s = math.cos(th), math.sin(th)
+
+    def to_internal_explicit(e_m, n_m, z_m):
+        dx = e_m - off_e_m
+        dy = n_m - off_n_m
+        rx = dx * c - dy * s
+        ry = dx * s + dy * c
+        return XYZ(rx / 0.3048, ry / 0.3048, (z_m - off_z_m) / 0.3048)
+
+    def transform_all(fn):
+        out = []
+        m_abs = 0.0
+        for r in rows:
+            p = fn(r["x"], r["y"], r["z_m"])
+            p = XYZ(p.X, p.Y, 0.0)     # rim goes in as a parameter, not Z
+            out.append((p, r))
+            mm = max(abs(p.X), abs(p.Y), abs(p.Z))
+            if mm > m_abs:
+                m_abs = mm
+        return out, m_abs
+
+    pts = None
+    mode = None
+    max_abs = None
+    if inv is not None and USE_MODEL_GEOREFERENCE:
+        pts, max_abs = transform_all(to_internal_georef)
+        mode = "model georeference"
+    if pts is None or max_abs > _LIMIT_FT:
+        pts, max_abs = transform_all(to_internal_explicit)
+        mode = "explicit survey transform"
+    if max_abs > _LIMIT_FT:
+        raise RuntimeError(
+            "Structures land {:.0f} km from the origin - the survey offset "
+            "doesn't match this model. Set the LandXML E/N offset in "
+            "Settings > Pipes-Coordinates. Current: E {:.4f}  N {:.4f}."
+            .format(max_abs * 0.0003048, off_e_m, off_n_m))
+    _say(log, "Transform used: **{}**".format(mode))
+
+    # ---- workset -----------------------------------------------------------
+    ws_id = None
+    if workset_name and doc.IsWorkshared:
+        for ws in FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset):
+            if ws.Name.strip() == workset_name.strip():
+                ws_id = ws.Id
+                break
+
+    # ---- place -------------------------------------------------------------
+    created = 0
+    failed = 0
+    placed = []
+
+    t = Transaction(doc, "Place dashboard structures")
+    t.Start()
+    for sym in set(symbols_by_layer.values()):
+        try:
+            _activate(doc, sym)
+        except Exception:
+            pass
+    for (p, r) in pts:
+        try:
+            sym = symbols_by_layer[r["layer"]]
+            inst = doc.Create.NewFamilyInstance(
+                p, sym, lvl, StructuralType.NonStructural)
+            if ws_id is not None:
+                wp = inst.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM)
+                if wp is not None and not wp.IsReadOnly:
+                    wp.Set(ws_id.IntegerValue)
+            created += 1
+            placed.append((inst, r))
+        except Exception:
+            failed += 1
+    t.Commit()
+    _say(log, "Created **{}** instances (failed {}).".format(created, failed))
+
+    # ---- instance params, isolated pass ------------------------------------
+    hits = {}
+
+    def _hit(name):
+        hits[name] = hits.get(name, 0) + 1
+
+    def _try_text(inst, names, value):
+        for nm in names:
+            try:
+                pp = inst.LookupParameter(nm)
+                if pp is not None and not pp.IsReadOnly:
+                    pp.Set(value)
+                    return nm
+            except Exception:
+                pass
+        return None
+
+    mark_set = 0
+    offset_set = 0
+    if placed:
+        t2 = Transaction(doc, "Dashboard structure params")
+        t2.Start()
+        try:
+            doc.Regenerate()
+        except Exception:
+            pass
+        for (inst, r) in placed:
+            sub = SubTransaction(doc)
+            try:
+                sub.Start()
+                try:
+                    mp = inst.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)
+                    if mp is not None and not mp.IsReadOnly:
+                        mp.Set(clean_mark(r["name"]))
+                        mark_set += 1
+                except Exception:
+                    pass
+                if r.get("rim_m") is not None:
+                    off_ft = mm2ft(r["rim_m"] * 1000.0)
+                    for bip in (BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM,
+                                BuiltInParameter.INSTANCE_ELEVATION_PARAM):
+                        try:
+                            op = inst.get_Parameter(bip)
+                            if op is not None and not op.IsReadOnly:
+                                op.Set(off_ft)
+                                offset_set += 1
+                                break
+                        except Exception:
+                            pass
+                    nm = _set_named_param_length_m(inst, RIM_PARAM_NAMES,
+                                                   r["rim_m"])
+                    if nm:
+                        _hit(nm)
+                if r.get("sump_m") is not None:
+                    nm = _set_named_param_length_m(inst, INVERT_PARAM_NAMES,
+                                                   r["sump_m"])
+                    if nm:
+                        _hit(nm)
+                if r.get("depth_m") is not None:
+                    nm = _set_named_param_length_m(inst, HEIGHT_PARAM_NAMES,
+                                                   r["depth_m"])
+                    if nm:
+                        _hit(nm)
+                if r["shape"] == "box":
+                    if r.get("length_m") is not None:
+                        nm = _set_named_param_length_m(
+                            inst, LENGTH_PARAM_NAMES, r["length_m"])
+                        if nm:
+                            _hit(nm)
+                    if r.get("width_m") is not None:
+                        nm = _set_named_param_length_m(
+                            inst, WIDTH_PARAM_NAMES, r["width_m"])
+                        if nm:
+                            _hit(nm)
+                else:
+                    if r.get("dia_m"):
+                        nm = _set_named_param_length_m(
+                            inst, DIA_PARAM_NAMES, r["dia_m"])
+                        if nm:
+                            _hit(nm)
+                nm = _try_text(inst, LAYER_PARAM_NAMES, r["layer"])
+                if nm:
+                    _hit(nm)
+                if r.get("desc"):
+                    try:
+                        cp = inst.get_Parameter(
+                            BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
+                        if cp is not None and not cp.IsReadOnly:
+                            cp.Set(r["desc"])
+                    except Exception:
+                        pass
+                sub.Commit()
+            except Exception:
+                try:
+                    sub.RollBack()
+                except Exception:
+                    pass
+        t2.Commit()
+
+    _say(log, "Mark set on **{}**; Offset-from-Host (rim) on **{}**.".format(
+        mark_set, offset_set))
+    if hits:
+        _say(log, "Instance params written: " + ", ".join(
+            "'%s' x%d" % (k, v)
+            for k, v in sorted(hits.items(), key=lambda kv: -kv[1])))
+    else:
+        _say(log, "NOTE: no named size/level parameters matched this family - "
+                  "tell me its parameter names and I'll add them to the "
+                  "candidate lists in pymep_dashboard.py.")
+    return created, failed, mode
+
+
+# ---------------------------------------------------------------------------
+# shared button flow
+# ---------------------------------------------------------------------------
+def run_place(shape):
+    """The whole button flow. shape: 'box' or 'cyl'.
+    Family is asked FIRST, then the dashboard export, then workset."""
+    from pyrevit import revit, forms, script
+    from pymep_config import get_pipe_host_level_name
+    from pymep_structures_place import list_family_symbols, list_worksets
+    from pymep_log import Logger
+
+    label = "BOX" if shape == "box" else "CYLINDRICAL"
+    output = script.get_output()
+    log = Logger(output, "DashboardPlace{}".format(label.title()))
+    doc = revit.doc
+
+    log("### Place {} chambers from a dashboard export".format(label.lower()))
+
+    # 1. family FIRST -------------------------------------------------------
+    syms = list_family_symbols(doc)
+    if not syms:
+        forms.alert("This project has no loadable family types. Load your "
+                    "chamber family first.", exitscript=True)
+
+    class SymOpt(object):
+        def __init__(self, lbl, sym):
+            self.sym = sym
+            self.name = lbl
+
+    sym_pick = forms.SelectFromList.show(
+        [SymOpt(lbl, sym) for lbl, sym in syms],
+        title="Pick the family for {} chambers (one type per layer will be "
+              "made from it)".format(label),
+        button_name="Use this family", multiselect=False, name_attr="name")
+    if not sym_pick:
+        forms.alert("No family picked.", exitscript=True)
+    base_symbol = sym_pick.sym
+    log("Family: **{}**".format(sym_pick.name))
+
+    # 2. dashboard export ---------------------------------------------------
+    json_path = forms.pick_file(
+        file_ext="json", title="Pick the dashboard structures export (.json)")
+    if not json_path:
+        forms.alert("No export selected.", exitscript=True)
+    try:
+        meta, rows = read_export(json_path)
+    except Exception as ex:
+        forms.alert("Could not read the export:\n\n{}".format(ex),
+                    exitscript=True)
+    rows = [r for r in rows if r["shape"] == shape]
+    if not rows:
+        forms.alert("The export contains no {} structures "
+                    "(scope was: {}).".format(label.lower(),
+                                              meta.get("scope")),
+                    exitscript=True)
+    by_layer = rows_by_layer(rows)
+    log("Export **{}** - scope: *{}* - generated {}".format(
+        meta.get("source"), meta.get("scope"), meta.get("generated")))
+    log("**{}** {} structures across **{}** layers:".format(
+        len(rows), label.lower(), len(by_layer)))
+    for lay in sorted(by_layer, key=lambda k: -len(by_layer[k])):
+        log("  - {}  x{}".format(lay, len(by_layer[lay])))
+
+    # 3. level (auto) + workset --------------------------------------------
+    _levels = sorted(FilteredElementCollector(doc).OfClass(Level).ToElements(),
+                     key=lambda lv: lv.Elevation)
+    if not _levels:
+        forms.alert("This project has no levels.", exitscript=True)
+    default_lvl = get_pipe_host_level_name()
+    host_level_name = None
+    for lv in _levels:
+        if safe_name(lv) == default_lvl:
+            host_level_name = default_lvl
+            break
+    if host_level_name is None:
+        host_level_name = safe_name(_levels[0])
+    log("Host level (auto): **{}**".format(host_level_name))
+
+    ACTIVE = "(active workset)"
+    worksets = list_worksets(doc)
+    workset_name = ""
+    if worksets:
+        ws_pick = forms.SelectFromList.show(
+            [ACTIVE] + worksets, title="Pick a workset",
+            button_name="Use this", multiselect=False)
+        if not ws_pick:
+            forms.alert("No workset picked - aborting.", exitscript=True)
+        workset_name = "" if ws_pick == ACTIVE else ws_pick
+
+    # 4. confirm + go --------------------------------------------------------
+    if forms.alert(
+            "Place {} {} chambers from:\n  {}\n\nFamily: {}\n"
+            "Types: one per layer ({})\nAll sizes/levels -> instance "
+            "parameters\nWorkset: {}\nLevel (auto): {}\n\nPlace now?".format(
+                len(rows), label.lower(), meta.get("source"),
+                sym_pick.name, len(by_layer),
+                workset_name or ACTIVE, host_level_name),
+            title="Confirm", options=["Place", "Cancel"]) != "Place":
+        forms.alert("Cancelled.", exitscript=True)
+
+    symbols_by_layer = ensure_layer_types(doc, base_symbol,
+                                          by_layer.keys(), log=log)
+    created, failed, mode = place_dashboard_structures(
+        doc, rows, symbols_by_layer, host_level_name=host_level_name,
+        workset_name=workset_name, log=log)
+    forms.alert("Placed {} of {} {} chambers.\nTransform: {}\n\nSee the "
+                "output window for the parameter report.".format(
+                    created, len(rows), label.lower(), mode))
