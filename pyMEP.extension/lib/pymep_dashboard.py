@@ -244,6 +244,14 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
             "Settings > Pipes-Coordinates. Current: E {:.4f}  N {:.4f}."
             .format(max_abs * 0.0003048, off_e_m, off_n_m))
     _say(log, "Transform used: **{}**".format(mode))
+    _say(log, "Offsets applied: E **{:.4f}**  N **{:.4f}**  Z **{:.3f}**  "
+              "rot **{:.2f}** deg".format(off_e_m, off_n_m, off_z_m, rot_deg))
+    if abs(rot_deg) > 0.01:
+        _say(log, "CAUTION: a **{:.2f} deg** rotation from Settings is being "
+                  "applied. If instances land off-site, this is the usual "
+                  "culprit - Settings falls back to the site default per "
+                  "field, so an unset rotation inherits another project's "
+                  "value.".format(rot_deg))
 
     # ---- workset -----------------------------------------------------------
     ws_id = None
@@ -408,6 +416,20 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
     _say(log, "Placed at TRUE elevations (base = sump level). Mark set on "
               "**{}**; vertical offset pinned on **{}**.".format(
                   mark_set, offset_set))
+    if placed:
+        f2m = 0.3048
+        xs = [pp.X for (_i, _r, pp) in placed]
+        ys = [pp.Y for (_i, _r, pp) in placed]
+        zs = [pp.Z for (_i, _r, pp) in placed]
+        _say(log, "Internal position span (m): X {:.1f} .. {:.1f}   "
+                  "Y {:.1f} .. {:.1f}   Z {:.2f} .. {:.2f}".format(
+                      min(xs)*f2m, max(xs)*f2m, min(ys)*f2m, max(ys)*f2m,
+                      min(zs)*f2m, max(zs)*f2m))
+        cx = sum(xs)/len(xs)*f2m
+        cy = sum(ys)/len(ys)*f2m
+        _say(log, "Centroid distance from internal origin: **{:.0f} m** "
+                  "(X {:.0f}, Y {:.0f}).".format(
+                      (cx*cx+cy*cy)**0.5, cx, cy))
     if hits:
         _say(log, "Instance params written: " + ", ".join(
             "'%s' x%d" % (k, v)
@@ -416,7 +438,7 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
         _say(log, "NOTE: no named size/level parameters matched this family - "
                   "tell me its parameter names and I'll add them to the "
                   "candidate lists in pymep_dashboard.py.")
-    return created, failed, mode
+    return created, failed, mode, [i for (i, _r, _p) in placed]
 
 
 # ---------------------------------------------------------------------------
@@ -522,9 +544,23 @@ def run_place(shape):
 
     symbols_by_layer = ensure_layer_types(doc, base_symbol,
                                           by_layer.keys(), log=log)
-    created, failed, mode = place_dashboard_structures(
+    created, failed, mode, instances = place_dashboard_structures(
         doc, rows, symbols_by_layer, host_level_name=host_level_name,
         workset_name=workset_name, log=log)
+    if instances:
+        try:
+            ids = [i.Id for i in instances]
+            revit.get_selection().set_to(ids)
+            try:
+                log("All placed instances are now SELECTED. First one: {}"
+                    .format(output.linkify(ids[0])))
+            except Exception:
+                pass
+            from System.Collections.Generic import List as _NetList
+            from Autodesk.Revit.DB import ElementId as _EID
+            revit.uidoc.ShowElements(_NetList[_EID](ids))
+        except Exception:
+            pass
     if created == 0:
         forms.alert("Nothing was placed ({} attempted).\n\nThe exact "
                     "placement errors are listed in the output window - "
@@ -534,6 +570,7 @@ def run_place(shape):
                     .format(len(rows)))
     else:
         forms.alert("Placed {} of {} {} chambers at true elevations.\n"
-                    "Transform: {}\n\nSee the output window for the "
-                    "parameter report.".format(
+                    "Transform: {}\n\nThey are SELECTED and the view has "
+                    "zoomed to them. The output window shows the offsets, "
+                    "the position span and the parameter report.".format(
                         created, len(rows), label.lower(), mode))
