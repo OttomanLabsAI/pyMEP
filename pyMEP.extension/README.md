@@ -200,13 +200,16 @@ Associations are stored per model in
 ### Dashboard
 
 **Open Dashboard** - opens the utilities 3D dashboard in the default
-browser. The dashboard is a self-contained HTML app bundled in
-`<extension>/dashboard/`: it loads a LandXML export, renders the
-buried-utilities networks in 3D, and its EXPORT button writes the JSON that
-the placement buttons below consume. The button opens the newest `.html` in
-that folder, so upgrading the viewer is just dropping the new file in
-(`dashboard_html_path` in settings overrides it). First load needs internet
-(three.js comes from a CDN).
+browser. It starts EMPTY with a Browse button (or drag & drop) asking for a
+Civil 3D LandXML pipe-network export; the file is parsed right in the
+browser (same rules as `pymep_landxml.py`: Center = "northing easting",
+inverts by flowDir, mm diameters) and the buried-utilities networks are
+rendered in 3D. Two export buttons - **Export structs** and **Export
+pipes** - write the JSON files the placement buttons below consume.
+Fully offline (three.js is inlined). The dashboard is a self-contained
+HTML app bundled in `<extension>/dashboard/`; Open Dashboard launches the
+newest `.html` in that folder, so upgrading the viewer is just dropping the
+new file in (`dashboard_html_path` in settings overrides it).
 
 **Place Boxes** / **Place Cylinders** - place every box (rectangular) or
 cylindrical chamber from an OttomanLabs utilities-dashboard export: pick the
@@ -215,7 +218,8 @@ workset. One type per layer is duplicated from the picked type; dimensions and
 rim/sump/depth go to instance parameters, the structure name to Mark and the
 description to Comments.
 
-**Place Pipes** - places Revit pipes from a dashboard PIPES export, running
+**Place Pipes** - places Revit pipes from a dashboard PIPES export (the
+viewer's Export pipes button), running
 exactly like Drainage > Model Pipes but fed from the dashboard JSON instead
 of LandXML: pick layers, map each layer to a workset (remembered between
 runs), pipe type / system type / host level from Settings with pickers as
