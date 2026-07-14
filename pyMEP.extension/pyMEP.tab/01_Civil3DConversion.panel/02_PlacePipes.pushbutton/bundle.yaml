@@ -1,0 +1,10 @@
+title: |-
+  Place
+  Pipes
+tooltip: >-
+  Places Revit pipes from a utilities-dashboard pipes export (.json), exactly
+  like Drainage > Model Pipes but fed from the dashboard: pick layers, map
+  worksets (remembered), pipe type / system / level from Settings, sizes
+  ensured on the configured segment, Marks from the pipe names, diameters
+  snapped. Rectangular duct-bank rows are skipped - only circular runs become
+  pipes.

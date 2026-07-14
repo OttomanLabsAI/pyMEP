@@ -17,7 +17,7 @@ from pymep_config import (
     load_settings, save_settings,
     get_default_export_folder, get_export_folder,
     DEFAULT_DUCT_TYPE_NAME, DEFAULT_DUCT_SYSTEM_NAME,
-    DEFAULT_PIPE_TYPE_NAME, DEFAULT_PIPE_SYSTEM_NAME, DEFAULT_PIPES_CSV_UNIT,
+    DEFAULT_PIPE_TYPE_NAME, DEFAULT_PIPE_SYSTEM_NAME,
     DEFAULT_PIPE_HOST_LEVEL,
     DEFAULT_ANNOTATE_SUFFIX, DEFAULT_ANNOTATE_PIPE_OFFSET_MM,
     DEFAULT_LANDXML_OFF_E_M, DEFAULT_LANDXML_OFF_N_M,
@@ -54,25 +54,9 @@ def _read_state():
 
         "pipe_type":            s2.get("pipe_type_name", "")           or DEFAULT_PIPE_TYPE_NAME,
         "pipe_system":          s2.get("pipe_system_type_name", "")    or DEFAULT_PIPE_SYSTEM_NAME,
-        "pipes_unit":           s2.get("pipes_csv_unit", "")           or DEFAULT_PIPES_CSV_UNIT,
         "pipe_host_level":      s2.get("pipe_host_level", "")          or DEFAULT_PIPE_HOST_LEVEL,
+        "segment":              (s2.get("landxml_segment_name") or "").strip(),
     }
-    try:
-        state["x_off"] = float(s2.get("pipes_x_offset_m", 0.0) or 0.0)
-        state["y_off"] = float(s2.get("pipes_y_offset_m", 0.0) or 0.0)
-        state["z_off"] = float(s2.get("pipes_z_offset_m", 0.0) or 0.0)
-    except (TypeError, ValueError):
-        state["x_off"] = state["y_off"] = state["z_off"] = 0.0
-    try:
-        state["rotation"] = float(s2.get("pipes_rotation_deg", 0.0) or 0.0)
-    except (TypeError, ValueError):
-        state["rotation"] = 0.0
-    try:
-        state["psx"] = float(s2.get("pipes_post_x_shift_mm", 0.0) or 0.0)
-        state["psy"] = float(s2.get("pipes_post_y_shift_mm", 0.0) or 0.0)
-    except (TypeError, ValueError):
-        state["psx"] = state["psy"] = 0.0
-    state["default_ws"] = (s2.get("pipes_default_workset") or "").strip()
     def _lf(key, dflt):
         try:
             v = s2.get(key)
@@ -83,24 +67,6 @@ def _read_state():
     state["lx_n"]   = _lf("landxml_off_n_m", DEFAULT_LANDXML_OFF_N_M)
     state["lx_z"]   = _lf("landxml_off_z_m", DEFAULT_LANDXML_OFF_Z_M)
     state["lx_rot"] = _lf("landxml_rot_deg", DEFAULT_LANDXML_ROT_DEG)
-    auto_raw = s2.get("pipes_use_project_location")
-    if isinstance(auto_raw, str):
-        state["auto_mode"] = auto_raw.strip().lower() in ("true","yes","1","on","y")
-    else:
-        state["auto_mode"] = bool(auto_raw)
-
-    state["manhole_family"] = s2.get("manhole_family_name", "")
-    state["manhole_type"]   = s2.get("manhole_type_name", "")
-    try:
-        state["slab_mm"] = float(s2.get("manhole_slab_thickness_mm", 0.0) or 0.0)
-    except (TypeError, ValueError):
-        state["slab_mm"] = 0.0
-    state["height_param"] = (s2.get("manhole_height_param") or "").strip() or "Height"
-
-    state["drop_pipe_family"]       = s2.get("drop_pipe_family_name", "")  or "Drop Pipe"
-    state["drop_pipe_type"]         = s2.get("drop_pipe_type_name", "")    or "Drop Pipe"
-    state["drop_pipe_dia_param"]    = (s2.get("drop_pipe_dia_param") or "").strip()    or "DIA"
-    state["drop_pipe_height_param"] = (s2.get("drop_pipe_height_param") or "").strip() or "Height"
 
     state["annotate_suffix"]        = (s2.get("annotate_suffix") or "").strip() or DEFAULT_ANNOTATE_SUFFIX
     _pipe_off = s2.get("annotate_pipe_offset_mm")
@@ -124,26 +90,11 @@ def _category_summary(state):
         "Ducts":                "{}  /  {}".format(
                                     _short_or_unset(state["duct_type"]),
                                     _short_or_unset(state["duct_system"])),
-        "Pipes - Basics":       "{}  /  {}  /  unit {}  /  level {}".format(
+        "Pipes":                "{}  /  {}  /  level {}  |  LandXML E0 {:.0f} N0 {:.0f} rot {:.2f}".format(
                                     _short_or_unset(state["pipe_type"]),
                                     _short_or_unset(state["pipe_system"]),
-                                    state["pipes_unit"],
-                                    state["pipe_host_level"]),
-        "Pipes - Coordinates":  "{} | offset ({:.0f}, {:.0f}, {:.3f}) | rot {:.2f} deg | LandXML E0 {:.0f} N0 {:.0f} rot {:.2f}".format(
-                                    "AUTO" if state["auto_mode"] else "MANUAL",
-                                    state["x_off"], state["y_off"], state["z_off"],
-                                    state["rotation"],
+                                    state["pipe_host_level"],
                                     state["lx_e"], state["lx_n"], state["lx_rot"]),
-        "Manholes":             "{} : {}  /  slab {:.0f} mm  /  param `{}`".format(
-                                    _short_or_unset(state["manhole_family"]),
-                                    _short_or_unset(state["manhole_type"]),
-                                    state["slab_mm"],
-                                    state["height_param"]),
-        "Drop Pipes":           "{} : {}  /  dia `{}`  /  height `{}`".format(
-                                    _short_or_unset(state["drop_pipe_family"]),
-                                    _short_or_unset(state["drop_pipe_type"]),
-                                    state["drop_pipe_dia_param"],
-                                    state["drop_pipe_height_param"]),
         "Annotate":             "suffix `{}`  /  pipe offset {:.0f} mm".format(
                                     _short_or_unset(state["annotate_suffix"]),
                                     state["annotate_pipe_offset_mm"]),
@@ -171,48 +122,18 @@ def _detail_summary(state, category):
             "Duct type (Build Ducts):\n  {}\n\n"
             "Duct MEP system type (Build Ducts):\n  {}".format(
                 state["duct_type"], state["duct_system"]))
-    if category == "Pipes - Basics":
+    if category == "Pipes":
         return (
-            "Pipe type (Build from CSV):\n  {}\n\n"
-            "Pipe system type (Build from CSV):\n  {}\n\n"
-            "Pipes CSV unit (Build from CSV):\n  {}\n\n"
-            "Pipe host level (Build from CSV):\n  {}".format(
-                state["pipe_type"], state["pipe_system"],
-                state["pipes_unit"], state["pipe_host_level"]))
-    if category == "Pipes - Coordinates":
-        return (
-            "Placement mode:\n  {}\n\n"
-            "XYZ offset (m, manual mode only):\n  {:.3f}, {:.3f}, {:.3f}\n\n"
-            "Rotation (deg, manual mode only):\n  {:.4f}\n\n"
-            "Post-rotation shift (mm, applied in BOTH modes):\n  X={:+.1f}  Y={:+.1f}\n\n"
-            "Default workset (when CSV has no workset column):\n  {}\n\n"
-            "LandXML survey origin (Model Pipes / Structures):\n"
+            "Pipe type (Place Pipes):\n  {}\n\n"
+            "Pipe system type (Place Pipes):\n  {}\n\n"
+            "Pipe host level (Place Pipes):\n  {}\n\n"
+            "Pipe segment for sizes (Create Pipe Sizes / Place Pipes):\n  {}\n\n"
+            "LandXML survey origin (Place Pipes / Boxes / Cylinders):\n"
             "  E0={:.4f}  N0={:.4f}  Z0={:.4f} m  rot={:.4f} deg".format(
-                "AUTO  (read project survey point)" if state["auto_mode"]
-                else "MANUAL  (use offsets + rotation)",
-                state["x_off"], state["y_off"], state["z_off"],
-                state["rotation"], state["psx"], state["psy"],
-                state["default_ws"] or "(none - active workset)",
+                state["pipe_type"], state["pipe_system"],
+                state["pipe_host_level"],
+                state["segment"] or "(not set - picker at run time)",
                 state["lx_e"], state["lx_n"], state["lx_z"], state["lx_rot"]))
-    if category == "Manholes":
-        return (
-            "Family (Place Manholes from CSV):\n  {}\n\n"
-            "Type:\n  {}\n\n"
-            "Slab thickness (mm, added to height parameter):\n  {:.1f}\n\n"
-            "Height parameter name:\n  {}".format(
-                state["manhole_family"] or "(not set)",
-                state["manhole_type"] or "(not set)",
-                state["slab_mm"], state["height_param"]))
-    if category == "Drop Pipes":
-        return (
-            "Family (Place Drop Pipes from CSV):\n  {}\n\n"
-            "Type:\n  {}\n\n"
-            "DIA parameter (set from CSV dia_4):\n  {}\n\n"
-            "Height parameter (set from CSV z_off_4):\n  {}".format(
-                state["drop_pipe_family"] or "(not set)",
-                state["drop_pipe_type"] or "(not set)",
-                state["drop_pipe_dia_param"],
-                state["drop_pipe_height_param"]))
     if category == "Annotate":
         return (
             "Suffix text (Annotate Duct Group):\n  {}\n\n"
@@ -255,34 +176,12 @@ CATEGORY_ITEMS = {
         "Set duct MEP system type name",
         "<- Back",
     ],
-    "Pipes - Basics": [
+    "Pipes": [
         "Set pipe type name",
         "Set pipe system type name",
-        "Set pipes CSV unit (m / mm / ft)",
         "Set pipe host level name",
-        "<- Back",
-    ],
-    "Pipes - Coordinates": [
-        "Toggle pipes placement mode (auto / manual)",
-        "Set pipes XYZ offset (m)",
-        "Set pipes rotation (deg)",
-        "Set pipes post-rotation shift (mm)",
-        "Set pipes default workset",
+        "Set pipe segment name (sizes)",
         "Set LandXML survey origin (E/N/Z/rot)",
-        "<- Back",
-    ],
-    "Manholes": [
-        "Set manhole family name",
-        "Set manhole type name",
-        "Set manhole slab thickness (mm)",
-        "Set manhole height parameter name",
-        "<- Back",
-    ],
-    "Drop Pipes": [
-        "Set drop pipe family name",
-        "Set drop pipe type name",
-        "Set drop pipe DIA parameter name",
-        "Set drop pipe height parameter name",
         "<- Back",
     ],
     "Annotate": [
@@ -300,12 +199,11 @@ CATEGORY_ITEMS = {
     ],
 }
 
-CATEGORY_ORDER = ["General", "Ducts", "Pipes - Basics",
-                  "Pipes - Coordinates", "Manholes", "Drop Pipes",
-                  "Annotate", "Section Dims"]
+CATEGORY_ORDER = ["General", "Ducts", "Pipes", "Annotate",
+                  "Section Dims"]
 
 
-def handle_choice(choice, cur_auto_bool):
+def handle_choice(choice):
     """Run the editor for `choice`. Reloads settings fresh so a save here
     never clobbers edits made elsewhere in the same session (e.g. the
     chamber-dim-pair editors save through their own load_settings())."""
@@ -360,8 +258,8 @@ def handle_choice(choice, cur_auto_bool):
 
     elif choice == "Set pipe type name":
         txt = forms.ask_for_string(
-            prompt="Name of the Revit pipe type to use for\n"
-                   "Build from CSV (e.g. 'Standard').",
+            prompt="Name of the Revit pipe type used by\n"
+                   "Place Pipes (e.g. 'Standard').",
             default=s.get("pipe_type_name") or "",
             title="Pipe type name")
         if txt is not None:
@@ -378,22 +276,10 @@ def handle_choice(choice, cur_auto_bool):
             s["pipe_system_type_name"] = txt.strip()
             save_settings(s)
 
-    elif choice == "Set pipes CSV unit (m / mm / ft)":
-        unit = forms.SelectFromList.show(
-            ["m", "mm", "ft"],
-            title="Pipes CSV unit",
-            button_name="Use",
-            multiselect=False,
-            info="Unit of the start/end XYZ values in the pipes CSV.\n\n"
-                 "Default: m (the example data is in metres).")
-        if unit:
-            s["pipes_csv_unit"] = unit
-            save_settings(s)
-
     elif choice == "Set pipe host level name":
         txt = forms.ask_for_string(
-            prompt="Name of the Revit Level to host CSV-built pipes on.\n"
-                   "Pipe end elevations still come from the CSV's Z values;\n"
+            prompt="Name of the Revit Level to host placed pipes on.\n"
+                   "Pipe end elevations still come from the export's Z values;\n"
                    "the host level is just Revit's reference (e.g. 'LVL 0.00').",
             default=s.get("pipe_host_level") or "",
             title="Pipe host level name")
@@ -401,26 +287,16 @@ def handle_choice(choice, cur_auto_bool):
             s["pipe_host_level"] = txt.strip()
             save_settings(s)
 
-    elif choice == "Toggle pipes placement mode (auto / manual)":
-        new_val = not cur_auto_bool
-        s["pipes_use_project_location"] = new_val
-        save_settings(s)
-        forms.alert(
-            "Placement mode is now: {}\n\n{}".format(
-                "AUTO  (project survey point)" if new_val else "MANUAL  (offsets + rotation)",
-                "AUTO mode reads doc.ActiveProjectLocation.GetTotalTransform() to\n"
-                "convert CSV survey/shared coordinates into Revit internal coords.\n"
-                "Manual XYZ offset / rotation are IGNORED.\n\n"
-                "Make sure the project's Survey Point is correctly placed (e.g.\n"
-                "via Manage > Coordinates > Acquire / Specify Coordinates at Point).\n\n"
-                "Post-rotation shift is still applied in both modes for fine\n"
-                "alignment."
-                if new_val else
-                "MANUAL mode uses the XYZ offset (m), rotation (deg), and post-shift\n"
-                "(mm) values configured in this Settings dialog. The project's\n"
-                "Survey Point is ignored.\n\n"
-                "Set the offsets and rotation appropriately for your CSV's\n"
-                "coordinate system."))
+    elif choice == "Set pipe segment name (sizes)":
+        txt = forms.ask_for_string(
+            prompt="Name of the Revit pipe Segment that Create Pipe Sizes\n"
+                   "and Place Pipes add the export's circular sizes to.\n"
+                   "Leave blank to be prompted at run time.",
+            default=s.get("landxml_segment_name") or "",
+            title="Pipe segment name")
+        if txt is not None:
+            s["landxml_segment_name"] = txt.strip()
+            save_settings(s)
 
     elif choice == "Set LandXML survey origin (E/N/Z/rot)":
         try:
@@ -433,8 +309,8 @@ def handle_choice(choice, cur_auto_bool):
                                 float(s.get("landxml_rot_deg", 0.0) or 0.0))
         default_str = "{:.4f}, {:.4f}, {:.4f}, {:.4f}".format(ce, cn, cz, crot)
         txt = forms.ask_for_string(
-            prompt="Survey origin + rotation for the Model Pipes / Place\n"
-                   "Structures buttons (LandXML). Four comma-separated values:\n"
+            prompt="Survey origin + rotation for the Place Pipes / Place\n"
+                   "Boxes / Cylinders buttons. Four comma-separated values:\n"
                    "  E0, N0, Z0, rotation\n\n"
                    "  E0, N0 = the model's Project Base Point survey easting /\n"
                    "           northing in METRES (Manage > Coordinates, or the\n"
@@ -464,205 +340,6 @@ def handle_choice(choice, cur_auto_bool):
                 save_settings(s)
             except Exception as ex:
                 forms.alert("Could not parse survey origin:\n\n{}".format(ex))
-
-    elif choice == "Set pipes XYZ offset (m)":
-        try:
-            cur_x = float(s.get("pipes_x_offset_m", 0.0) or 0.0)
-            cur_y = float(s.get("pipes_y_offset_m", 0.0) or 0.0)
-            cur_z = float(s.get("pipes_z_offset_m", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            cur_x = cur_y = cur_z = 0.0
-        default_str = "{:.3f}, {:.3f}, {:.3f}".format(cur_x, cur_y, cur_z)
-        txt = forms.ask_for_string(
-            prompt="XYZ offset in METRES, comma-separated (e.g. '24517400, 6687400, 75').\n"
-                   "Subtracted from each CSV row's coordinates before placing.\n"
-                   "Use this to bring large survey coordinates into the project's\n"
-                   "local coordinate system. To find good values: run the build\n"
-                   "once with offsets at 0, read the 'CSV range' line in the log,\n"
-                   "and pick offsets near the centre or min of those ranges.\n\n"
-                   "Set all three to 0 to disable offsetting.",
-            default=default_str,
-            title="Pipes XYZ offset (m)")
-        if txt is not None:
-            try:
-                parts = [p.strip() for p in txt.split(",")]
-                if len(parts) != 3:
-                    raise ValueError("need three comma-separated numbers")
-                xv, yv, zv = (float(parts[0]), float(parts[1]), float(parts[2]))
-                s["pipes_x_offset_m"] = xv
-                s["pipes_y_offset_m"] = yv
-                s["pipes_z_offset_m"] = zv
-                save_settings(s)
-            except Exception as ex:
-                forms.alert("Could not parse offset:\n\n{}".format(ex))
-
-    elif choice == "Set pipes rotation (deg)":
-        cur = s.get("pipes_rotation_deg", 0.0) or 0.0
-        try: cur = float(cur)
-        except: cur = 0.0
-        txt = forms.ask_for_string(
-            prompt="True-North rotation around the XY offset point, in DEGREES.\n"
-                   "Positive = counter-clockwise.\n\n"
-                   "If the placed pipes are at the right approximate position\n"
-                   "but rotated wrong, type the angle here. For HEL11-style\n"
-                   "drawings the working value is around +/- 124.703.\n\n"
-                   "If pipes rotate the wrong way, flip the sign and re-run.\n"
-                   "Enter 0 to disable rotation.",
-            default="{:.4f}".format(cur),
-            title="Pipes rotation (deg)")
-        if txt is not None:
-            try:
-                s["pipes_rotation_deg"] = float(txt.strip())
-                save_settings(s)
-            except Exception as ex:
-                forms.alert("Could not parse angle:\n\n{}".format(ex))
-
-    elif choice == "Set pipes post-rotation shift (mm)":
-        try: psx = float(s.get("pipes_post_x_shift_mm", 0.0) or 0.0)
-        except: psx = 0.0
-        try: psy = float(s.get("pipes_post_y_shift_mm", 0.0) or 0.0)
-        except: psy = 0.0
-        txt = forms.ask_for_string(
-            prompt="Post-rotation XY shift in MILLIMETRES.\n"
-                   "Applied AFTER the True-North rotation, in Revit's\n"
-                   "coordinate frame - so the values match what you see\n"
-                   "in Revit's display (which is in mm).\n\n"
-                   "Use this for fine alignment to a project reference\n"
-                   "point. Example: if pipes need to slide -22501 in Y,\n"
-                   "type:  0, -22501\n\n"
-                   "Format: X_mm, Y_mm  (comma-separated)",
-            default="{:.1f}, {:.1f}".format(psx, psy),
-            title="Pipes post-rotation shift (mm)")
-        if txt is not None:
-            try:
-                parts = [p.strip() for p in txt.split(",")]
-                if len(parts) != 2:
-                    raise ValueError("expected two comma-separated numbers")
-                psx_new = float(parts[0]); psy_new = float(parts[1])
-                s["pipes_post_x_shift_mm"] = psx_new
-                s["pipes_post_y_shift_mm"] = psy_new
-                save_settings(s)
-            except Exception as ex:
-                forms.alert("Could not parse shift:\n\n{}".format(ex))
-
-    elif choice == "Set pipes default workset":
-        txt = forms.ask_for_string(
-            prompt="Workset name to assign all pipes to when the CSV has\n"
-                   "no workset column. Leave blank to use the active\n"
-                   "workset (e.g. 'CONTROL - DRAINAGE - BATTERY ROOM').\n\n"
-                   "Set this per-drainage-type when running multiple CSVs.",
-            default=s.get("pipes_default_workset") or "",
-            title="Pipes default workset")
-        if txt is not None:
-            s["pipes_default_workset"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set manhole family name":
-        cur = s.get("manhole_family_name", "")
-        txt = forms.ask_for_string(
-            prompt="Family name as it appears in the document\n"
-                   "(case- and whitespace-insensitive at lookup time).\n\n"
-                   "The family must already be loaded into the project\n"
-                   "(Insert > Load Family). pyMEP will not load it.",
-            default=cur or "",
-            title="Manhole family name")
-        if txt is not None:
-            s["manhole_family_name"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set manhole type name":
-        cur = s.get("manhole_type_name", "")
-        txt = forms.ask_for_string(
-            prompt="Type name (FamilySymbol) within the manhole family.\n"
-                   "Must exist in the loaded family.",
-            default=cur or "",
-            title="Manhole type name")
-        if txt is not None:
-            s["manhole_type_name"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set manhole slab thickness (mm)":
-        try:
-            cur = float(s.get("manhole_slab_thickness_mm", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            cur = 0.0
-        txt = forms.ask_for_string(
-            prompt="Slab thickness in millimetres.\n\n"
-                   "Added to each row's height value at placement,\n"
-                   "so a single CSV can be used against different slab\n"
-                   "build-ups without regenerating it.\n\n"
-                   "Enter 0 to disable.",
-            default="{:.1f}".format(cur),
-            title="Manhole slab thickness (mm)")
-        if txt is not None:
-            try:
-                s["manhole_slab_thickness_mm"] = float(txt.strip())
-                save_settings(s)
-            except Exception as ex:
-                forms.alert("Could not parse slab thickness:\n\n{}".format(ex))
-
-    elif choice == "Set manhole height parameter name":
-        cur = s.get("manhole_height_param", "")
-        txt = forms.ask_for_string(
-            prompt="Name of the family parameter that takes the height\n"
-                   "(z_off_5 + slab_thickness).\n\n"
-                   "Common values: 'Height', 'total_height', 'Total Height',\n"
-                   "'Depth', 'Chamber Height'. Case sensitive - must match\n"
-                   "exactly as it appears in Family Types.",
-            default=cur or "Height",
-            title="Manhole height parameter name")
-        if txt is not None:
-            s["manhole_height_param"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set drop pipe family name":
-        cur = s.get("drop_pipe_family_name", "")
-        txt = forms.ask_for_string(
-            prompt="Family name as it appears in the document for drop\n"
-                   "pipes (case- and whitespace-insensitive at lookup).\n\n"
-                   "The family must already be loaded into the project\n"
-                   "(Insert > Load Family). pyMEP will not load it.",
-            default=cur or "Drop Pipe",
-            title="Drop pipe family name")
-        if txt is not None:
-            s["drop_pipe_family_name"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set drop pipe type name":
-        cur = s.get("drop_pipe_type_name", "")
-        txt = forms.ask_for_string(
-            prompt="Type name (FamilySymbol) within the drop pipe family.",
-            default=cur or "Drop Pipe",
-            title="Drop pipe type name")
-        if txt is not None:
-            s["drop_pipe_type_name"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set drop pipe DIA parameter name":
-        cur = s.get("drop_pipe_dia_param", "")
-        txt = forms.ask_for_string(
-            prompt="Name of the family parameter that takes the diameter\n"
-                   "(set from CSV column dia_4, converted to mm).\n\n"
-                   "Default: 'DIA'. Case sensitive - must match exactly\n"
-                   "as it appears in Family Types.",
-            default=cur or "DIA",
-            title="Drop pipe DIA parameter name")
-        if txt is not None:
-            s["drop_pipe_dia_param"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set drop pipe height parameter name":
-        cur = s.get("drop_pipe_height_param", "")
-        txt = forms.ask_for_string(
-            prompt="Name of the family parameter that takes the height\n"
-                   "(set from CSV column z_off_4, converted to mm).\n\n"
-                   "Default: 'Height'. Case sensitive - must match exactly\n"
-                   "as it appears in Family Types.",
-            default=cur or "Height",
-            title="Drop pipe height parameter name")
-        if txt is not None:
-            s["drop_pipe_height_param"] = txt.strip()
-            save_settings(s)
 
     elif choice == "Set annotate suffix text":
         cur = s.get("annotate_suffix", "")
@@ -831,9 +508,8 @@ while True:
 
     # Inner loop: stays inside the picked category until "<- Back".
     while True:
-        state         = _read_state()
-        cur_auto_bool = state["auto_mode"]
-        info          = _detail_summary(state, chosen_cat)
+        state = _read_state()
+        info  = _detail_summary(state, chosen_cat)
         item_choice = forms.SelectFromList.show(
             CATEGORY_ITEMS[chosen_cat],
             title="pyMEP Settings - {}".format(chosen_cat),
@@ -842,4 +518,4 @@ while True:
             info=info)
         if not item_choice or item_choice == "<- Back":
             break
-        handle_choice(item_choice, cur_auto_bool)
+        handle_choice(item_choice)

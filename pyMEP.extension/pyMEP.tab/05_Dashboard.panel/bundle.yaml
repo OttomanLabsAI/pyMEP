@@ -1,6 +1,0 @@
-title: Dashboard
-layout:
-  - OpenDashboard
-  - 00_PlaceBoxes
-  - 01_PlaceCylinders
-  - 02_PlacePipes

@@ -1,0 +1,10 @@
+title: |-
+  Create LandXML
+  Dashboard
+tooltip: >-
+  Opens the utilities 3D dashboard in your default browser: browse a Civil 3D
+  LandXML pipe-network export and it builds the interactive 3D review. Its
+  Export structs / Export pipes buttons write the JSON files the Place Boxes /
+  Place Cylinders / Place Pipes buttons consume. Uses the newest .html in the
+  extension's dashboard folder (override with 'dashboard_html_path' in
+  pyMEP_settings.json).

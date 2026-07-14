@@ -152,62 +152,11 @@ def get_duct_system_type_name():
 # ---------------------------------------------------------------------------
 # BUILD PIPES (FROM CSV) SETTINGS
 # ---------------------------------------------------------------------------
-# Defaults for the Pipes > Build from CSV button. The CSV unit is the unit
-# of the start/end XYZ values in the CSV (the example data is in metres).
+# Defaults for the pipe placement buttons (Civil 3D Conversion > Place
+# Pipes).
 DEFAULT_PIPE_TYPE_NAME    = "PE SDR11 - Drainage"
 DEFAULT_PIPE_SYSTEM_NAME  = "SEWER BATTERY DRAINAGE"
-DEFAULT_PIPES_CSV_UNIT    = "m"   # one of: "m", "mm", "ft"
 DEFAULT_PIPE_HOST_LEVEL   = "LVL 0.00"
-# Survey-to-project offsets, in metres, subtracted from each CSV XYZ before
-# placement. Default 0 = pass CSV coordinates through unchanged. Set these
-# to your project's survey base point (or to the centroid of your CSV
-# coordinates) to bring placements close to the project origin.
-DEFAULT_PIPES_X_OFFSET_M  = 0.0
-DEFAULT_PIPES_Y_OFFSET_M  = 0.0
-DEFAULT_PIPES_Z_OFFSET_M  = 0.0
-# True-North rotation around the XY offset point, in DEGREES, applied
-# AFTER the XY offsets are subtracted. Positive = CCW. Default 0 = no
-# rotation (CSV XY taken as-is). For HEL11-style survey-grid drawings
-# the working value is around +/-124.703 deg.
-DEFAULT_PIPES_ROTATION_DEG = 0.0
-# Post-rotation XY shift in MILLIMETRES, applied AFTER the rotation in
-# Revit's coordinate frame. Use this for fine alignment to a project
-# reference point - typing +/- values is intuitive because they match
-# what you see in the Revit display (which is in mm). Default 0 = no
-# additional shift.
-DEFAULT_PIPES_POST_X_SHIFT_MM = 0.0
-DEFAULT_PIPES_POST_Y_SHIFT_MM = 0.0
-# If True, IGNORE the manual XYZ offsets / rotation and instead read the
-# document's ActiveProjectLocation.GetTotalTransform() to convert from
-# survey/shared coordinates (CSV) to internal coordinates. This is the
-# correct mode for any project that has been georeferenced via Acquire
-# Coordinates, Specify Coordinates at Point, or by moving the Survey
-# Point. Default False so existing manual setups don't change behaviour.
-DEFAULT_PIPES_USE_PROJECT_LOCATION = False
-# Workset name used when the CSV has no workset column. Empty string =
-# leave pipes on the active workset (Revit's default behaviour).
-DEFAULT_PIPES_DEFAULT_WORKSET = ""
-
-# Manholes (Place Manholes from CSV) - family and type to instance per row
-DEFAULT_MANHOLE_FAMILY_NAME = ""
-DEFAULT_MANHOLE_TYPE_NAME   = ""
-# Name of the instance parameter on the manhole family that controls
-# its overall height. Differs by family - common values: 'Height',
-# 'total_height', 'Depth', 'Total Height'.
-DEFAULT_MANHOLE_HEIGHT_PARAM = "Height"
-# Added to total_height at placement time (mm). Lets one CSV cover multiple
-# slab build-ups without regenerating.
-DEFAULT_MANHOLE_SLAB_THICKNESS_MM = 0.0
-
-# Drop Pipes (Place Drop Pipes from CSV)
-DEFAULT_DROP_PIPE_FAMILY_NAME = "Drop Pipe"
-DEFAULT_DROP_PIPE_TYPE_NAME   = "Drop Pipe"
-# Family parameter names. dia comes from the CSV's dia_4 column,
-# height from z_off_4. Both columns are in csv_unit (m by default);
-# the placement code converts to mm before setting the parameter.
-DEFAULT_DROP_PIPE_DIA_PARAM    = "DIA"
-DEFAULT_DROP_PIPE_HEIGHT_PARAM = "Height"
-
 # Annotate (Annotate Duct Group) - default suffix text appended to the
 # generated 'NxM - kNo.D(dia)' label. Overridable in Settings.
 DEFAULT_ANNOTATE_SUFFIX = "PVCU DUCTS"
@@ -219,25 +168,6 @@ DEFAULT_ANNOTATE_SUFFIX = "PVCU DUCTS"
 # pipes get labels on the same side).
 DEFAULT_ANNOTATE_PIPE_OFFSET_MM = 500.0
 
-
-# Survey-grid (m) -> project-local (mm) rigid transform.
-#
-# The same constants used by xlsx_to_pipes_csv.py to convert raw S2CSV
-# AutoCAD output into the project-local CSV format. The Place Manholes
-# button applies this to the manhole S2CSV before placement, so manhole
-# data and pre-converted pipe data end up in the same coordinate frame
-# and use the same Settings.
-#
-# Anchored on BATP12 endpoints from the production CSV; residuals are
-# sub-mm. Apply as:
-#
-#   project_xy_mm = R(rot_deg) . (survey_xy_m * 1000) + translation_mm
-#   project_z_mm  = survey_z_m * 1000
-#
-SURVEY_TO_PROJECT_ROTATION_DEG    = 124.7030585321
-SURVEY_TO_PROJECT_TRANSLATION_MM  = (19456384529.838814,
-                                     -16348550342.291759)
-
 # ===========================================================================
 # LandXML / structures survey-to-internal transform (Place Pipes from
 # LandXML, Place Structures). These are the SITE survey origin and rotation,
@@ -247,7 +177,7 @@ SURVEY_TO_PROJECT_TRANSLATION_MM  = (19456384529.838814,
 # These defaults are overridden by the Settings dialog
 # (landxml_off_e_m / landxml_off_n_m / landxml_off_z_m / landxml_rot_deg
 # keys in pyMEP_settings.json) so moving between sites needs NO code edit.
-# Set them in Settings > Pipes-Coordinates.
+# Set them in Settings > Pipes.
 #
 # Current values: HNU1A. Survey origin from the acquired Civil 3D shared
 # site (Project Base Point):
@@ -286,23 +216,6 @@ def get_landxml_survey_transform():
             _f("landxml_rot_deg", DEFAULT_LANDXML_ROT_DEG))
 
 
-# AutoCAD layer -> Revit workset map for manholes.
-MANHOLE_LAYER_WORKSET_MAP = {
-    "_ACM-DR-Ss_50_35_08_30-M-PIPENETWORK_FW-Model 3D Solid":
-        "CONTROL - DRAINAGE - FOUL WATER",
-    "_ACM-C-OILY WATER PIPE":
-        "CONTROL - DRAINAGE - OILY WATER",
-    "_ACM-C-SUB SOIL DRAINAGE":
-        "CONTROL - DRAINAGE - SUB SOIL",
-    "_ACM-C-DRAINAGE RW PIPE":
-        "CONTROL - DRAINAGE - RAINWATER",
-    "_ACM-DR-Ss_50_35_08_85-M-PIPENETWORK_Pipes_Battery Room":
-        "CONTROL - DRAINAGE - BATTERY ROOM",
-    "_ACM-DR-Ss_50_35_08_85-M-PIPENETWORK_SW-Model 3D Solid":
-        "CONTROL - DRAINAGE - SW+ CP",
-}
-
-
 def get_pipe_type_name():
     """Name of the Revit PipeType to use when building pipes from a CSV.
     Falls back to DEFAULT_PIPE_TYPE_NAME."""
@@ -317,16 +230,6 @@ def get_pipe_system_type_name():
     return (s.get("pipe_system_type_name") or DEFAULT_PIPE_SYSTEM_NAME).strip()
 
 
-def get_pipes_csv_unit():
-    """Linear unit of the start/end XYZ values in the pipes CSV. One of
-    'm', 'mm', or 'ft'. Falls back to DEFAULT_PIPES_CSV_UNIT."""
-    s = load_settings()
-    u = (s.get("pipes_csv_unit") or DEFAULT_PIPES_CSV_UNIT).strip().lower()
-    if u not in ("m", "mm", "ft"):
-        u = DEFAULT_PIPES_CSV_UNIT
-    return u
-
-
 def get_pipe_host_level_name():
     """Name of the Revit Level that all CSV-built pipes are hosted on.
     The pipe's actual end elevations come from the CSV's Z values; the
@@ -336,121 +239,7 @@ def get_pipe_host_level_name():
     return (s.get("pipe_host_level") or DEFAULT_PIPE_HOST_LEVEL).strip()
 
 
-def get_pipes_xyz_offset_m():
-    """(x_off, y_off, z_off) survey-to-project offsets in metres,
-    subtracted from each CSV XYZ value before placement. Z is interpreted
-    as elevation ABOVE the host level after the offset is subtracted."""
-    s = load_settings()
-    def _f(key, default):
-        try:
-            v = s.get(key)
-            return float(v) if v not in (None, "") else default
-        except (TypeError, ValueError):
-            return default
-    return (_f("pipes_x_offset_m", DEFAULT_PIPES_X_OFFSET_M),
-            _f("pipes_y_offset_m", DEFAULT_PIPES_Y_OFFSET_M),
-            _f("pipes_z_offset_m", DEFAULT_PIPES_Z_OFFSET_M))
-
-
-def get_pipes_default_workset():
-    """Workset name to assign all pipes to when the CSV has no workset
-    column and ws_filter is None. Empty -> leave pipes on the active
-    workset. Falls back to DEFAULT_PIPES_DEFAULT_WORKSET."""
-    s = load_settings()
-    return (s.get("pipes_default_workset") or DEFAULT_PIPES_DEFAULT_WORKSET).strip()
-
-
-def get_manhole_family_name():
-    s = load_settings()
-    return (s.get("manhole_family_name") or DEFAULT_MANHOLE_FAMILY_NAME).strip()
-
-
-def get_manhole_type_name():
-    s = load_settings()
-    return (s.get("manhole_type_name") or DEFAULT_MANHOLE_TYPE_NAME).strip()
-
-
-def get_manhole_height_param():
-    """Name of the instance parameter on the manhole family that holds
-    the overall height. Falls back to DEFAULT_MANHOLE_HEIGHT_PARAM."""
-    s = load_settings()
-    return (s.get("manhole_height_param") or DEFAULT_MANHOLE_HEIGHT_PARAM).strip()
-
-
-def get_manhole_slab_thickness_mm():
-    """Slab thickness in mm to add to each row's total_height at placement
-    time. Falls back to DEFAULT_MANHOLE_SLAB_THICKNESS_MM (0)."""
-    s = load_settings()
-    try:
-        v = s.get("manhole_slab_thickness_mm")
-        return float(v) if v not in (None, "") else DEFAULT_MANHOLE_SLAB_THICKNESS_MM
-    except (TypeError, ValueError):
-        return DEFAULT_MANHOLE_SLAB_THICKNESS_MM
-
-
 # ---- Drop Pipes ----------------------------------------------------------
-
-def get_drop_pipe_family_name():
-    s = load_settings()
-    return (s.get("drop_pipe_family_name") or DEFAULT_DROP_PIPE_FAMILY_NAME).strip()
-
-
-def get_drop_pipe_type_name():
-    s = load_settings()
-    return (s.get("drop_pipe_type_name") or DEFAULT_DROP_PIPE_TYPE_NAME).strip()
-
-
-def get_drop_pipe_dia_param():
-    s = load_settings()
-    return (s.get("drop_pipe_dia_param") or DEFAULT_DROP_PIPE_DIA_PARAM).strip()
-
-
-def get_drop_pipe_height_param():
-    s = load_settings()
-    return (s.get("drop_pipe_height_param") or DEFAULT_DROP_PIPE_HEIGHT_PARAM).strip()
-
-
-def get_pipes_rotation_deg():
-    """True-North rotation in DEGREES applied to (csv_xy - offset_xy)
-    before placement. Positive = CCW. Falls back to
-    DEFAULT_PIPES_ROTATION_DEG."""
-    s = load_settings()
-    try:
-        v = s.get("pipes_rotation_deg")
-        return float(v) if v not in (None, "") else DEFAULT_PIPES_ROTATION_DEG
-    except (TypeError, ValueError):
-        return DEFAULT_PIPES_ROTATION_DEG
-
-
-def get_pipes_post_shift_mm():
-    """Post-rotation XY shift in MILLIMETRES, applied in Revit's frame
-    AFTER rotation. Returns (x_mm, y_mm). Falls back to defaults."""
-    s = load_settings()
-    def _f(key, default):
-        try:
-            v = s.get(key)
-            return float(v) if v not in (None, "") else default
-        except (TypeError, ValueError):
-            return default
-    return (_f("pipes_post_x_shift_mm", DEFAULT_PIPES_POST_X_SHIFT_MM),
-            _f("pipes_post_y_shift_mm", DEFAULT_PIPES_POST_Y_SHIFT_MM))
-
-
-def get_pipes_use_project_location():
-    """If True, the build reads the document's ActiveProjectLocation
-    transform to convert CSV survey/shared coordinates into internal
-    coordinates, ignoring all manual XYZ offsets and rotation. Falls
-    back to DEFAULT_PIPES_USE_PROJECT_LOCATION."""
-    s = load_settings()
-    v = s.get("pipes_use_project_location")
-    if v is None:
-        return DEFAULT_PIPES_USE_PROJECT_LOCATION
-    if isinstance(v, bool):
-        return v
-    if isinstance(v, str):
-        return v.strip().lower() in ("true", "yes", "1", "on", "y")
-    return bool(v)
-
 
 # ---- Annotate ------------------------------------------------------------
 
@@ -497,26 +286,6 @@ def get_landxml_segment_name():
     LandXML circular diameters to. Empty -> prompt at run time."""
     s = load_settings()
     return (s.get("landxml_segment_name") or DEFAULT_LANDXML_SEGMENT_NAME).strip()
-
-
-def get_landxml_network_workset_map():
-    """Return the saved {network_name: workset_name} map used by 'Model
-    Pipes' to pre-fill the per-network workset mapping. Empty dict if
-    none saved yet. Stored in settings under 'landxml_network_workset_map'.
-    """
-    s = load_settings()
-    m = s.get("landxml_network_workset_map")
-    return dict(m) if isinstance(m, dict) else {}
-
-
-def save_landxml_network_workset_map(mapping):
-    """Persist the {network: workset} map so the next run pre-fills it."""
-    s = load_settings()
-    s["landxml_network_workset_map"] = dict(mapping or {})
-    save_settings(s)
-
-
-DASHBOARD_DIR = os.path.join(EXT_ROOT, "dashboard")
 
 
 def get_dashboard_html():

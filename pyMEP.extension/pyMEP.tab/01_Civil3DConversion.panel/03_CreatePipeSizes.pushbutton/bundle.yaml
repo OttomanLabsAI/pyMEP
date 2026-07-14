@@ -1,0 +1,9 @@
+title: |-
+  Create
+  Pipe Sizes
+tooltip: >-
+  Reads a dashboard pipes export (.json), lists every distinct circular
+  diameter in it, and adds the missing ones as selectable sizes on a Revit
+  pipe Segment (the one configured in Settings, else a picker). Place Pipes
+  already does this automatically - keep this for adding sizes without
+  placing pipes.
