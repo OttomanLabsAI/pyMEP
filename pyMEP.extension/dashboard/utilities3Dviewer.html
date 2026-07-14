@@ -1104,6 +1104,12 @@ applyTheme(); update(); tick();
     <button id="lxBrowse" style="font:600 .8rem/1 inherit;letter-spacing:.06em;padding:.7rem 1.6rem;border:1px solid #222;border-radius:8px;background:#222;color:#fff;cursor:pointer;">Browse LandXML&hellip;</button>
     <input id="lxFile" type="file" accept=".xml,text/xml,application/xml" style="display:none">
     <div style="margin-top:.9rem;color:#999;font-size:.72rem;">&hellip;or drag &amp; drop the .xml here</div>
+    <div style="margin-top:1.1rem;font-size:.78rem;color:#555;">
+      Pipe diameters in the XML:
+      <label style="margin-left:.6rem;cursor:pointer;"><input type="radio" name="lxDiaUnit" value="mm" checked> mm</label>
+      <label style="margin-left:.9rem;cursor:pointer;"><input type="radio" name="lxDiaUnit" value="m"> m</label>
+      <div style="margin-top:.3rem;color:#999;font-size:.68rem;">Civil&nbsp;3D LandXML normally stores diameters in millimetres.</div>
+    </div>
     <div id="lxStatus" style="margin-top:1.2rem;font-size:.78rem;color:#444;min-height:1.3em;"></div>
   </div>
 </div>
@@ -1135,7 +1141,7 @@ applyTheme(); update(); tick();
   var r3 = function(v){ return Math.round(v*1000)/1000; };
   var r5 = function(v){ return Math.round(v*100000)/100000; };
 
-  function parseLandXML(text){
+  function parseLandXML(text, diaUnit){
     var tagRe = /<(\/?)(PipeNetworks|PipeNetwork|Structs|Struct|Center|Invert|Pipes|Pipe|CircPipe|RectPipe|EggPipe|ElliPipe|CircStruct|RectStruct|Metric|CoordinateSystem|Application|Project)\b([^>]*?)(\/?)>/g;
     var units = {linear:null, diameter:null};
     var info = {epsg:null, app:null, appVer:null, date:null, project:null};
@@ -1219,8 +1225,9 @@ applyTheme(); update(); tick();
         if (curPipe){
           var dv = num(attr(attrs,"diameter"));
           if (dv !== null){
-            if (units.diameter === "meter") curPipe.d1 = dv;
-            else curPipe.d1 = (dv >= 3) ? dv/1000 : dv;  /* mm unless clearly m */
+            /* interpreted per the user's mm / m choice on the landing
+               screen (mm by default - the Civil 3D convention) */
+            curPipe.d1 = (diaUnit === "m") ? dv : dv/1000;
             if (dv <= 0) curPipe.dead = true;            /* zero-dia placeholder */
           }
           curPipe.shape = "c"; curPipe.d2 = 0;
@@ -1286,8 +1293,8 @@ applyTheme(); update(); tick();
                     .replace(/^-+|-+$/g, "") || "landxml";
   }
 
-  window.buildData = function(text, fileName){
-    var p = parseLandXML(text);
+  window.buildData = function(text, fileName, diaUnit){
+    var p = parseLandXML(text, diaUnit);
     if (!p.networks.length)
       throw new Error("No <PipeNetwork> found - is this a Civil 3D LandXML pipe-network export?");
     var minE = Infinity, minN = Infinity, maxE = -Infinity, maxN = -Infinity;
@@ -1406,8 +1413,10 @@ applyTheme(); update(); tick();
     reader.onload = function(){
       statusEl.textContent = "Parsing LandXML …";
       setTimeout(function(){
+        var unitEl = document.querySelector('input[name="lxDiaUnit"]:checked');
+        var diaUnit = unitEl ? unitEl.value : "mm";
         var data;
-        try { data = window.buildData(String(reader.result), file.name); }
+        try { data = window.buildData(String(reader.result), file.name, diaUnit); }
         catch (e){ fail(e.message || String(e)); return; }
         statusEl.textContent = "Building 3D view …";
         setTimeout(function(){ boot(data); }, 30);

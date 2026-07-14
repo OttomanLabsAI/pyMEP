@@ -203,8 +203,9 @@ Associations are stored per model in
 browser. It starts EMPTY with a Browse button (or drag & drop) asking for a
 Civil 3D LandXML pipe-network export; the file is parsed right in the
 browser (same rules as `pymep_landxml.py`: Center = "northing easting",
-inverts by flowDir, mm diameters) and the buried-utilities networks are
-rendered in 3D. Two export buttons - **Export structs** and **Export
+inverts by flowDir) and the buried-utilities networks are rendered in 3D.
+A units choice on the landing screen sets how the XML's pipe diameters are
+read - mm (default, the Civil 3D convention) or m. Two export buttons - **Export structs** and **Export
 pipes** - write the JSON files the placement buttons below consume.
 Fully offline (three.js is inlined). The dashboard is a self-contained
 HTML app bundled in `<extension>/dashboard/`; Open Dashboard launches the
