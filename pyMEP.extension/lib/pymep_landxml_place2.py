@@ -6,10 +6,14 @@ This does EXACTLY what that Dynamo script does, but reads the LandXML
 directly (resolving pipe endpoints from the structures) instead of a
 pre-made CSV:
 
-  * survey -> internal transform: try the model's OWN georeference first
-    (ActiveProjectLocation); if that leaves coordinates out of Revit's
-    workable range (model not georeferenced), fall back to the explicit
-    HEL18 survey transform baked in below;
+  * survey -> internal transform: the explicit survey transform from
+    Settings first (falls back to the site defaults baked in below); if
+    that leaves coordinates out of Revit's workable range (the offsets
+    belong to another site), automatically try the model's OWN survey
+    position (ActiveProjectLocation.GetProjectPosition) before giving up.
+    The fallback replaces only the plan offsets/rotation - Z always keeps
+    the explicit off_z convention so pipes and structures share one
+    vertical datum;
   * coordinate-range guard so a non-georeferenced model can never trigger
     the "protect your project from corruption" abort;
   * three isolated transactions - create pipes (+worksets), set Marks, set
@@ -59,8 +63,19 @@ HEL18_ROT_DEG = 40.36
 # disagree on the VERTICAL datum (the model's Survey Point elevation differs
 # from the site datum by 45.667 m), which made pipes and structures land on
 # different Z. To guarantee pipes and structures ALWAYS share one transform,
-# force the explicit transform below. Set this True only if the model is
-# cleanly georeferenced (Survey Point E/N AND elevation set to the real site).
+# prefer the explicit transform. Set this True only if the model is
+# cleanly georeferenced - it then promotes the model-derived transform to
+# FIRST choice.
+#
+# Either way the OTHER transform is tried automatically when the preferred one
+# leaves the coordinates outside Revit's workable range (see
+# choose_survey_transform below), so a georeferenced model whose Settings
+# offsets still hold another site's values no longer hard-fails. The
+# model-derived transform takes E/N/rotation from GetProjectPosition (the
+# survey coordinates of the internal origin - the same source
+# pymep_dashboard uses) but ALWAYS keeps the explicit off_z for Z, so the
+# vertical datum matches the explicit transform and the structures' rim
+# parameters no matter which transform wins.
 USE_MODEL_GEOREFERENCE = False
 
 
@@ -76,6 +91,109 @@ def clean_mark(name):
 _LIMIT_FT = 52500.0
 # Revit short-curve tolerance (~0.78 mm); shorter pipes are invalid.
 _MIN_PIPE_LEN_FT = 0.0026
+
+
+def make_survey_fn(e0_m, n0_m, rot_deg, z0_m):
+    """survey-grid metres -> internal-feet transform: subtract the E/N
+    offset, rotate by rot_deg, drop by z0_m. The ONE formula every placer
+    uses, whichever source the offsets came from."""
+    th = math.radians(rot_deg)
+    c, s = math.cos(th), math.sin(th)
+
+    def fn(e_m, n_m, z_m):
+        dx = e_m - e0_m
+        dy = n_m - n0_m
+        return XYZ((dx * c - dy * s) / 0.3048,
+                   (dx * s + dy * c) / 0.3048,
+                   (z_m - z0_m) / 0.3048)
+    return fn
+
+
+def model_survey_position(doc):
+    """(e0_m, n0_m, rot_deg) of the model's internal origin in survey
+    coordinates, from ActiveProjectLocation.GetProjectPosition - the same
+    source pymep_dashboard uses. None when unavailable (no location, or
+    the call fails)."""
+    try:
+        from Autodesk.Revit.DB import XYZ as _XYZ
+        loc = doc.ActiveProjectLocation
+        if loc is None:
+            return None
+        pos = loc.GetProjectPosition(_XYZ.Zero)
+        if pos is None:
+            return None
+        return (pos.EastWest * 0.3048, pos.NorthSouth * 0.3048,
+                math.degrees(pos.Angle))
+    except Exception:
+        return None
+
+
+def choose_survey_transform(transform_all, to_model, to_explicit, has_model):
+    """Try the candidate survey->internal transforms in order and return
+    ``(pts, max_abs, mode, tried)`` for the first one that lands every
+    coordinate inside Revit's workable range (~16 km from the origin).
+
+    Order: the explicit Settings transform first (the verified site frame),
+    then the transform derived from the model's own survey position as an
+    automatic fallback for models whose Settings offsets belong to another
+    site. USE_MODEL_GEOREFERENCE promotes the model-derived transform to
+    first choice instead.
+
+    Used by BOTH the pipe placer and the structure placer so the two always
+    make the same choice for the same data. When nothing fits, the result
+    of the closest attempt is returned (caller raises via
+    survey_transform_error); ``tried`` lists every (mode, max_abs) attempt.
+    """
+    attempts = []
+    if has_model and USE_MODEL_GEOREFERENCE:
+        attempts.append(("model project position", to_model))
+    attempts.append(("explicit survey transform (Settings)", to_explicit))
+    if has_model and not USE_MODEL_GEOREFERENCE:
+        attempts.append((
+            "model project position (auto fallback - the Settings E/N "
+            "offset doesn't match this model)", to_model))
+
+    tried = []
+    best = None
+    for mode, fn in attempts:
+        pts, max_abs = transform_all(fn)
+        tried.append((mode, max_abs))
+        if best is None or max_abs < best[1]:
+            best = (pts, max_abs, mode)
+        if max_abs <= _LIMIT_FT:
+            return pts, max_abs, mode, tried
+    return best[0], best[1], best[2], tried
+
+
+def survey_transform_error(what, tried, en_pairs, off_e_m, off_n_m):
+    """Build the RuntimeError raised when no transform brings ``what``
+    (e.g. 'pipe coordinates') into range. Reports every attempt, the data
+    extents and a concrete suggested E/N offset so the fix is one paste in
+    Settings instead of guesswork."""
+    lines = ["No survey transform brings the {} inside Revit's workable "
+             "range (~16 km from the internal origin):".format(what)]
+    for mode, max_abs in tried:
+        lines.append("  - {}: {:.0f} km from the origin".format(
+            mode, max_abs * 0.0003048))
+    if en_pairs:
+        es = [p[0] for p in en_pairs]
+        ns = [p[1] for p in en_pairs]
+        lines.append("")
+        lines.append("LandXML data extents (survey metres):")
+        lines.append("  E {:.1f} .. {:.1f}   N {:.1f} .. {:.1f}".format(
+            min(es), max(es), min(ns), max(ns)))
+        lines.append("Suggested E/N offset (data midpoint):")
+        lines.append("  E {:.4f}   N {:.4f}".format(
+            (min(es) + max(es)) / 2.0, (min(ns) + max(ns)) / 2.0))
+    lines.append("")
+    lines.append(
+        "Fix: open Settings > Pipes-Coordinates > Set LandXML survey origin "
+        "and set the E/N offset to this model's Project Base Point (survey "
+        "E/N in metres), or to the suggested offset above. Alternatively "
+        "georeference the model (Project Base Point at the real site survey "
+        "E/N) and the fallback above will pick it up. Current offset: "
+        "E {:.4f}  N {:.4f}.".format(off_e_m, off_n_m))
+    return RuntimeError("\n".join(lines))
 
 
 def _say(log, msg):
@@ -256,24 +374,13 @@ def place_landxml_pipes(doc, rows, network_workset_map,
                           if _el_name(l)) or "(none)"))
         raise ValueError("\n".join(miss))
 
-    # ---- transforms ------------------------------------------------------
-    loc = doc.ActiveProjectLocation
-    inv = loc.GetTotalTransform().Inverse if loc is not None else None
-
-    def to_internal_georef(e_m, n_m, z_m):
-        shared = XYZ(mm2ft(e_m * 1000.0), mm2ft(n_m * 1000.0),
-                     mm2ft(z_m * 1000.0))
-        return inv.OfPoint(shared)
-
-    th = math.radians(rot_deg)
-    c, s = math.cos(th), math.sin(th)
-
-    def to_internal_explicit(e_m, n_m, z_m):
-        dx = e_m - off_e_m
-        dy = n_m - off_n_m
-        rx = dx * c - dy * s
-        ry = dx * s + dy * c
-        return XYZ(rx / 0.3048, ry / 0.3048, (z_m - off_z_m) / 0.3048)
+    # ---- transforms (explicit first, model-derived fallback) -------------
+    # Both candidates share make_survey_fn AND the same off_z_m, so the
+    # vertical datum is identical whichever wins.
+    to_internal_explicit = make_survey_fn(off_e_m, off_n_m, rot_deg, off_z_m)
+    mp = model_survey_position(doc)
+    to_internal_model = (make_survey_fn(mp[0], mp[1], mp[2], off_z_m)
+                         if mp is not None else None)
 
     # filter rows to chosen networks
     work = []
@@ -297,24 +404,15 @@ def place_landxml_pipes(doc, rows, network_workset_map,
                     m_abs = mm
         return out, m_abs
 
-    pts = None
-    mode = None
-    max_abs = None
-    if inv is not None and USE_MODEL_GEOREFERENCE:
-        pts, max_abs = transform_all(to_internal_georef)
-        mode = "model georeference"
-    if pts is None or max_abs > _LIMIT_FT:
-        pts, max_abs = transform_all(to_internal_explicit)
-        mode = "explicit HEL18 survey transform"
+    pts, max_abs, mode, tried = choose_survey_transform(
+        transform_all, to_internal_model, to_internal_explicit,
+        has_model=to_internal_model is not None)
 
     if max_abs > _LIMIT_FT:
-        raise RuntimeError(
-            "Even after the explicit transform the coordinates are {:.0f} km "
-            "from the origin - the survey origin doesn't match this model. "
-            "Open Settings > Pipes-Coordinates and set the LandXML E/N "
-            "offset to this model's Project Base Point (survey E/N in "
-            "metres). Current offset: E {:.4f}  N {:.4f}."
-            .format(max_abs * 0.0003048, off_e_m, off_n_m))
+        en_pairs = ([(r["sx"], r["sy"]) for r in work] +
+                    [(r["ex"], r["ey"]) for r in work])
+        raise survey_transform_error("pipe coordinates", tried, en_pairs,
+                                     off_e_m, off_n_m)
 
     _say(log, "Transform used: **{}**".format(mode))
     _say(log, "Pipe type **{}**, system **{}**, level **{}**".format(

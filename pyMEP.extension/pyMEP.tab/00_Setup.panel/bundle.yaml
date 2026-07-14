@@ -1,5 +1,7 @@
 title: Setup
 layout:
   - Settings
+  - DownloadUpdate
+  - InstallUpdate
   - '>>>'
   - CopyParamValue

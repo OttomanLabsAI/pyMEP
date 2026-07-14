@@ -594,3 +594,69 @@ def save_chamber_dim_pairs(pairs):
         })
     s["chamber_dim_pairs"] = clean
     save_settings(s)
+
+
+# ---------------------------------------------------------------------------
+# UPDATES (Download Latest / Install Update buttons in the Setup panel)
+# ---------------------------------------------------------------------------
+# The GitHub repository the extension is published from. Override with the
+# 'github_repo' settings key; for a private repo set 'github_token' to a
+# personal-access token with repo read access.
+DEFAULT_GITHUB_REPO = "OttomanLabsAI/pyMEP"
+
+# The deployed version marker, written by the release tagging. Missing file
+# (a dev clone) just reads as "(no version.txt)".
+VERSION_FILE = os.path.join(EXT_ROOT, "version.txt")
+
+
+def get_local_version():
+    """Contents of <extension root>/version.txt (e.g. 'v0.2.0'), or ''
+    when the file is missing."""
+    try:
+        with open(VERSION_FILE, "r") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+def get_github_repo():
+    """'owner/repo' the update buttons talk to ('github_repo' settings
+    key, default DEFAULT_GITHUB_REPO)."""
+    s = load_settings()
+    return (s.get("github_repo") or DEFAULT_GITHUB_REPO).strip()
+
+
+def get_github_token():
+    """Optional GitHub personal-access token ('github_token' settings key)
+    used by Download Latest for private repos / API rate limits. Empty
+    string means anonymous access."""
+    s = load_settings()
+    return (s.get("github_token") or "").strip()
+
+
+def get_downloads_folder():
+    """The user's Downloads folder, where Download Latest writes
+    pyMEP.extension.zip and Install Update (and the repo's
+    supersede_pyExtensions.py) picks it up.
+
+    Priority: 'update_downloads_folder' settings override, the shell
+    known-folder from the registry (handles relocated / OneDrive
+    Downloads), then %USERPROFILE%\\Downloads."""
+    s = load_settings()
+    override = (s.get("update_downloads_folder") or "").strip()
+    if override:
+        return override
+    try:
+        from Microsoft.Win32 import Registry
+        key = Registry.CurrentUser.OpenSubKey(
+            "Software\\Microsoft\\Windows\\CurrentVersion"
+            "\\Explorer\\User Shell Folders")
+        if key is not None:
+            val = key.GetValue("{374DE290-123F-4565-9164-39C4925E467B}")
+            if val:
+                return os.path.expandvars(str(val))
+    except Exception:
+        pass
+    return os.path.join(
+        os.environ.get("USERPROFILE") or os.path.expanduser("~"),
+        "Downloads")

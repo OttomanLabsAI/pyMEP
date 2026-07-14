@@ -1,0 +1,9 @@
+title: |-
+  Install
+  Update
+tooltip: >-
+  Deploys Downloads\pyMEP.extension.zip over the live extension the same way
+  supersede_pyExtensions.py does: the current folder moves to
+  00 - Superseded\pyMEP\pyMEP.extension_<timestamp>, the zip is extracted into
+  place and then archived alongside. Rolls back automatically if the install
+  fails, and offers to reload pyRevit when done.
