@@ -30,8 +30,8 @@ pyMEP.extension/
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP': Settings / Download Latest / Install Update (stacked)
     01_Civil3DConversion.panel/ # Create LandXML Dashboard, Place Boxes/Cylinders/Pipes, Create Pipe Sizes
-    02_Modelling.panel/         # Encasement, Gully to MH, Cut Toposolid
-    03_Topography.panel/        # Align to Topo
+    02_Modelling.panel/         # Encasement, Gully to MH
+    03_Topography.panel/        # Align to Topo, Cut Toposolid
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
     06_Annotate.panel/          # 4 annotation buttons
@@ -129,11 +129,6 @@ downpipe + bend + falling run. Modes are inferred from the selection
 (gully+MH, many gullies + one MH, gully only, MH to picked point). Numeric
 prompts (downpipe length, invert offset, slope) are remembered between runs.
 
-**Cut Toposolid** - excavates a Toposolid using the bottom outlines of the
-selected MEP elements (vertical cut, +50 mm above the top so it always breaks
-the surface). Cutter instances stay in the model tagged with the comment
-`pyMEP_TopoCut`; deleting a cutter removes its cut.
-
 ### Parameters
 
 **Replicate Parameter** - generic utility: pick a placed family type, a
@@ -151,6 +146,11 @@ from Level set so it sits on the TOP of the chosen surfaces at its own
 X,Y (vertical projection, nearest hit - so stacked surfaces resolve to
 the top one). Instances not above any chosen surface, or already on it
 (within 0.5 mm), are reported and left untouched.
+
+**Cut Toposolid** - excavates a Toposolid using the bottom outlines of the
+selected MEP elements (vertical cut, +50 mm above the top so it always breaks
+the surface). Cutter instances stay in the model tagged with the comment
+`pyMEP_TopoCut`; deleting a cutter removes its cut.
 
 ### Chamber Drawing Setup
 
