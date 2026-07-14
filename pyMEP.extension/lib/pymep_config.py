@@ -516,6 +516,23 @@ def save_landxml_network_workset_map(mapping):
     save_settings(s)
 
 
+def get_dashboard_layer_workset_map():
+    """Saved {layer: workset} map used by Dashboard > Place Pipes to
+    pre-fill the per-layer workset mapping (kept separate from the
+    LandXML network map - dashboard layers and LandXML networks are
+    different name spaces). Stored under 'dashboard_layer_workset_map'."""
+    s = load_settings()
+    m = s.get("dashboard_layer_workset_map")
+    return dict(m) if isinstance(m, dict) else {}
+
+
+def save_dashboard_layer_workset_map(mapping):
+    """Persist the {layer: workset} map so the next run pre-fills it."""
+    s = load_settings()
+    s["dashboard_layer_workset_map"] = dict(mapping or {})
+    save_settings(s)
+
+
 # ---------------------------------------------------------------------------
 # SECTION DIMS - chamber reference-plane dimension pairs
 # ---------------------------------------------------------------------------

@@ -31,11 +31,11 @@ pyMEP.extension/
     02_Drainage.panel/        # LandXML (3), Drainage CSV (3), Cut Toposolid
     03_Annotate.panel/        # 4 annotation buttons
     04_Chambers.panel/        # Chamber Sections (4), Chamber Plans
-    05_Dashboard.panel/       # Place Boxes, Place Cylinders
+    05_Dashboard.panel/       # Place Boxes, Place Cylinders, Place Pipes
     06_InitialModel.panel/    # Initial Model (no buttons yet)
 ```
 
-7 panels, 23 buttons. Related commands sit together on their panel;
+7 panels, 24 buttons. Related commands sit together on their panel;
 sequential workflow steps that used to be separate buttons now chain
 automatically inside a single command.
 
@@ -205,6 +205,17 @@ workset. One type per layer is duplicated from the picked type; dimensions and
 rim/sump/depth go to instance parameters, the structure name to Mark and the
 description to Comments.
 
+**Place Pipes** - places Revit pipes from a dashboard PIPES export, running
+exactly like Drainage > Model Pipes but fed from the dashboard JSON instead
+of LandXML: pick layers, map each layer to a workset (remembered between
+runs), pipe type / system type / host level from Settings with pickers as
+fallback, sizes silently ensured on the configured segment, Marks from the
+pipe names, diameters snapped to the pipe type's sizes. Uses the same survey
+transform as Model Pipes; if neither the Settings offsets nor the model's
+survey position fit, it offers to place at the internal origin using the
+export's own origin (optionally saving it to Settings). Rectangular duct-bank
+rows are skipped - only circular runs become pipes.
+
 ### Initial Model
 
 Reserved for the initial-model workflow - no buttons yet.
@@ -228,6 +239,7 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `landxml_off_e_m` / `landxml_off_n_m` / `landxml_off_z_m` / `landxml_rot_deg` | survey transform for the LandXML builders |
 | `landxml_segment_name` | pipe Segment that receives LandXML pipe sizes |
 | `landxml_network_workset_map` | saved network-to-workset assignments |
+| `dashboard_layer_workset_map` | saved layer-to-workset assignments (Dashboard > Place Pipes) |
 | `manhole_family_name` / `manhole_type_name` / `manhole_height_param` / `manhole_slab_thickness_mm` | Place Structures (manhole kind) |
 | `drop_pipe_family_name` / `drop_pipe_type_name` / `drop_pipe_dia_param` / `drop_pipe_height_param` | Place Structures (drop-pipe kind) |
 | `annotate_suffix` | line 2 of the Annotate Ducts label |
@@ -259,6 +271,7 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `pymep_chamber_links.py` | chamber-section association records |
 | `pymep_topo_cut.py` | cut a Toposolid with MEP bottom outlines |
 | `pymep_dashboard.py` | place chambers from a utilities-dashboard JSON export |
+| `pymep_dashboard_pipes.py` | read dashboard pipes exports for the LandXML pipe placer |
 
 ## Updating
 
