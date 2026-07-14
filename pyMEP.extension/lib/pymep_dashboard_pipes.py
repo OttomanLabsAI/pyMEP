@@ -29,7 +29,6 @@ This module has NO Revit imports on purpose - the pushbutton wires it to
 the placer - so the parsing logic stays testable outside Revit.
 """
 
-import io
 import json
 import re
 
@@ -130,8 +129,14 @@ def read_pipes_export(path):
     notes: human-readable remarks to log (local-origin shift applied,
            rows skipped, unexpected kind...).
     """
-    with io.open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    # Plain binary read + json.loads on the decoded string: io.open's
+    # TextIOWrapper + json.load(fileobj) can die with a bare .NET
+    # NullReferenceException under IronPython, while this is the exact
+    # pattern the (known-working) Settings loader uses. utf-8-sig also
+    # swallows a BOM if one ever appears.
+    with open(path, "rb") as f:
+        raw_bytes = f.read()
+    data = json.loads(raw_bytes.decode("utf-8-sig", "replace"))
 
     kind = data.get("kind")
     if kind == STRUCTURES_EXPORT_KIND:

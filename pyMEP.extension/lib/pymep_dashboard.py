@@ -18,7 +18,6 @@ This module drives the two Dashboard-panel buttons:
     pymep_structures_place so everything lands in one frame.
 """
 
-import io
 import json
 import math
 
@@ -122,8 +121,11 @@ def read_export(path):
           y (northing m), z_m (rim, for the transform), rim_m, sump_m,
           depth_m, length_m, width_m, dia_m, material, desc.
     """
-    with io.open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    # Binary read + json.loads (not io.open + json.load): the TextIOWrapper
+    # path can raise a bare .NET NullReferenceException under IronPython.
+    with open(path, "rb") as f:
+        raw_bytes = f.read()
+    data = json.loads(raw_bytes.decode("utf-8-sig", "replace"))
     if data.get("kind") != EXPORT_KIND:
         raise ValueError(
             "Not a dashboard structures export (kind='{}', expected '{}'). "
