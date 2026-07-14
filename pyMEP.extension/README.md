@@ -28,14 +28,15 @@ pyMEP.extension/
   exports/                    # default output folder, per-Revit-file
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
-    00_Setup.panel/             # 'pyMEP': Settings / Download Latest / Install Update (stacked), Copy Param Value
+    00_Setup.panel/             # 'pyMEP': Settings / Download Latest / Install Update (stacked)
     01_Civil3DConversion.panel/ # Create LandXML Dashboard, Place Boxes/Cylinders/Pipes, Create Pipe Sizes
     02_Modelling.panel/         # Encasement, Gully to MH, Cut Toposolid
     03_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
-    04_Annotate.panel/          # 4 annotation buttons
+    04_Parameters.panel/        # Replicate Parameter
+    05_Annotate.panel/          # 4 annotation buttons
 ```
 
-5 panels, 21 buttons, every one with its own icon.
+6 panels, 21 buttons, every one with its own icon.
 
 ## Panels
 
@@ -59,11 +60,6 @@ the zip is extracted into place and archived alongside, then pyRevit offers to
 reload. Rolls the move back automatically if anything fails; if Windows won't
 release the live folder, nothing is touched and it points you at
 `supersede_pyExtensions.py` instead.
-
-**Copy Param Value** - generic utility: pick a placed family
-type, a source parameter and a writable target parameter; the value is copied
-onto every placed instance of that type, with a preview table and safe type
-coercion.
 
 ### Civil 3D Conversion
 
@@ -136,6 +132,13 @@ prompts (downpipe length, invert offset, slope) are remembered between runs.
 selected MEP elements (vertical cut, +50 mm above the top so it always breaks
 the surface). Cutter instances stay in the model tagged with the comment
 `pyMEP_TopoCut`; deleting a cutter removes its cut.
+
+### Parameters
+
+**Replicate Parameter** - generic utility: pick a placed family type, a
+source parameter and a writable target parameter; the value is copied onto
+every placed instance of that type, with a preview table and safe type
+coercion.
 
 ### Chamber Drawing Setup
 
