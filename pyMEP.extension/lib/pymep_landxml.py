@@ -134,9 +134,14 @@ _FLOAT_RE = r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?"
 
 
 def _f(s):
+    # None guard + broad except: IronPython 2.7's float(None) raises
+    # SystemError (.NET NullReferenceException), not TypeError, so a
+    # missing XML attribute would otherwise crash the parse.
+    if s is None:
+        return None
     try:
         return float(s)
-    except (TypeError, ValueError):
+    except Exception:
         return None
 
 
