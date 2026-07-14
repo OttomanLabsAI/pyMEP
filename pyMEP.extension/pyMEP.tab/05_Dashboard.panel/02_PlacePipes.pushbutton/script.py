@@ -81,8 +81,13 @@ log("Export: **{}**".format(os.path.basename(json_path)))
 try:
     meta, rows, notes = read_pipes_export(json_path)
 except Exception as ex:
-    forms.alert("Could not read the export:\n\n{}".format(ex),
-                exitscript=True)
+    import traceback
+    log("Read failed:")
+    log(traceback.format_exc())
+    log.close()
+    forms.alert("Could not read the export:\n\n{}\n\nThe full traceback is "
+                "in the pyRevit output window and the log file."
+                .format(ex), exitscript=True)
 for n in notes:
     log(n)
 if meta.get("source"):
