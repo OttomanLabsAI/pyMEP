@@ -3,9 +3,10 @@
 network + type.
 
 Uses the SAME survey->internal transform as the pipe placer
-(`pymep_landxml_place2`): the model's own georeference first, then the
-explicit HEL18 fallback if the model isn't georeferenced - so structures
-land in exactly the same coordinate frame as the pipes.
+(`pymep_landxml_place2.choose_survey_transform`): the explicit Settings
+transform first, then the model's own survey position (GetProjectPosition)
+as an automatic fallback - so structures land in exactly the same
+coordinate frame as the pipes.
 
 Each instance is placed at the structure's plan position (E, N) and at its
 rim elevation (falling back to the lowest invert, then 0). The structure
@@ -13,7 +14,6 @@ name is written to the instance Mark; rim and invert levels are written to
 instance parameters when matching ones exist.
 """
 
-import math
 import clr
 clr.AddReference("RevitAPI")
 
@@ -28,6 +28,8 @@ from pymep_revit import safe_name, mm2ft
 from pymep_landxml_place2 import (
     HEL18_OFF_E_M, HEL18_OFF_N_M, HEL18_OFF_Z_M, HEL18_ROT_DEG,
     USE_MODEL_GEOREFERENCE, clean_mark, _LIMIT_FT, _el_name, list_worksets,
+    choose_survey_transform, survey_transform_error, make_survey_fn,
+    model_survey_position,
 )
 
 
@@ -142,24 +144,14 @@ def place_structures(doc, rows, symbol, host_level_name, workset_name="",
         raise ValueError("Level '{}' not found. Available: {}".format(
             host_level_name, avail or "(none)"))
 
-    # ---- transform (georef first, explicit fallback) ---------------------
-    loc = doc.ActiveProjectLocation
-    inv = loc.GetTotalTransform().Inverse if loc is not None else None
-
-    def to_internal_georef(e_m, n_m, z_m):
-        shared = XYZ(mm2ft(e_m * 1000.0), mm2ft(n_m * 1000.0),
-                     mm2ft(z_m * 1000.0))
-        return inv.OfPoint(shared)
-
-    th = math.radians(rot_deg)
-    c, s = math.cos(th), math.sin(th)
-
-    def to_internal_explicit(e_m, n_m, z_m):
-        dx = e_m - off_e_m
-        dy = n_m - off_n_m
-        rx = dx * c - dy * s
-        ry = dx * s + dy * c
-        return XYZ(rx / 0.3048, ry / 0.3048, (z_m - off_z_m) / 0.3048)
+    # ---- transform (explicit first, model-derived fallback) --------------
+    # Same construction as place_landxml_pipes: both candidates share
+    # make_survey_fn and off_z_m, so structures and pipes always land in
+    # one frame whichever transform wins.
+    to_internal_explicit = make_survey_fn(off_e_m, off_n_m, rot_deg, off_z_m)
+    mp = model_survey_position(doc)
+    to_internal_model = (make_survey_fn(mp[0], mp[1], mp[2], off_z_m)
+                         if mp is not None else None)
 
     def transform_all(fn):
         # X/Y go to the survey position; Z is forced to 0. The manhole's real
@@ -178,24 +170,14 @@ def place_structures(doc, rows, symbol, host_level_name, workset_name="",
                 m_abs = mm
         return out, m_abs
 
-    pts = None
-    mode = None
-    max_abs = None
-    if inv is not None and USE_MODEL_GEOREFERENCE:
-        pts, max_abs = transform_all(to_internal_georef)
-        mode = "model georeference"
-    if pts is None or max_abs > _LIMIT_FT:
-        pts, max_abs = transform_all(to_internal_explicit)
-        mode = "explicit HEL18 survey transform"
+    pts, max_abs, mode, tried = choose_survey_transform(
+        transform_all, to_internal_model, to_internal_explicit,
+        has_model=to_internal_model is not None)
 
     if max_abs > _LIMIT_FT:
-        raise RuntimeError(
-            "Even after the explicit transform the structures are {:.0f} km "
-            "from the origin - the survey origin doesn't match this model. "
-            "Open Settings > Pipes-Coordinates and set the LandXML E/N "
-            "offset to this model's Project Base Point. Current offset: "
-            "E {:.4f}  N {:.4f}."
-            .format(max_abs * 0.0003048, off_e_m, off_n_m))
+        en_pairs = [(r["x"], r["y"]) for r in rows]
+        raise survey_transform_error("structures", tried, en_pairs,
+                                     off_e_m, off_n_m)
 
     _say(log, "Transform used: **{}**".format(mode))
     _say(log, "Family: **{}**, level **{}**".format(safe_name(symbol),

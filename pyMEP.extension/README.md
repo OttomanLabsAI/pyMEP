@@ -26,15 +26,16 @@ pyMEP.extension/
   exports/                    # default output folder, per-Revit-file
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
-    00_Setup.panel/           # Settings  (slide-out: Copy Param Value)
+    00_Setup.panel/           # Settings, Download Latest, Install Update  (slide-out: Copy Param Value)
     01_Encasement.panel/      # Encasement (export > analyse > build, one button)
-    02_Drainage.panel/        # LandXML pulldown, Drainage CSV pulldown, Cut Toposolid
-    03_Annotate.panel/        # Annotate pulldown (4 tools)
-    04_Chambers.panel/        # Chamber Sections pulldown, Chamber Plans
-    05_InitialModel.panel/    # Initial Model (no buttons yet)
+    02_Drainage.panel/        # LandXML (3), Drainage CSV (3), Cut Toposolid
+    03_Annotate.panel/        # 4 annotation buttons
+    04_Chambers.panel/        # Chamber Sections (4), Chamber Plans
+    05_Dashboard.panel/       # Place Boxes, Place Cylinders
+    06_InitialModel.panel/    # Initial Model (no buttons yet)
 ```
 
-6 panels, 8 ribbon controls. Related commands are grouped into pulldowns;
+7 panels, 23 buttons. Related commands sit together on their panel;
 sequential workflow steps that used to be separate buttons now chain
 automatically inside a single command.
 
@@ -46,6 +47,20 @@ automatically inside a single command.
 writing `%APPDATA%\pyRevit\pyMEP_settings.json`. Also contains
 *Open active export folder* (the old standalone Open Folder button was removed;
 this menu item is its home now).
+
+**Download Latest** - fetches the newest published pyMEP.extension from
+GitHub (latest release, else newest tag, else the default branch) and saves it
+to your Downloads folder as `pyMEP.extension.zip`, ready to deploy. Compares
+against the installed `version.txt` first. Uses the `github_repo` /
+`github_token` / `update_downloads_folder` settings keys.
+
+**Install Update** - deploys `Downloads\pyMEP.extension.zip` over the live
+extension the same way the repo's `supersede_pyExtensions.py` does: the
+current folder moves to `00 - Superseded\pyMEP\pyMEP.extension_<timestamp>`,
+the zip is extracted into place and archived alongside, then pyRevit offers to
+reload. Rolls the move back automatically if anything fails; if Windows won't
+release the live folder, nothing is touched and it points you at
+`supersede_pyExtensions.py` instead.
 
 **Copy Param Value** (panel slide-out) - generic utility: pick a placed family
 type, a source parameter and a writable target parameter; the value is copied
@@ -76,7 +91,7 @@ Duct type and MEP system type come from `Settings > Ducts`.
 
 ### Drainage
 
-**LandXML** (pulldown) - import a Civil 3D LandXML drainage export:
+**LandXML** (three buttons) - import a Civil 3D LandXML drainage export:
 
 * *Model Pipes* - the main entry point. Parses the XML once, silently ensures
   the required pipe sizes exist on the configured segment, applies the
@@ -95,7 +110,7 @@ Duct type and MEP system type come from `Settings > Ducts`.
 The survey-to-project transform comes from `Settings > LandXML origin`
 (easting / northing / Z offsets + rotation).
 
-**Drainage CSV** (pulldown) - import from AutoCAD CSV exports:
+**Drainage CSV** (three buttons) - import from AutoCAD CSV exports:
 
 * *Build from CSV* - places pipes from an arbitrary start/end-XYZ CSV with
   column auto-detection, optional per-row pipe type / system type / workset,
@@ -133,7 +148,7 @@ use the post-shift (mm) to nudge in Revit's frame.
 
 ### Annotate
 
-**Annotate** (pulldown) - four pipe-annotation tools, all working on a
+**Annotate** (four buttons) - pipe-annotation tools, all working on a
 pre-selection in the active plan view:
 
 * *Annotate Ducts* - one two-line TextNote for a bank of parallel
@@ -151,7 +166,7 @@ pre-selection in the active plan view:
 
 ### Chambers
 
-**Chamber Sections** (pulldown) - the chamber detailing workflow in ribbon
+**Chamber Sections** (four buttons) - the chamber detailing workflow in ribbon
 order:
 
 * *Create Sections* - creates four named section views (`{Mark} SIDE A..D`)
@@ -181,6 +196,19 @@ confirm lists what will be created.
 Associations are stored per model in
 `<extension>/exports/<model>/chamber_section_links.json`.
 
+### Dashboard
+
+**Place Boxes** / **Place Cylinders** - place every box (rectangular) or
+cylindrical chamber from an OttomanLabs utilities-dashboard export: pick the
+family, pick the `.json` exported from the 3D viewer's EXPORT button, pick a
+workset. One type per layer is duplicated from the picked type; dimensions and
+rim/sump/depth go to instance parameters, the structure name to Mark and the
+description to Comments.
+
+### Initial Model
+
+Reserved for the initial-model workflow - no buttons yet.
+
 ## Settings keys
 
 Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
@@ -206,6 +234,9 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `annotate_pipe_offset_mm` | perpendicular offset for pipe labels / spot elevations |
 | `chamber_dim_pairs` | reference-plane name pairs dimensioned by Dimension Section |
 | `gully_downpipe_length_mm` / `gully_invert_offset_mm` / `gully_slope_ratio` | remembered by the Gully to MH prompts (not in the Settings dialog) |
+| `github_repo` | `owner/repo` the update buttons talk to (default `OttomanLabsAI/pyMEP`; not in the Settings dialog) |
+| `github_token` | optional GitHub personal-access token for Download Latest (private repo / rate limits) |
+| `update_downloads_folder` | override the Downloads folder used by the update buttons |
 
 ## Lib modules
 
@@ -227,3 +258,17 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `pymep_gully_connect.py` | gully-to-manhole pipe modelling |
 | `pymep_chamber_links.py` | chamber-section association records |
 | `pymep_topo_cut.py` | cut a Toposolid with MEP bottom outlines |
+| `pymep_dashboard.py` | place chambers from a utilities-dashboard JSON export |
+
+## Updating
+
+Deployed copies are updated from GitHub, keeping the old version:
+
+1. **Download Latest** (Setup panel) pulls the newest tagged
+   `pyMEP.extension` from the repo into `Downloads\pyMEP.extension.zip`.
+2. **Install Update** (Setup panel) - or `supersede_pyExtensions.py` from the
+   repo root, run outside Revit - moves the live folder to
+   `00 - Superseded\pyMEP\pyMEP.extension_<timestamp>` and extracts the zip
+   into place.
+
+The deployed version is recorded in `version.txt` (matches the git tag).
