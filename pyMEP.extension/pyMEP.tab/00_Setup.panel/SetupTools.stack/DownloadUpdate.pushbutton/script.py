@@ -15,7 +15,7 @@ Settings keys (pyMEP_settings.json): 'github_repo' ("owner/repo"),
 'update_downloads_folder' (optional override of the Downloads folder).
 """
 
-__title__  = "Download\nLatest"
+__title__  = "Download Latest"
 __author__ = "Glent Group"
 
 import json

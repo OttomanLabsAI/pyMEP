@@ -28,7 +28,7 @@ pyMEP.extension/
   exports/                    # default output folder, per-Revit-file
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
-    00_Setup.panel/             # Settings, Download Latest, Install Update, Copy Param Value
+    00_Setup.panel/             # Settings / Download Latest / Install Update (stacked), Copy Param Value
     01_Civil3DConversion.panel/ # Create LandXML Dashboard, Place Boxes/Cylinders/Pipes, Create Pipe Sizes
     02_Modelling.panel/         # Encasement, Gully to MH, Cut Toposolid
     03_Chambers.panel/          # Chamber sections workflow, Chamber Plans
