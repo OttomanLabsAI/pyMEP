@@ -1,0 +1,58 @@
+name: tag-release
+
+# Tags every push to main with the version in pyMEP.extension/version.txt
+# (v0.x scheme). Dev environments can't push tags directly (the git proxy
+# blocks refs/tags), so this runs server-side instead.
+#
+# Also manually dispatchable to (re)tag any commit:
+#   Actions > tag-release > Run workflow  (tag + sha inputs, both optional).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag name (blank = read pyMEP.extension/version.txt)"
+        required: false
+        default: ""
+      sha:
+        description: "Commit SHA to tag (blank = current head)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push the tag
+        env:
+          IN_TAG: ${{ github.event.inputs.tag }}
+          IN_SHA: ${{ github.event.inputs.sha }}
+        run: |
+          set -e
+          TARGET="${IN_SHA:-$GITHUB_SHA}"
+          VER="$IN_TAG"
+          if [ -z "$VER" ]; then
+            VER=$(git show "$TARGET:pyMEP.extension/version.txt" | tr -d ' \r\n')
+          fi
+          if [ -z "$VER" ]; then
+            echo "No version found - nothing to tag."
+            exit 0
+          fi
+          if git rev-parse -q --verify "refs/tags/$VER" >/dev/null; then
+            echo "Tag $VER already exists - nothing to do."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VER" -m "pyMEP $VER" "$TARGET"
+          git push origin "refs/tags/$VER"
+          echo "Tagged $TARGET as $VER"
