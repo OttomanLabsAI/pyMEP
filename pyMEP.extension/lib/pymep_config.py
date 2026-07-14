@@ -288,6 +288,9 @@ def get_landxml_segment_name():
     return (s.get("landxml_segment_name") or DEFAULT_LANDXML_SEGMENT_NAME).strip()
 
 
+DASHBOARD_DIR = os.path.join(EXT_ROOT, "dashboard")
+
+
 def get_dashboard_html():
     """Path of the utilities 3D dashboard HTML that Open Dashboard
     launches. Priority: the 'dashboard_html_path' settings override

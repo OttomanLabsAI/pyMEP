@@ -28,10 +28,10 @@ pyMEP.extension/
   exports/                    # default output folder, per-Revit-file
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
-    00_Setup.panel/             # Settings / Download Latest / Install Update (stacked), Copy Param Value
+    00_Setup.panel/             # 'pyMEP': Settings / Download Latest / Install Update (stacked), Copy Param Value
     01_Civil3DConversion.panel/ # Create LandXML Dashboard, Place Boxes/Cylinders/Pipes, Create Pipe Sizes
     02_Modelling.panel/         # Encasement, Gully to MH, Cut Toposolid
-    03_Chambers.panel/          # Chamber sections workflow, Chamber Plans
+    03_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     04_Annotate.panel/          # 4 annotation buttons
 ```
 
@@ -39,7 +39,7 @@ pyMEP.extension/
 
 ## Panels
 
-### Setup
+### pyMEP (setup)
 
 **Settings** - central configuration for every other button. Two-level menu
 writing `%APPDATA%\pyRevit\pyMEP_settings.json`. Also contains
@@ -137,7 +137,7 @@ selected MEP elements (vertical cut, +50 mm above the top so it always breaks
 the surface). Cutter instances stay in the model tagged with the comment
 `pyMEP_TopoCut`; deleting a cutter removes its cut.
 
-### Chambers
+### Chamber Drawing Setup
 
 **Chamber Sections** (four buttons) - the chamber detailing workflow in ribbon
 order:
