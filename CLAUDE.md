@@ -20,6 +20,9 @@ IronPython 2.7 inside Revit: no f-strings, .NET interop via `clr`,
   (git proxy returns 403 on refs/tags); never try to push tags
   directly. For a retroactive tag, dispatch the `tag-release` workflow
   with its `tag` + `sha` inputs.
-- `Setup > Download Latest` in the ribbon downloads the newest
-  release/tag (falling back to the default branch), so version.txt and
-  the tags are what make self-update work.
+- `pyMEP > Install Update` in the ribbon downloads the newest
+  release/tag (falling back to the default branch) and installs it,
+  so version.txt and the tags are what make self-update work.
+- The pyMEP panel title carries the version: when bumping
+  version.txt, also update `title: pyMEP v<x>` in
+  `pyMEP.extension/pyMEP.tab/00_Setup.panel/bundle.yaml`.

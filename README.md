@@ -19,7 +19,7 @@ then reload pyRevit.
 
 ## Update
 
-Use **Setup > Download Latest** to pull the newest tagged version from this
-repo into your Downloads folder, then **Setup > Install Update** (or
-`supersede_pyExtensions.py`) to deploy it. The deployed version is recorded in
+Use **pyMEP > Install Update** in the ribbon to download and deploy the
+newest tagged version in one go (or `supersede_pyExtensions.py` outside
+Revit). The deployed version is recorded in
 `pyMEP.extension/version.txt` and matches the git tag.

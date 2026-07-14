@@ -1,7 +1,0 @@
-title: Download Latest
-tooltip: >-
-  Downloads the newest published pyMEP.extension from GitHub (latest release,
-  else newest tag, else the default branch) and saves it to your Downloads
-  folder as pyMEP.extension.zip - ready for Install Update or
-  supersede_pyExtensions.py. Configure 'github_repo' / 'github_token' in
-  pyMEP_settings.json if needed.
