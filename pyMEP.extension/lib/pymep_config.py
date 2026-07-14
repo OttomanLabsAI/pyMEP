@@ -516,6 +516,32 @@ def save_landxml_network_workset_map(mapping):
     save_settings(s)
 
 
+DASHBOARD_DIR = os.path.join(EXT_ROOT, "dashboard")
+
+
+def get_dashboard_html():
+    """Path of the utilities 3D dashboard HTML that Open Dashboard
+    launches. Priority: the 'dashboard_html_path' settings override
+    (when the file exists), then the NEWEST *.html inside
+    <extension>/dashboard/ - so dropping a new viewer version into that
+    folder is all an upgrade takes. '' when nothing is found."""
+    s = load_settings()
+    override = (s.get("dashboard_html_path") or "").strip()
+    if override and os.path.isfile(override):
+        return override
+    try:
+        cands = [os.path.join(DASHBOARD_DIR, n)
+                 for n in os.listdir(DASHBOARD_DIR)
+                 if n.lower().endswith((".html", ".htm"))]
+    except OSError:
+        cands = []
+    cands = [p for p in cands if os.path.isfile(p)]
+    if not cands:
+        return ""
+    cands.sort(key=lambda p: os.path.getmtime(p))
+    return cands[-1]
+
+
 def get_dashboard_layer_workset_map():
     """Saved {layer: workset} map used by Dashboard > Place Pipes to
     pre-fill the per-layer workset mapping (kept separate from the
