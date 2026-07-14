@@ -23,6 +23,7 @@ at it. The analysis package ships inside the extension (`conduit_analysis/`).
 ```
 pyMEP.extension/
   conduit_analysis/           # standalone CPython analysis (run via external Python)
+  dashboard/                  # utilities 3D dashboard (self-contained HTML app)
   exports/                    # default output folder, per-Revit-file
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
@@ -31,11 +32,11 @@ pyMEP.extension/
     02_Drainage.panel/        # LandXML (3), Drainage CSV (3), Cut Toposolid
     03_Annotate.panel/        # 4 annotation buttons
     04_Chambers.panel/        # Chamber Sections (4), Chamber Plans
-    05_Dashboard.panel/       # Place Boxes, Place Cylinders, Place Pipes
+    05_Dashboard.panel/       # Open Dashboard, Place Boxes, Place Cylinders, Place Pipes
     06_InitialModel.panel/    # Initial Model (no buttons yet)
 ```
 
-7 panels, 24 buttons. Related commands sit together on their panel;
+7 panels, 25 buttons. Related commands sit together on their panel;
 sequential workflow steps that used to be separate buttons now chain
 automatically inside a single command.
 
@@ -198,6 +199,15 @@ Associations are stored per model in
 
 ### Dashboard
 
+**Open Dashboard** - opens the utilities 3D dashboard in the default
+browser. The dashboard is a self-contained HTML app bundled in
+`<extension>/dashboard/`: it loads a LandXML export, renders the
+buried-utilities networks in 3D, and its EXPORT button writes the JSON that
+the placement buttons below consume. The button opens the newest `.html` in
+that folder, so upgrading the viewer is just dropping the new file in
+(`dashboard_html_path` in settings overrides it). First load needs internet
+(three.js comes from a CDN).
+
 **Place Boxes** / **Place Cylinders** - place every box (rectangular) or
 cylindrical chamber from an OttomanLabs utilities-dashboard export: pick the
 family, pick the `.json` exported from the 3D viewer's EXPORT button, pick a
@@ -240,6 +250,7 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `landxml_segment_name` | pipe Segment that receives LandXML pipe sizes |
 | `landxml_network_workset_map` | saved network-to-workset assignments |
 | `dashboard_layer_workset_map` | saved layer-to-workset assignments (Dashboard > Place Pipes) |
+| `dashboard_html_path` | override the dashboard HTML that Open Dashboard launches |
 | `manhole_family_name` / `manhole_type_name` / `manhole_height_param` / `manhole_slab_thickness_mm` | Place Structures (manhole kind) |
 | `drop_pipe_family_name` / `drop_pipe_type_name` / `drop_pipe_dia_param` / `drop_pipe_height_param` | Place Structures (drop-pipe kind) |
 | `annotate_suffix` | line 2 of the Annotate Ducts label |
