@@ -536,7 +536,7 @@ for (const nd of DATA.nets){
     gp.add(m); pickables.push(m);
   }
   nets.set(nd.name, {name:nd.name, base:baseColor(nd.name), mat, group:g, gs, gp,
-                     nS:nd.structs.length, nP:nd.pipes.length, visible:true});
+                     nS:nd.structs.length, nP:nd.pipes.length, visible: !nd.hidden});
 }
 const sClusters = [...clusters.values()].filter(c=>c.kind==="s")
                     .sort((a,b)=>b.members.length-a.members.length);
@@ -1110,6 +1110,10 @@ applyTheme(); update(); tick();
       <label style="margin-left:.9rem;cursor:pointer;"><input type="radio" name="lxDiaUnit" value="m"> m</label>
       <div style="margin-top:.3rem;color:#999;font-size:.68rem;">Civil&nbsp;3D LandXML normally stores diameters in millimetres.</div>
     </div>
+    <div style="margin-top:.9rem;font-size:.78rem;color:#555;">
+      <label style="cursor:pointer;"><input type="checkbox" id="lxHideNull" checked> Start with null structures hidden</label>
+      <div style="margin-top:.3rem;color:#999;font-size:.68rem;">They load as their own NULL STRUCTURES layer &mdash; toggle it back on in the Networks list.</div>
+    </div>
     <div id="lxStatus" style="margin-top:1.2rem;font-size:.78rem;color:#444;min-height:1.3em;"></div>
   </div>
 </div>
@@ -1293,7 +1297,7 @@ applyTheme(); update(); tick();
                     .replace(/^-+|-+$/g, "") || "landxml";
   }
 
-  window.buildData = function(text, fileName, diaUnit){
+  window.buildData = function(text, fileName, diaUnit, hideNull){
     var p = parseLandXML(text, diaUnit);
     if (!p.networks.length)
       throw new Error("No <PipeNetwork> found - is this a Civil 3D LandXML pipe-network export?");
@@ -1301,11 +1305,21 @@ applyTheme(); update(); tick();
     var zs = [];
     var omitted = 0, totS = 0, totP = 0;
     var staged = [];
+    var nullStructs = [];
 
     p.networks.forEach(function(nw){
       var srows = [], prows = [];
       nw.structs.forEach(function(st){
-        if (!hasXY(st) || isDummy(st)) return;
+        if (!hasXY(st)) return;
+        if (isDummy(st)){
+          // kept as their own toggleable NULL STRUCTURES layer (hidden by
+          // default when the landing checkbox is ticked); still used as
+          // pipe endpoints either way
+          nullStructs.push(st);
+          minE = Math.min(minE, st.x); maxE = Math.max(maxE, st.x);
+          minN = Math.min(minN, st.y); maxN = Math.max(maxN, st.y);
+          return;
+        }
         var low = lowestInvert(st);
         var rim = st.rim !== null ? st.rim : (low !== null ? low : 0);
         var sump = low !== null ? low : rim;
@@ -1330,7 +1344,7 @@ applyTheme(); update(); tick();
         staged.push({name:nw.name, srows:srows, prows:prows});
     });
 
-    if (!staged.length)
+    if (!staged.length && !nullStructs.length)
       throw new Error("No usable structures or pipes in this LandXML (no Centers / all endpoints unresolved).");
 
     var origin = [r2(minE), r2(minN)];
@@ -1362,6 +1376,21 @@ applyTheme(); update(); tick();
       });
       return {name:sn.name, structs:structs, pipes:pipes};
     });
+
+    if (nullStructs.length){
+      var nrows = nullStructs.map(function(st){
+        var low = lowestInvert(st);
+        var rim = st.rim !== null ? st.rim : (low !== null ? low : 0);
+        var sump = low !== null ? low : rim;
+        zs.push(rim, sump);
+        totS++;
+        return [st.name, st.desc || "Dummy null structure",
+                r2(st.x - origin[0]), r2(st.y - origin[1]),
+                r3(rim), r3(sump), "c", 0.5, 0, st.material || ""];
+      });
+      nets.push({name:"NULL STRUCTURES", structs:nrows, pipes:[],
+                 hidden: !!hideNull});
+    }
 
     var zmin = Math.min.apply(null, zs), zmax = Math.max.apply(null, zs);
     if (zmax - zmin < 1){ zmin -= 0.5; zmax += 0.5; }
@@ -1415,8 +1444,11 @@ applyTheme(); update(); tick();
       setTimeout(function(){
         var unitEl = document.querySelector('input[name="lxDiaUnit"]:checked');
         var diaUnit = unitEl ? unitEl.value : "mm";
+        var nullEl = document.getElementById("lxHideNull");
+        var hideNull = nullEl ? nullEl.checked : true;
         var data;
-        try { data = window.buildData(String(reader.result), file.name, diaUnit); }
+        try { data = window.buildData(String(reader.result), file.name,
+                                      diaUnit, hideNull); }
         catch (e){ fail(e.message || String(e)); return; }
         statusEl.textContent = "Building 3D view …";
         setTimeout(function(){ boot(data); }, 30);
