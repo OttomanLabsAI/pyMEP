@@ -31,12 +31,13 @@ pyMEP.extension/
     00_Setup.panel/             # 'pyMEP': Settings / Download Latest / Install Update (stacked)
     01_Civil3DConversion.panel/ # Create LandXML Dashboard, Place Boxes/Cylinders/Pipes, Create Pipe Sizes
     02_Modelling.panel/         # Encasement, Gully to MH, Cut Toposolid
-    03_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
-    04_Parameters.panel/        # Replicate Parameter
-    05_Annotate.panel/          # 4 annotation buttons
+    03_Topography.panel/        # Align to Topo
+    04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
+    05_Parameters.panel/        # Replicate Parameter
+    06_Annotate.panel/          # 4 annotation buttons
 ```
 
-6 panels, 21 buttons, every one with its own icon.
+7 panels, 22 buttons, every one with its own icon.
 
 ## Panels
 
@@ -140,6 +141,17 @@ source parameter and a writable target parameter; the value is copied onto
 every placed instance of that type, with a preview table and safe type
 coercion.
 
+### Topography
+
+**Align to Topo** - drops family instances onto a surface: pick the
+family types (searchable checkbox list of every placed Family : Type),
+pick Toposolids / Topography / Floors (a pre-selection is used when you
+have one), and every instance of the chosen types gets its Elevation
+from Level set so it sits on the TOP of the chosen surfaces at its own
+X,Y (vertical projection, nearest hit - so stacked surfaces resolve to
+the top one). Instances not above any chosen surface, or already on it
+(within 0.5 mm), are reported and left untouched.
+
 ### Chamber Drawing Setup
 
 **Chamber Sections** (four buttons) - the chamber detailing workflow in ribbon
@@ -231,6 +243,7 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `pymep_gully_connect.py` | gully-to-manhole pipe modelling |
 | `pymep_chamber_links.py` | chamber-section association records |
 | `pymep_topo_cut.py` | cut a Toposolid with MEP bottom outlines |
+| `pymep_topo_align.py` | align family instances to a surface top |
 | `pymep_dashboard.py` | place chambers from a utilities-dashboard JSON export |
 | `pymep_dashboard_pipes.py` | read dashboard pipes exports for the LandXML pipe placer |
 
