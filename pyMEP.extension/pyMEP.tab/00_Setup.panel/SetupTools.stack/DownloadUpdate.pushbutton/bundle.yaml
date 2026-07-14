@@ -1,6 +1,4 @@
-title: |-
-  Download
-  Latest
+title: Download Latest
 tooltip: >-
   Downloads the newest published pyMEP.extension from GitHub (latest release,
   else newest tag, else the default branch) and saves it to your Downloads

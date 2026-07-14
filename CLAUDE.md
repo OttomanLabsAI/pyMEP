@@ -11,8 +11,9 @@ IronPython 2.7 inside Revit: no f-strings, .NET interop via `clr`,
 - When a piece of work is DONE, push it to `main` (fast-forward from the
   working branch) without waiting to be asked - unless told otherwise.
 - Every push to `main` is a release: bump `pyMEP.extension/version.txt`
-  to the next `v0.<x>` first (increment x by one, e.g. v0.3.0 -> v0.4.0;
-  never reuse a version) unless told to use a different version.
+  to the next `v<major>.<x>` first (increment x by one, e.g.
+  v1.0.0 -> v1.1.0; never reuse a version) unless told to use a
+  different version.
 - Tags: the `tag-release` GitHub Action tags every main push with
   whatever `version.txt` says at that commit - bumping version.txt IS
   the tagging step. Tag pushes from the dev environment are blocked

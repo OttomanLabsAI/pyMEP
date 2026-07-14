@@ -1,6 +1,4 @@
-title: |-
-  Install
-  Update
+title: Install Update
 tooltip: >-
   Deploys Downloads\pyMEP.extension.zip over the live extension the same way
   supersede_pyExtensions.py does: the current folder moves to

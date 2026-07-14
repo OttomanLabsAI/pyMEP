@@ -1,6 +1,4 @@
 title: Setup
 layout:
-  - Settings
-  - DownloadUpdate
-  - InstallUpdate
+  - SetupTools
   - CopyParamValue

@@ -15,7 +15,7 @@ can't be moved at all (file locked by Revit), nothing is touched - close
 Revit and run supersede_pyExtensions.py instead.
 """
 
-__title__  = "Install\nUpdate"
+__title__  = "Install Update"
 __author__ = "Glent Group"
 
 import datetime
