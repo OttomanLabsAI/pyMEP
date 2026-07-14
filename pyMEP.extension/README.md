@@ -28,7 +28,7 @@ pyMEP.extension/
   exports/                    # default output folder, per-Revit-file
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
-    00_Setup.panel/             # 'pyMEP': Settings / Download Latest / Install Update (stacked)
+    00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
     01_Civil3DConversion.panel/ # Create LandXML Dashboard, Place Boxes/Cylinders/Pipes, Create Pipe Sizes
     02_Modelling.panel/         # Encasement, Gully to MH
     03_Topography.panel/        # Align to Topo, Cut Toposolid
@@ -37,30 +37,32 @@ pyMEP.extension/
     06_Annotate.panel/          # 4 annotation buttons
 ```
 
-7 panels, 22 buttons, every one with its own icon.
+7 panels, 21 buttons, every one with its own icon.
 
 ## Panels
 
 ### pyMEP (setup)
+
+The panel title carries the installed version (e.g. `pyMEP v1.6.0`),
+kept in sync with `version.txt` at every release.
 
 **Settings** - central configuration for every other button. Two-level menu
 writing `%APPDATA%\pyRevit\pyMEP_settings.json`. Also contains
 *Open active export folder* (the old standalone Open Folder button was removed;
 this menu item is its home now).
 
-**Download Latest** - fetches the newest published pyMEP.extension from
-GitHub (latest release, else newest tag, else the default branch) and saves it
-to your Downloads folder as `pyMEP.extension.zip`, ready to deploy. Compares
-against the installed `version.txt` first. Uses the `github_repo` /
+**Install Update** - downloads the newest published pyMEP.extension from
+GitHub (latest release, else newest tag, else the default branch) and
+installs it in one go: the repo zip is repackaged into
+`Downloads\pyMEP.extension.zip` (staged write - a failed download never
+leaves a truncated zip; if the download fails an existing zip in
+Downloads is offered instead), the current folder moves to
+`00 - Superseded\pyMEP\pyMEP.extension_<timestamp>`, the new version is
+extracted into place and archived alongside, then pyRevit offers to
+reload. Every failure after the move rolls the previous version back; if
+Windows won't release the live folder, nothing is touched and it points
+you at `supersede_pyExtensions.py`. Uses the `github_repo` /
 `github_token` / `update_downloads_folder` settings keys.
-
-**Install Update** - deploys `Downloads\pyMEP.extension.zip` over the live
-extension the same way the repo's `supersede_pyExtensions.py` does: the
-current folder moves to `00 - Superseded\pyMEP\pyMEP.extension_<timestamp>`,
-the zip is extracted into place and archived alongside, then pyRevit offers to
-reload. Rolls the move back automatically if anything fails; if Windows won't
-release the live folder, nothing is touched and it points you at
-`supersede_pyExtensions.py` instead.
 
 ### Civil 3D Conversion
 
@@ -251,11 +253,10 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 
 Deployed copies are updated from GitHub, keeping the old version:
 
-1. **Download Latest** (Setup panel) pulls the newest tagged
-   `pyMEP.extension` from the repo into `Downloads\pyMEP.extension.zip`.
-2. **Install Update** (Setup panel) - or `supersede_pyExtensions.py` from the
-   repo root, run outside Revit - moves the live folder to
-   `00 - Superseded\pyMEP\pyMEP.extension_<timestamp>` and extracts the zip
-   into place.
+**Install Update** (pyMEP panel) downloads the newest tagged
+`pyMEP.extension` from the repo and deploys it - the live folder moves to
+`00 - Superseded\pyMEP\pyMEP.extension_<timestamp>` first. Outside Revit,
+`supersede_pyExtensions.py` (repo root) deploys a downloaded
+`Downloads\pyMEP.extension.zip` the same way.
 
 The deployed version is recorded in `version.txt` (matches the git tag).

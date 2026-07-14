@@ -1,7 +1,8 @@
 title: Install Update
 tooltip: >-
-  Deploys Downloads\pyMEP.extension.zip over the live extension the same way
-  supersede_pyExtensions.py does: the current folder moves to
-  00 - Superseded\pyMEP\pyMEP.extension_<timestamp>, the zip is extracted into
-  place and then archived alongside. Rolls back automatically if the install
-  fails, and offers to reload pyRevit when done.
+  Downloads the newest published pyMEP.extension from GitHub (latest release,
+  else newest tag, else the default branch) and installs it in one go: the
+  current folder moves to 00 - Superseded\pyMEP\pyMEP.extension_<timestamp>,
+  the new version is extracted into place (with automatic rollback if
+  anything fails), then pyRevit offers to reload. Configure 'github_repo' /
+  'github_token' in pyMEP_settings.json if needed.
