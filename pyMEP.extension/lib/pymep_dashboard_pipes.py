@@ -41,9 +41,15 @@ _LOCAL_COORD_LIMIT_M = 50000.0
 
 
 def _num(v):
+    # The None guard matters: IronPython 2.7's float(None) raises
+    # SystemError (.NET NullReferenceException), NOT TypeError, so it
+    # would sail past a (TypeError, ValueError) except clause. Catch
+    # broadly for the same reason.
+    if v is None:
+        return None
     try:
         return float(v)
-    except (TypeError, ValueError):
+    except Exception:
         return None
 
 
