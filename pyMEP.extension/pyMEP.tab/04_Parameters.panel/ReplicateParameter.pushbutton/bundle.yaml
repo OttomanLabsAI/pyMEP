@@ -1,7 +1,6 @@
 title: |-
-  Copy
-  Param
-  Value
+  Replicate
+  Parameter
 tooltip: >-
   Pick a family type, then choose a source parameter and a target parameter from
   searchable lists. Copies the source value into the target for every instance of
