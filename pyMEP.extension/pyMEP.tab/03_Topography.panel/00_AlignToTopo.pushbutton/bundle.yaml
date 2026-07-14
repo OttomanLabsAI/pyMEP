@@ -1,0 +1,9 @@
+title: |-
+  Align
+  to Topo
+tooltip: >-
+  Pick family types (searchable checkbox list), then Toposolids / Topography /
+  Floors (your current selection is used when you have one). Every instance of
+  the chosen types gets its Elevation from Level set so it sits on the TOP of
+  the chosen surfaces at its own X,Y. Instances not above any chosen surface
+  are reported and left untouched.
