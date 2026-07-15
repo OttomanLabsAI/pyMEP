@@ -411,8 +411,19 @@ def save_chamber_dim_pairs(pairs):
     save_settings(s)
 
 
+def get_auto_close_output():
+    """True -> every pyMEP button closes its output window when it
+    finishes (never when an error/traceback was logged). Settings key
+    'auto_close_output'; default False (window stays open)."""
+    s = load_settings()
+    v = s.get("auto_close_output")
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "yes", "1", "on", "y")
+    return bool(v)
+
+
 # ---------------------------------------------------------------------------
-# UPDATES (Download Latest / Install Update buttons in the Setup panel)
+# UPDATES (Install Update button in the pyMEP panel)
 # ---------------------------------------------------------------------------
 # The GitHub repository the extension is published from. Override with the
 # 'github_repo' settings key; for a private repo set 'github_token' to a

@@ -1009,8 +1009,7 @@ function exportStructures(){
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 1)],
                                         {type:"application/json"}));
-  a.download = (M.slug||"landxml")+"-structures" +
-    (rows.length===M.nS ? "" : "-scope"+rows.length) + ".json";
+  a.download = "STRUCTS-" + (M.slug||"landxml") + ".json";
   document.body.appendChild(a); a.click();
   setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
 }
@@ -1051,8 +1050,7 @@ function exportPipes(){
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 1)],
                                         {type:"application/json"}));
-  a.download = (M.slug||"landxml")+"-pipes" +
-    (rows.length===M.nP ? "" : "-scope"+rows.length) + ".json";
+  a.download = "PIPES-" + (M.slug||"landxml") + ".json";
   document.body.appendChild(a); a.click();
   setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
 }
@@ -1394,8 +1392,9 @@ applyTheme(); update(); tick();
 
     var zmin = Math.min.apply(null, zs), zmax = Math.max.apply(null, zs);
     if (zmax - zmin < 1){ zmin -= 0.5; zmax += 0.5; }
-    var src = p.info.project ||
-              String(fileName || "LandXML").replace(/\.[Xx][Mm][Ll]$/, "");
+    var fbase = String(fileName || "LandXML")
+                  .replace(/\.[Xx][Mm][Ll]$/, "");
+    var src = String(p.info.project || fbase).split(/[\\\/]/).pop();
     return {
       meta: {
         origin: origin,
@@ -1407,7 +1406,7 @@ applyTheme(); update(); tick();
         app: p.info.app ? (p.info.app + (p.info.appVer ? " " + p.info.appVer : ""))
                         : "LandXML",
         nS: totS, nP: totP,
-        src: src, slug: slugify(src),
+        src: src, slug: slugify(fbase),
         note: omitted ? (omitted + " pipe(s) omitted — endpoints unresolved")
                       : ""
       },
