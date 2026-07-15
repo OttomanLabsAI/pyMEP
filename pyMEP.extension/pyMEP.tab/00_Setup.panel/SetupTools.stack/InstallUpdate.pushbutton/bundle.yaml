@@ -1,8 +1,8 @@
 title: Install Update
 tooltip: >-
   Downloads the newest published pyMEP.extension from GitHub (latest release,
-  else newest tag, else the default branch) and installs it in one go: the
-  current folder moves to 00 - Superseded\pyMEP\pyMEP.extension_<timestamp>,
-  the new version is extracted into place (with automatic rollback if
-  anything fails), then pyRevit offers to reload. Configure 'github_repo' /
-  'github_token' in pyMEP_settings.json if needed.
+  else newest tag, else the default branch) and installs it in one go. The
+  previous version's folder is removed after a successful install (any
+  version can be reinstalled from Settings > General > Downgrade /
+  reinstall); a failed install restores it automatically. Configure
+  'github_repo' / 'github_token' in pyMEP_settings.json if needed.
