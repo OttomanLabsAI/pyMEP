@@ -46,10 +46,16 @@ pyMEP.extension/
 The panel title carries the installed version (e.g. `pyMEP v1.6.0`),
 kept in sync with `version.txt` at every release.
 
-**Settings** - central configuration for every other button. Two-level menu
-writing `%APPDATA%\pyRevit\pyMEP_settings.json`. Also contains
-*Open active export folder* (the old standalone Open Folder button was removed;
-this menu item is its home now).
+**Settings** - central configuration for every other button, in one WPF
+window (`SettingsWindow.xaml`): category sidebar on the left (General /
+Ducts / Pipes / Annotate / Section Dims / Updates), real controls on the
+right, OK / Cancel / Apply at the bottom. Nothing is written to
+`%APPDATA%\pyRevit\pyMEP_settings.json` until OK or Apply; blank fields
+fall back to the defaults shown in each field's hint. General holds the
+folders, Python executable, *Open* for the active export folder and the
+output-window auto-close toggle; Section Dims edits the chamber
+dimension pairs in a grid; Updates holds the GitHub repo/token and the
+install-any-version picker.
 
 **Install Update** - downloads the newest published pyMEP.extension from
 GitHub (latest release, else newest tag, else the default branch) and
@@ -59,16 +65,16 @@ leaves a truncated zip; if the download fails an existing zip in
 Downloads is offered instead), then deployed atomically. The previous
 version's folder and the zip are REMOVED after a successful install -
 there is no superseded archive; any version stays one click away in
-*Settings > General > Downgrade / reinstall a version*. Every failure
+*Settings > Updates*. Every failure
 after the swap restores the previous version; if Windows won't release
 the live folder, nothing is touched and it points you at
 `supersede_pyExtensions.py`. Uses the `github_repo` / `github_token` /
 `update_downloads_folder` settings keys.
 
-The Settings dialog's General section also holds **Downgrade / reinstall
-a version (GitHub)**: a dropdown of every tagged version (newest first,
-installed one marked) - pick one and it downloads and installs exactly
-like Install Update.
+The Settings window's Updates section holds the **install a specific
+version** picker: *Load versions* lists every tagged version from GitHub
+(newest first, installed one marked) - pick one and *Install...*
+downloads and installs it exactly like Install Update.
 
 ### Civil 3D Conversion
 
@@ -230,8 +236,8 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `annotate_pipe_offset_mm` | perpendicular offset for pipe labels / spot elevations |
 | `chamber_dim_pairs` | reference-plane name pairs dimensioned by Dimension Section |
 | `gully_downpipe_length_mm` / `gully_invert_offset_mm` / `gully_slope_ratio` | remembered by the Gully to MH prompts (not in the Settings dialog) |
-| `github_repo` | `owner/repo` the update buttons talk to (default `OttomanLabsAI/pyMEP`; not in the Settings dialog) |
-| `github_token` | optional GitHub personal-access token for Download Latest (private repo / rate limits) |
+| `github_repo` | `owner/repo` the update buttons talk to (default `OttomanLabsAI/pyMEP`; Settings > Updates) |
+| `github_token` | optional GitHub personal-access token (private repo / rate limits; Settings > Updates) |
 | `update_downloads_folder` | override the Downloads folder used by Install Update |
 | `auto_close_output` | close each command's output window when it finishes (error reports stay open) |
 

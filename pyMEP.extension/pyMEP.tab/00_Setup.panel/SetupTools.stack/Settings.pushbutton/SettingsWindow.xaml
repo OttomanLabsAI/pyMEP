@@ -1,0 +1,307 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="pyMEP Settings"
+        Width="880" Height="620" MinWidth="780" MinHeight="540"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Background="White">
+    <Window.Resources>
+        <Style TargetType="TextBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style TargetType="PasswordBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,14"/>
+            <Setter Property="Padding" Value="10,8,10,10"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,3,10,0"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,2,0,6"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="SideButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="80"/>
+            <Setter Property="Margin" Value="8,3,0,0"/>
+            <Setter Property="Padding" Value="8,2"/>
+        </Style>
+        <Style x:Key="DialogButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="88"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ============ body: nav sidebar + content ============ -->
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="176"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <ListBox x:Name="CatList" Grid.Column="0"
+                     BorderThickness="0,0,1,0" BorderBrush="#DDDDDD"
+                     Background="#F7F7F7"
+                     SelectionChanged="on_category_changed">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="14,9"/>
+                        <Setter Property="FontSize" Value="13"/>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBoxItem Content="General"/>
+                <ListBoxItem Content="Ducts"/>
+                <ListBoxItem Content="Pipes"/>
+                <ListBoxItem Content="Annotate"/>
+                <ListBoxItem Content="Section Dims"/>
+                <ListBoxItem Content="Updates"/>
+            </ListBox>
+
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+                <Grid Margin="18,14,18,6">
+
+                    <!-- ================= GENERAL ================= -->
+                    <StackPanel x:Name="PanelGeneral" Visibility="Collapsed">
+                        <GroupBox Header="Folders">
+                            <StackPanel>
+                                <TextBlock Text="conduit_analysis folder" Style="{StaticResource FieldLabel}"/>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Content="Browse..." Style="{StaticResource SideButton}" Click="on_browse_script"/>
+                                    <TextBox x:Name="TxtScriptFolder"/>
+                                </DockPanel>
+                                <TextBlock x:Name="HintScriptFolder" Style="{StaticResource Hint}"/>
+
+                                <TextBlock Text="Python executable" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="TxtPythonExe"/>
+                                <TextBlock Text="Blank = 'python' from PATH. Used to run the conduit analysis outside Revit." Style="{StaticResource Hint}"/>
+
+                                <TextBlock Text="Export folder override" Style="{StaticResource FieldLabel}"/>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Content="Clear" Style="{StaticResource SideButton}" Click="on_clear_export"/>
+                                    <Button DockPanel.Dock="Right" Content="Browse..." Style="{StaticResource SideButton}" Click="on_browse_export"/>
+                                    <TextBox x:Name="TxtExportOverride"/>
+                                </DockPanel>
+                                <TextBlock Text="Blank = exports/(model name)/ inside the extension folder." Style="{StaticResource Hint}"/>
+
+                                <DockPanel Margin="0,4,0,0">
+                                    <Button DockPanel.Dock="Right" Content="Open" Style="{StaticResource SideButton}" Click="on_open_export"/>
+                                    <TextBlock x:Name="TxtActiveExport" VerticalAlignment="Center"
+                                               Foreground="#444444" TextTrimming="CharacterEllipsis"/>
+                                </DockPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Output window">
+                            <StackPanel>
+                                <CheckBox x:Name="ChkAutoClose" Margin="0,4,0,2"
+                                          Content="Close each command's output window automatically when it finishes"/>
+                                <TextBlock Text="Windows that logged an error or traceback always stay open." Style="{StaticResource Hint}"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+
+                    <!-- ================= DUCTS ================= -->
+                    <StackPanel x:Name="PanelDucts" Visibility="Collapsed">
+                        <GroupBox Header="Build Ducts">
+                            <StackPanel>
+                                <TextBlock Text="Duct type name" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="TxtDuctType"/>
+                                <TextBlock x:Name="HintDuctType" Style="{StaticResource Hint}"/>
+
+                                <TextBlock Text="Duct MEP system type name" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="TxtDuctSystem"/>
+                                <TextBlock x:Name="HintDuctSystem" Style="{StaticResource Hint}"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+
+                    <!-- ================= PIPES ================= -->
+                    <StackPanel x:Name="PanelPipes" Visibility="Collapsed">
+                        <GroupBox Header="Pipe placement">
+                            <StackPanel>
+                                <TextBlock Text="Pipe type name" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="TxtPipeType"/>
+                                <TextBlock x:Name="HintPipeType" Style="{StaticResource Hint}"/>
+
+                                <TextBlock Text="Pipe system type name" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="TxtPipeSystem"/>
+                                <TextBlock x:Name="HintPipeSystem" Style="{StaticResource Hint}"/>
+
+                                <TextBlock Text="Pipe host level name" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="TxtPipeLevel"/>
+                                <TextBlock x:Name="HintPipeLevel" Style="{StaticResource Hint}"/>
+
+                                <TextBlock Text="Pipe segment for sizes (Create Pipe Sizes / Place Pipes)" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="TxtSegment"/>
+                                <TextBlock Text="Blank = pick from the project's segments at run time." Style="{StaticResource Hint}"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="LandXML survey origin (Place Pipes / Boxes / Cylinders)">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="170"/>
+                                        <ColumnDefinition Width="220"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Easting E0 (m)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox  Grid.Row="0" Grid.Column="1" x:Name="TxtLxE"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Northing N0 (m)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox  Grid.Row="1" Grid.Column="1" x:Name="TxtLxN"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Base elevation Z0 (m)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox  Grid.Row="2" Grid.Column="1" x:Name="TxtLxZ"/>
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Rotation to True North (deg)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox  Grid.Row="3" Grid.Column="1" x:Name="TxtLxRot"/>
+                                </Grid>
+                                <TextBlock Style="{StaticResource Hint}" Margin="0,8,0,0"
+                                           Text="E0 / N0 = the model's Project Base Point survey easting / northing in metres (Manage &gt; Coordinates). Z0 = elevation subtracted from every point (0 keeps absolute AOD levels - the usual case). If the placed network comes in mirrored or rotated the wrong way, negate the rotation and re-run."/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+
+                    <!-- ================= ANNOTATE ================= -->
+                    <StackPanel x:Name="PanelAnnotate" Visibility="Collapsed">
+                        <GroupBox Header="Annotate Ducts">
+                            <StackPanel>
+                                <TextBlock Text="Suffix text (second label line)" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="TxtAnnSuffix"/>
+                                <TextBlock x:Name="HintAnnSuffix" Style="{StaticResource Hint}"/>
+                            </StackPanel>
+                        </GroupBox>
+                        <GroupBox Header="Annotate Pipes">
+                            <StackPanel>
+                                <TextBlock Text="Label offset from pipe (mm)" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="TxtAnnOffset" Width="120" HorizontalAlignment="Left"/>
+                                <TextBlock x:Name="HintAnnOffset" Style="{StaticResource Hint}"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+
+                    <!-- ================= SECTION DIMS ================= -->
+                    <StackPanel x:Name="PanelDims" Visibility="Collapsed">
+                        <GroupBox Header="Chamber dimension pairs (Dimension Section)">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,6"
+                                           Text="Each pair dimensions the chamber between two named reference planes in the chamber family. The planes must exist with these exact names and have 'Is Reference' set to Strong Reference."/>
+                                <ListView x:Name="LstPairs" Height="190" SelectionMode="Single"
+                                          SelectionChanged="on_pair_select">
+                                    <ListView.View>
+                                        <GridView>
+                                            <GridViewColumn Header="#"       Width="34"  DisplayMemberBinding="{Binding [num]}"/>
+                                            <GridViewColumn Header="Label"   Width="170" DisplayMemberBinding="{Binding [label]}"/>
+                                            <GridViewColumn Header="Plane A" Width="150" DisplayMemberBinding="{Binding [plane_a]}"/>
+                                            <GridViewColumn Header="Plane B" Width="150" DisplayMemberBinding="{Binding [plane_b]}"/>
+                                            <GridViewColumn Header="Axis"    Width="70"  DisplayMemberBinding="{Binding [axis]}"/>
+                                        </GridView>
+                                    </ListView.View>
+                                </ListView>
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="110"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Label" Style="{StaticResource FieldLabel}"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="1" Text="Plane A" Style="{StaticResource FieldLabel}"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Plane B" Style="{StaticResource FieldLabel}"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="3" Text="Axis" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox Grid.Row="1" Grid.Column="0" x:Name="TxtPairLabel" Margin="0,3,8,0"/>
+                                    <TextBox Grid.Row="1" Grid.Column="1" x:Name="TxtPlaneA"   Margin="0,3,8,0"/>
+                                    <TextBox Grid.Row="1" Grid.Column="2" x:Name="TxtPlaneB"   Margin="0,3,8,0"/>
+                                    <ComboBox Grid.Row="1" Grid.Column="3" x:Name="CmbAxis">
+                                        <ComboBoxItem Content="width"/>
+                                        <ComboBoxItem Content="height"/>
+                                    </ComboBox>
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <Button Content="Add"    MinWidth="80" Padding="8,2" Click="on_pair_add"/>
+                                    <Button Content="Update" MinWidth="80" Padding="8,2" Margin="8,0,0,0" Click="on_pair_update"/>
+                                    <Button Content="Remove" MinWidth="80" Padding="8,2" Margin="8,0,0,0" Click="on_pair_remove"/>
+                                    <Button Content="Reset to defaults" MinWidth="120" Padding="8,2" Margin="24,0,0,0" Click="on_pair_reset"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+
+                    <!-- ================= UPDATES ================= -->
+                    <StackPanel x:Name="PanelUpdates" Visibility="Collapsed">
+                        <GroupBox Header="GitHub">
+                            <StackPanel>
+                                <DockPanel Margin="0,2,0,8">
+                                    <TextBlock Text="Installed version:" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="TxtInstalledVer" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                </DockPanel>
+                                <TextBlock Text="Repository (owner/repo)" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="TxtRepo"/>
+                                <TextBlock x:Name="HintRepo" Style="{StaticResource Hint}"/>
+                                <TextBlock Text="Access token" Style="{StaticResource FieldLabel}"/>
+                                <PasswordBox x:Name="PwdToken"/>
+                                <TextBlock Text="Only needed for private repositories or API rate limits. Stored in pyMEP_settings.json." Style="{StaticResource Hint}"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Install a specific version">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                    <Button x:Name="BtnLoadVersions" Content="Load versions" MinWidth="110" Padding="8,2" Click="on_load_versions"/>
+                                    <ComboBox x:Name="CmbVersions" Width="220" Margin="10,0,0,0"/>
+                                    <Button x:Name="BtnInstallVersion" Content="Install..." MinWidth="90" Padding="8,2" Margin="10,0,0,0" Click="on_install_version"/>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource Hint}" Margin="0,8,0,0"
+                                           Text="Downloads the chosen version from GitHub and installs it over the live extension (the current folder is removed after a successful install - every version stays reinstallable from here). For the newest version use pyMEP &gt; Install Update in the ribbon."/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+
+                </Grid>
+            </ScrollViewer>
+        </Grid>
+
+        <!-- ============ bottom button bar ============ -->
+        <Border Grid.Row="1" BorderThickness="0,1,0,0" BorderBrush="#DDDDDD" Background="#F5F5F5">
+            <DockPanel Margin="14,10">
+                <Button DockPanel.Dock="Left" Content="Open settings file" MinWidth="120" Padding="8,3" Click="on_open_settings_file"/>
+                <TextBlock x:Name="StatusText" DockPanel.Dock="Left" Margin="14,0,0,0"
+                           VerticalAlignment="Center" Foreground="#666666"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="OK" IsDefault="True" Style="{StaticResource DialogButton}" Click="on_ok"/>
+                    <Button Content="Cancel" Style="{StaticResource DialogButton}" Click="on_cancel"/>
+                    <Button Content="Apply" Style="{StaticResource DialogButton}" Click="on_apply"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>
