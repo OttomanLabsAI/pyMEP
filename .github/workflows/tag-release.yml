@@ -6,6 +6,10 @@ name: tag-release
 #
 # Also manually dispatchable to (re)tag any commit:
 #   Actions > tag-release > Run workflow  (tag + sha inputs, both optional).
+#
+# The GitHub Tags page always sorts by tag CREATION date (no name sort),
+# so retroactive tags are backdated via the 'date' input to keep the page
+# in version order; 'force' replaces an existing tag (fix a date/target).
 
 on:
   push:
@@ -20,6 +24,14 @@ on:
         description: "Commit SHA to tag (blank = current head)"
         required: false
         default: ""
+      date:
+        description: "Tagger date: ISO 8601, or 'commit' = the target commit's date (blank = now)"
+        required: false
+        default: ""
+      force:
+        description: "Set 'true' to replace the tag if it already exists"
+        required: false
+        default: "false"
 
 permissions:
   contents: write
@@ -36,6 +48,8 @@ jobs:
         env:
           IN_TAG: ${{ github.event.inputs.tag }}
           IN_SHA: ${{ github.event.inputs.sha }}
+          IN_DATE: ${{ github.event.inputs.date }}
+          IN_FORCE: ${{ github.event.inputs.force }}
         run: |
           set -e
           TARGET="${IN_SHA:-$GITHUB_SHA}"
@@ -47,12 +61,24 @@ jobs:
             echo "No version found - nothing to tag."
             exit 0
           fi
+          PUSH_ARGS=""
           if git rev-parse -q --verify "refs/tags/$VER" >/dev/null; then
-            echo "Tag $VER already exists - nothing to do."
-            exit 0
+            if [ "$IN_FORCE" != "true" ]; then
+              echo "Tag $VER already exists - nothing to do."
+              exit 0
+            fi
+            git tag -d "$VER"
+            PUSH_ARGS="--force"
+          fi
+          TAG_DATE="$IN_DATE"
+          if [ "$TAG_DATE" = "commit" ]; then
+            TAG_DATE=$(git show -s --format=%cI "$TARGET")
+          fi
+          if [ -n "$TAG_DATE" ]; then
+            export GIT_COMMITTER_DATE="$TAG_DATE"
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$VER" -m "pyMEP $VER" "$TARGET"
-          git push origin "refs/tags/$VER"
-          echo "Tagged $TARGET as $VER"
+          git push $PUSH_ARGS origin "refs/tags/$VER"
+          echo "Tagged $TARGET as $VER (date: ${TAG_DATE:-now})"
