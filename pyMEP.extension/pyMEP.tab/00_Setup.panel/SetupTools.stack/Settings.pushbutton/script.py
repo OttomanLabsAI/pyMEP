@@ -55,8 +55,13 @@ def _read_state():
         "pipe_type":            s2.get("pipe_type_name", "")           or DEFAULT_PIPE_TYPE_NAME,
         "pipe_system":          s2.get("pipe_system_type_name", "")    or DEFAULT_PIPE_SYSTEM_NAME,
         "pipe_host_level":      s2.get("pipe_host_level", "")          or DEFAULT_PIPE_HOST_LEVEL,
+        "auto_close":           False,
         "segment":              (s2.get("landxml_segment_name") or "").strip(),
     }
+    _ac = s2.get("auto_close_output")
+    if isinstance(_ac, str):
+        _ac = _ac.strip().lower() in ("true", "yes", "1", "on", "y")
+    state["auto_close"] = bool(_ac)
     def _lf(key, dflt):
         try:
             v = s2.get(key)
@@ -111,12 +116,14 @@ def _detail_summary(state, category):
             "Python executable:\n  {}\n\n"
             "Default export folder:\n  {}\n\n"
             "Export folder override:\n  {}\n\n"
-            "Active export folder:\n  {}".format(
+            "Active export folder:\n  {}\n\n"
+            "Auto-close output window after each command:\n  {}".format(
                 state["script_folder"] or "(not set)",
                 state["python_exe"] or "python (PATH)",
                 state["auto_folder"],
                 state["export_override"] or "(none - uses default)",
-                state["active_export"]))
+                state["active_export"],
+                "ON" if state["auto_close"] else "OFF"))
     if category == "Ducts":
         return (
             "Duct type (Build Ducts):\n  {}\n\n"
@@ -169,6 +176,7 @@ CATEGORY_ITEMS = {
         "Set export folder override",
         "Clear export folder override",
         "Open active export folder",
+        "Toggle output window auto-close",
         "<- Back",
     ],
     "Ducts": [
@@ -468,6 +476,22 @@ def handle_choice(choice):
                        "EXT_LEFT/RIGHT + EXT_TOP/BOT?", yes=True, no=True):
             # Saving an empty list makes the getter fall back to defaults.
             save_chamber_dim_pairs([])
+
+    elif choice == "Toggle output window auto-close":
+        cur = s.get("auto_close_output")
+        if isinstance(cur, str):
+            cur = cur.strip().lower() in ("true", "yes", "1", "on", "y")
+        new_val = not bool(cur)
+        s["auto_close_output"] = new_val
+        save_settings(s)
+        forms.alert(
+            "Output window auto-close is now: {}\n\n{}".format(
+                "ON" if new_val else "OFF",
+                "Each pyMEP command closes its output window when it "
+                "finishes. Windows with an error report always stay "
+                "open." if new_val else
+                "Output windows stay open after each command (the "
+                "default)."))
 
     elif choice == "Open active export folder":
         path = get_export_folder(doc)

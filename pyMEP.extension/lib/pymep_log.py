@@ -36,6 +36,13 @@ class Logger(object):
         if self._output is not None:
             try: self._output.print_md(msg)
             except: pass
+        # A logged traceback pins the window open regardless of the
+        # auto-close setting - error reports must stay readable.
+        try:
+            if "Traceback (most recent call last)" in msg:
+                self.keep_open = True
+        except Exception:
+            pass
         if self._lf is not None:
             safe = ""
             for ch in msg.replace("**", "").replace("###", "").replace("####", "") \
@@ -50,3 +57,14 @@ class Logger(object):
             try: self._lf.close()
             except: pass
             self._lf = None
+        # Optionally close the command's output window too
+        # (Settings > General > auto-close). Never when an error/
+        # traceback was logged this run.
+        try:
+            if not getattr(self, "keep_open", False) and \
+                    self._output is not None:
+                from pymep_config import get_auto_close_output
+                if get_auto_close_output():
+                    self._output.close()
+        except Exception:
+            pass

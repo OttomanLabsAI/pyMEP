@@ -226,7 +226,8 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `gully_downpipe_length_mm` / `gully_invert_offset_mm` / `gully_slope_ratio` | remembered by the Gully to MH prompts (not in the Settings dialog) |
 | `github_repo` | `owner/repo` the update buttons talk to (default `OttomanLabsAI/pyMEP`; not in the Settings dialog) |
 | `github_token` | optional GitHub personal-access token for Download Latest (private repo / rate limits) |
-| `update_downloads_folder` | override the Downloads folder used by the update buttons |
+| `update_downloads_folder` | override the Downloads folder used by Install Update |
+| `auto_close_output` | close each command's output window when it finishes (error reports stay open) |
 
 ## Lib modules
 
