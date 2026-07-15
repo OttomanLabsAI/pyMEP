@@ -1,539 +1,392 @@
 # -*- coding: utf-8 -*-
-"""pyMEP Settings
+"""pyMEP Settings - one WPF window for every setting.
 
-Configure the conduit_analysis folder, Python executable, and optional
-override for the export folder.
+Layout (SettingsWindow.xaml): category sidebar on the left, the picked
+category's controls on the right, OK / Cancel / Apply at the bottom -
+nothing is written to pyMEP_settings.json until OK or Apply.
 
-Default export folder: <extension root>/exports/<revit filename>/  (auto-created)
+Categories:
+  General      - folders, Python executable, output window auto-close
+  Ducts        - Build Ducts type / system names
+  Pipes        - placement names + the LandXML survey origin
+  Annotate     - duct label suffix, pipe label offset
+  Section Dims - chamber reference-plane dimension pairs
+  Updates      - GitHub repo/token + install any tagged version
 """
 
 __title__ = "Settings"
 __author__ = "Glent Group"
 
 import os
-from pyrevit import forms, revit
+import sys
+
+# Force-reload pymep_* libs so edits on disk always take effect.
+for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
+    del sys.modules[_mod]
+
+from pyrevit import forms, revit, script
+
+from System.Collections import ArrayList, Hashtable
+from System.Windows import Visibility
 
 from pymep_config import (
-    load_settings, save_settings,
-    get_default_export_folder, get_export_folder,
+    load_settings, save_settings, CONFIG_FILE, SCRIPTS_DIR,
+    get_export_folder,
     DEFAULT_DUCT_TYPE_NAME, DEFAULT_DUCT_SYSTEM_NAME,
     DEFAULT_PIPE_TYPE_NAME, DEFAULT_PIPE_SYSTEM_NAME,
     DEFAULT_PIPE_HOST_LEVEL,
     DEFAULT_ANNOTATE_SUFFIX, DEFAULT_ANNOTATE_PIPE_OFFSET_MM,
-    DEFAULT_LANDXML_OFF_E_M, DEFAULT_LANDXML_OFF_N_M,
-    DEFAULT_LANDXML_OFF_Z_M, DEFAULT_LANDXML_ROT_DEG,
+    get_landxml_survey_transform, get_annotate_pipe_offset_mm,
+    get_auto_close_output,
     get_chamber_dim_pairs, save_chamber_dim_pairs,
+    DEFAULT_CHAMBER_DIM_PAIRS,
+    get_local_version, get_github_repo, get_github_token,
+    DEFAULT_GITHUB_REPO,
 )
+import pymep_update as upd
 
 doc = revit.doc
+XAML_FILE = script.get_bundle_file("SettingsWindow.xaml")
 
 
-def _short_or_unset(val, default=None):
-    """Format a setting value for the compact summary, with sensible
-    fallback when not set."""
-    if val is None or val == "":
-        return "({})".format(default if default else "not set")
-    if isinstance(val, float):
-        return "{:.4g}".format(val)
-    return str(val)
+def _default_pairs():
+    return [dict(p) for p in DEFAULT_CHAMBER_DIM_PAIRS]
 
 
-def _read_state():
-    """Re-read settings into a dict every time we redraw the menu, so
-    edits made in submenus appear on return."""
-    s2 = load_settings()
-    state = {
-        "script_folder":        s2.get("script_folder", ""),
-        "python_exe":           s2.get("python_exe", ""),
-        "export_override":      s2.get("export_folder_override", ""),
-        "active_export":        get_export_folder(doc),
-        "auto_folder":          get_default_export_folder(doc),
+class SettingsWindow(forms.WPFWindow):
 
-        "duct_type":            s2.get("duct_type_name", "")           or DEFAULT_DUCT_TYPE_NAME,
-        "duct_system":          s2.get("duct_system_type_name", "")    or DEFAULT_DUCT_SYSTEM_NAME,
+    def __init__(self):
+        forms.WPFWindow.__init__(self, XAML_FILE)
+        self._pairs = get_chamber_dim_pairs()
+        self._versions = []
+        self._load_state()
+        self._refresh_pairs()
+        self.CatList.SelectedIndex = 0
 
-        "pipe_type":            s2.get("pipe_type_name", "")           or DEFAULT_PIPE_TYPE_NAME,
-        "pipe_system":          s2.get("pipe_system_type_name", "")    or DEFAULT_PIPE_SYSTEM_NAME,
-        "pipe_host_level":      s2.get("pipe_host_level", "")          or DEFAULT_PIPE_HOST_LEVEL,
-        "auto_close":           False,
-        "segment":              (s2.get("landxml_segment_name") or "").strip(),
-    }
-    _ac = s2.get("auto_close_output")
-    if isinstance(_ac, str):
-        _ac = _ac.strip().lower() in ("true", "yes", "1", "on", "y")
-    state["auto_close"] = bool(_ac)
-    def _lf(key, dflt):
+    # ------------------------------------------------------------------
+    # state <-> controls
+    # ------------------------------------------------------------------
+    def _load_state(self):
+        s = load_settings()
+
+        # General
+        self.TxtScriptFolder.Text = s.get("script_folder", "") or ""
+        self.HintScriptFolder.Text = (
+            "Blank = the bundled folder: {}".format(SCRIPTS_DIR))
+        self.TxtPythonExe.Text = s.get("python_exe", "") or ""
+        self.TxtExportOverride.Text = s.get("export_folder_override", "") or ""
+        self.ChkAutoClose.IsChecked = get_auto_close_output()
+        self._refresh_active_export()
+
+        # Ducts
+        self.TxtDuctType.Text = s.get("duct_type_name", "") or ""
+        self.HintDuctType.Text = (
+            "Rectangular Revit duct type used by Build Ducts. "
+            "Blank = default: {}".format(DEFAULT_DUCT_TYPE_NAME))
+        self.TxtDuctSystem.Text = s.get("duct_system_type_name", "") or ""
+        self.HintDuctSystem.Text = (
+            "MEP system type assigned to built ducts. "
+            "Blank = default: {}".format(DEFAULT_DUCT_SYSTEM_NAME))
+
+        # Pipes
+        self.TxtPipeType.Text = s.get("pipe_type_name", "") or ""
+        self.HintPipeType.Text = (
+            "Revit pipe type used by Place Pipes. "
+            "Blank = default: {}".format(DEFAULT_PIPE_TYPE_NAME))
+        self.TxtPipeSystem.Text = s.get("pipe_system_type_name", "") or ""
+        self.HintPipeSystem.Text = (
+            "Piping system type assigned to placed pipes. "
+            "Blank = default: {}".format(DEFAULT_PIPE_SYSTEM_NAME))
+        self.TxtPipeLevel.Text = s.get("pipe_host_level", "") or ""
+        self.HintPipeLevel.Text = (
+            "Level placed pipes are hosted on (elevations still come from "
+            "the export's Z values). Blank = default: {}".format(
+                DEFAULT_PIPE_HOST_LEVEL))
+        self.TxtSegment.Text = s.get("landxml_segment_name", "") or ""
+        lx_e, lx_n, lx_z, lx_rot = get_landxml_survey_transform()
+        self.TxtLxE.Text = "{:.4f}".format(lx_e)
+        self.TxtLxN.Text = "{:.4f}".format(lx_n)
+        self.TxtLxZ.Text = "{:.4f}".format(lx_z)
+        self.TxtLxRot.Text = "{:.4f}".format(lx_rot)
+
+        # Annotate
+        self.TxtAnnSuffix.Text = s.get("annotate_suffix", "") or ""
+        self.HintAnnSuffix.Text = (
+            "Appended on the second line of the Annotate Ducts label (the "
+            "first line is generated, e.g. '3x1 - 3No.200'). "
+            "Blank = default: {}".format(DEFAULT_ANNOTATE_SUFFIX))
+        self.TxtAnnOffset.Text = "{:g}".format(get_annotate_pipe_offset_mm())
+        self.HintAnnOffset.Text = (
+            "Perpendicular distance each auto-placed label sits from its "
+            "pipe's midpoint, in model mm. Default: {:g}".format(
+                DEFAULT_ANNOTATE_PIPE_OFFSET_MM))
+
+        # Section Dims
+        self.CmbAxis.SelectedIndex = 0
+
+        # Updates
+        self.TxtInstalledVer.Text = get_local_version() or "(no version.txt)"
+        self.TxtRepo.Text = get_github_repo()
+        self.HintRepo.Text = "Default: {}".format(DEFAULT_GITHUB_REPO)
+        self.PwdToken.Password = get_github_token()
+
+    def _refresh_active_export(self):
         try:
-            v = s2.get(key)
-            return float(v) if v not in (None, "") else dflt
+            active = get_export_folder(doc) if doc else "(no open document)"
+        except Exception:
+            active = "(no open document)"
+        self.TxtActiveExport.Text = "Active export folder:  {}".format(active)
+
+    def _parse_float(self, textbox, what):
+        try:
+            return float(textbox.Text.strip())
         except (TypeError, ValueError):
-            return dflt
-    state["lx_e"]   = _lf("landxml_off_e_m", DEFAULT_LANDXML_OFF_E_M)
-    state["lx_n"]   = _lf("landxml_off_n_m", DEFAULT_LANDXML_OFF_N_M)
-    state["lx_z"]   = _lf("landxml_off_z_m", DEFAULT_LANDXML_OFF_Z_M)
-    state["lx_rot"] = _lf("landxml_rot_deg", DEFAULT_LANDXML_ROT_DEG)
+            forms.alert("'{}' is not a valid number for {}.".format(
+                textbox.Text, what))
+            return None
 
-    state["annotate_suffix"]        = (s2.get("annotate_suffix") or "").strip() or DEFAULT_ANNOTATE_SUFFIX
-    _pipe_off = s2.get("annotate_pipe_offset_mm")
-    try:
-        state["annotate_pipe_offset_mm"] = float(_pipe_off) if _pipe_off is not None else DEFAULT_ANNOTATE_PIPE_OFFSET_MM
-    except (TypeError, ValueError):
-        state["annotate_pipe_offset_mm"] = DEFAULT_ANNOTATE_PIPE_OFFSET_MM
-    try:
-        state["chamber_dim_pair_count"] = len(get_chamber_dim_pairs())
-    except Exception:
-        state["chamber_dim_pair_count"] = 0
-    return state
+    def _apply(self):
+        """Validate + write everything to pyMEP_settings.json. Returns
+        True when saved, False when validation failed (window stays open,
+        nothing written)."""
+        lx_e = self._parse_float(self.TxtLxE, "Easting E0")
+        if lx_e is None:
+            self.CatList.SelectedIndex = 2
+            return False
+        lx_n = self._parse_float(self.TxtLxN, "Northing N0")
+        if lx_n is None:
+            self.CatList.SelectedIndex = 2
+            return False
+        lx_z = self._parse_float(self.TxtLxZ, "Base elevation Z0")
+        if lx_z is None:
+            self.CatList.SelectedIndex = 2
+            return False
+        lx_rot = self._parse_float(self.TxtLxRot, "Rotation")
+        if lx_rot is None:
+            self.CatList.SelectedIndex = 2
+            return False
+        ann_off = self._parse_float(self.TxtAnnOffset, "the label offset")
+        if ann_off is None or ann_off < 0:
+            if ann_off is not None:
+                forms.alert("The label offset must be 0 or more mm.")
+            self.CatList.SelectedIndex = 3
+            return False
 
+        s = load_settings()
+        s["script_folder"] = self.TxtScriptFolder.Text.strip()
+        s["python_exe"] = self.TxtPythonExe.Text.strip()
+        s["export_folder_override"] = self.TxtExportOverride.Text.strip()
+        s["auto_close_output"] = bool(self.ChkAutoClose.IsChecked)
 
-def _category_summary(state):
-    """One-line headline per category, shown next to the category name."""
-    return {
-        "General":              "{} | {}".format(
-                                    _short_or_unset(state["script_folder"], "no script folder"),
-                                    _short_or_unset(state["python_exe"], "python on PATH")),
-        "Ducts":                "{}  /  {}".format(
-                                    _short_or_unset(state["duct_type"]),
-                                    _short_or_unset(state["duct_system"])),
-        "Pipes":                "{}  /  {}  /  level {}  |  LandXML E0 {:.0f} N0 {:.0f} rot {:.2f}".format(
-                                    _short_or_unset(state["pipe_type"]),
-                                    _short_or_unset(state["pipe_system"]),
-                                    state["pipe_host_level"],
-                                    state["lx_e"], state["lx_n"], state["lx_rot"]),
-        "Annotate":             "suffix `{}`  /  pipe offset {:.0f} mm".format(
-                                    _short_or_unset(state["annotate_suffix"]),
-                                    state["annotate_pipe_offset_mm"]),
-        "Section Dims":         "{} chamber dim pair(s)".format(
-                                    state.get("chamber_dim_pair_count", 0)),
-    }
+        s["duct_type_name"] = self.TxtDuctType.Text.strip()
+        s["duct_system_type_name"] = self.TxtDuctSystem.Text.strip()
 
+        s["pipe_type_name"] = self.TxtPipeType.Text.strip()
+        s["pipe_system_type_name"] = self.TxtPipeSystem.Text.strip()
+        s["pipe_host_level"] = self.TxtPipeLevel.Text.strip()
+        s["landxml_segment_name"] = self.TxtSegment.Text.strip()
+        s["landxml_off_e_m"] = lx_e
+        s["landxml_off_n_m"] = lx_n
+        s["landxml_off_z_m"] = lx_z
+        s["landxml_rot_deg"] = lx_rot
 
-def _detail_summary(state, category):
-    """Full info pane shown for a category submenu."""
-    if category == "General":
-        return (
-            "conduit_analysis folder:\n  {}\n\n"
-            "Python executable:\n  {}\n\n"
-            "Default export folder:\n  {}\n\n"
-            "Export folder override:\n  {}\n\n"
-            "Active export folder:\n  {}\n\n"
-            "Auto-close output window after each command:\n  {}".format(
-                state["script_folder"] or "(not set)",
-                state["python_exe"] or "python (PATH)",
-                state["auto_folder"],
-                state["export_override"] or "(none - uses default)",
-                state["active_export"],
-                "ON" if state["auto_close"] else "OFF"))
-    if category == "Ducts":
-        return (
-            "Duct type (Build Ducts):\n  {}\n\n"
-            "Duct MEP system type (Build Ducts):\n  {}".format(
-                state["duct_type"], state["duct_system"]))
-    if category == "Pipes":
-        return (
-            "Pipe type (Place Pipes):\n  {}\n\n"
-            "Pipe system type (Place Pipes):\n  {}\n\n"
-            "Pipe host level (Place Pipes):\n  {}\n\n"
-            "Pipe segment for sizes (Create Pipe Sizes / Place Pipes):\n  {}\n\n"
-            "LandXML survey origin (Place Pipes / Boxes / Cylinders):\n"
-            "  E0={:.4f}  N0={:.4f}  Z0={:.4f} m  rot={:.4f} deg".format(
-                state["pipe_type"], state["pipe_system"],
-                state["pipe_host_level"],
-                state["segment"] or "(not set - picker at run time)",
-                state["lx_e"], state["lx_n"], state["lx_z"], state["lx_rot"]))
-    if category == "Annotate":
-        return (
-            "Suffix text (Annotate Duct Group):\n  {}\n\n"
-            "Appended on the second line of the label produced by\n"
-            "Annotate > Annotate Ducts. The first line is generated\n"
-            "from the selection (e.g. '3x1 - 3No.200\u00d8').\n\n"
-            "Pipe annotation offset (Annotate Pipes):\n  {:.0f} mm\n\n"
-            "Perpendicular distance the auto-placed '{{D}}mm @ 1:{{X}}'\n"
-            "label sits away from each pipe's midpoint, in model mm.".format(
-                state["annotate_suffix"],
-                state["annotate_pipe_offset_mm"]))
-    if category == "Section Dims":
-        pairs = get_chamber_dim_pairs()
-        if not pairs:
-            return ("Chamber dimension pairs (Dimension Section):\n"
-                    "  (none configured)")
-        lines = ["Chamber dimension pairs (Dimension Section):", ""]
-        for i, p in enumerate(pairs):
-            lines.append("  {0}. {1}".format(i + 1, p["label"]))
-            lines.append("      {0} <-> {1}   ({2})".format(
-                p["plane_a"], p["plane_b"], p["axis"]))
-        lines.append("")
-        lines.append("These are reference-plane NAMES in the chamber family.")
-        lines.append("Set each plane's 'Is Reference' to Strong Reference.")
-        return "\n".join(lines)
-    return ""
+        s["annotate_suffix"] = self.TxtAnnSuffix.Text.strip()
+        s["annotate_pipe_offset_mm"] = ann_off
 
+        s["github_repo"] = self.TxtRepo.Text.strip()
+        s["github_token"] = self.PwdToken.Password.strip()
+        save_settings(s)
 
-CATEGORY_ITEMS = {
-    "General": [
-        "Set conduit_analysis folder",
-        "Set Python executable",
-        "Set export folder override",
-        "Clear export folder override",
-        "Open active export folder",
-        "Toggle output window auto-close",
-        "Downgrade / reinstall a version (GitHub)",
-        "<- Back",
-    ],
-    "Ducts": [
-        "Set duct type name",
-        "Set duct MEP system type name",
-        "<- Back",
-    ],
-    "Pipes": [
-        "Set pipe type name",
-        "Set pipe system type name",
-        "Set pipe host level name",
-        "Set pipe segment name (sizes)",
-        "Set LandXML survey origin (E/N/Z/rot)",
-        "<- Back",
-    ],
-    "Annotate": [
-        "Set annotate suffix text",
-        "Set pipe annotation offset (mm)",
-        "<- Back",
-    ],
-    "Section Dims": [
-        "List chamber dimension pairs",
-        "Add a chamber dimension pair",
-        "Edit a chamber dimension pair",
-        "Remove a chamber dimension pair",
-        "Reset chamber dimension pairs to default",
-        "<- Back",
-    ],
-}
+        # Saving [] keeps the 'fall back to the shipped defaults' baseline,
+        # so an unedited default set follows future extension updates.
+        if self._pairs == _default_pairs():
+            save_chamber_dim_pairs([])
+        else:
+            save_chamber_dim_pairs(self._pairs)
 
-CATEGORY_ORDER = ["General", "Ducts", "Pipes", "Annotate",
-                  "Section Dims"]
+        self._refresh_active_export()
+        self.StatusText.Text = "Saved."
+        return True
 
+    # ------------------------------------------------------------------
+    # navigation
+    # ------------------------------------------------------------------
+    def on_category_changed(self, sender, args):
+        panels = [self.PanelGeneral, self.PanelDucts, self.PanelPipes,
+                  self.PanelAnnotate, self.PanelDims, self.PanelUpdates]
+        idx = self.CatList.SelectedIndex
+        for i, panel in enumerate(panels):
+            panel.Visibility = (
+                Visibility.Visible if i == idx else Visibility.Collapsed)
 
-def handle_choice(choice):
-    """Run the editor for `choice`. Reloads settings fresh so a save here
-    never clobbers edits made elsewhere in the same session (e.g. the
-    chamber-dim-pair editors save through their own load_settings())."""
-    s = load_settings()
-
-    if choice == "Set conduit_analysis folder":
+    # ------------------------------------------------------------------
+    # General
+    # ------------------------------------------------------------------
+    def on_browse_script(self, sender, args):
         folder = forms.pick_folder(
             title="Pick the conduit_analysis folder (contains run_analysis.py)")
         if folder:
-            s["script_folder"] = folder
-            save_settings(s)
+            self.TxtScriptFolder.Text = folder
 
-    elif choice == "Set Python executable":
-        txt = forms.ask_for_string(
-            prompt="Full path to python.exe, or just 'python' if on PATH:",
-            default=s.get("python_exe") or "python",
-            title="Python executable")
-        if txt is not None:
-            s["python_exe"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set export folder override":
+    def on_browse_export(self, sender, args):
         folder = forms.pick_folder(
             title="Pick an export folder (overrides the default)")
         if folder:
-            s["export_folder_override"] = folder
-            save_settings(s)
+            self.TxtExportOverride.Text = folder
 
-    elif choice == "Clear export folder override":
-        s["export_folder_override"] = ""
-        save_settings(s)
+    def on_clear_export(self, sender, args):
+        self.TxtExportOverride.Text = ""
 
-    elif choice == "Set duct type name":
-        txt = forms.ask_for_string(
-            prompt="Name of the rectangular Revit duct type to use for\n"
-                   "Build Ducts (e.g. 'Mitred Elbows / Taps').",
-            default=s.get("duct_type_name") or "",
-            title="Duct type name")
-        if txt is not None:
-            s["duct_type_name"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set duct MEP system type name":
-        txt = forms.ask_for_string(
-            prompt="Name of the Revit MEP system type to assign to ducts\n"
-                   "(e.g. 'Supply Air', 'Mechanical Return Air').",
-            default=s.get("duct_system_type_name") or "",
-            title="Duct MEP system type name")
-        if txt is not None:
-            s["duct_system_type_name"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set pipe type name":
-        txt = forms.ask_for_string(
-            prompt="Name of the Revit pipe type used by\n"
-                   "Place Pipes (e.g. 'Standard').",
-            default=s.get("pipe_type_name") or "",
-            title="Pipe type name")
-        if txt is not None:
-            s["pipe_type_name"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set pipe system type name":
-        txt = forms.ask_for_string(
-            prompt="Name of the Revit piping system type to assign to pipes\n"
-                   "(e.g. 'Domestic Cold Water', 'Sanitary').",
-            default=s.get("pipe_system_type_name") or "",
-            title="Pipe system type name")
-        if txt is not None:
-            s["pipe_system_type_name"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set pipe host level name":
-        txt = forms.ask_for_string(
-            prompt="Name of the Revit Level to host placed pipes on.\n"
-                   "Pipe end elevations still come from the export's Z values;\n"
-                   "the host level is just Revit's reference (e.g. 'LVL 0.00').",
-            default=s.get("pipe_host_level") or "",
-            title="Pipe host level name")
-        if txt is not None:
-            s["pipe_host_level"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set pipe segment name (sizes)":
-        txt = forms.ask_for_string(
-            prompt="Name of the Revit pipe Segment that Create Pipe Sizes\n"
-                   "and Place Pipes add the export's circular sizes to.\n"
-                   "Leave blank to be prompted at run time.",
-            default=s.get("landxml_segment_name") or "",
-            title="Pipe segment name")
-        if txt is not None:
-            s["landxml_segment_name"] = txt.strip()
-            save_settings(s)
-
-    elif choice == "Set LandXML survey origin (E/N/Z/rot)":
+    def on_open_export(self, sender, args):
         try:
-            from pymep_config import get_landxml_survey_transform
-            ce, cn, cz, crot = get_landxml_survey_transform()
+            path = get_export_folder(doc) if doc else ""
         except Exception:
-            ce, cn, cz, crot = (float(s.get("landxml_off_e_m", 0.0) or 0.0),
-                                float(s.get("landxml_off_n_m", 0.0) or 0.0),
-                                float(s.get("landxml_off_z_m", 0.0) or 0.0),
-                                float(s.get("landxml_rot_deg", 0.0) or 0.0))
-        default_str = "{:.4f}, {:.4f}, {:.4f}, {:.4f}".format(ce, cn, cz, crot)
-        txt = forms.ask_for_string(
-            prompt="Survey origin + rotation for the Place Pipes / Place\n"
-                   "Boxes / Cylinders buttons. Four comma-separated values:\n"
-                   "  E0, N0, Z0, rotation\n\n"
-                   "  E0, N0 = the model's Project Base Point survey easting /\n"
-                   "           northing in METRES (Manage > Coordinates, or the\n"
-                   "           PBP tag E/W and N/S). Subtracted from each\n"
-                   "           LandXML point before rotation.\n"
-                   "  Z0     = base elevation in metres to subtract (0 keeps\n"
-                   "           absolute AOD elevations - the usual case).\n"
-                   "  rot    = Angle to True North in DEGREES.\n\n"
-                   "Example (HNU1A):\n"
-                   "  3498151.6589, 5554088.8918, 0, 40.36\n\n"
-                   "If the placed network is mirrored / rotated the wrong way,\n"
-                   "negate the rotation (e.g. 40.36 -> -40.36) and re-run.",
-            default=default_str,
-            title="LandXML survey origin (E/N/Z/rot)")
-        if txt is not None:
-            try:
-                parts = [p.strip() for p in txt.split(",")]
-                if len(parts) != 4:
-                    raise ValueError("need four comma-separated numbers: "
-                                     "E0, N0, Z0, rot")
-                ev, nv, zv, rv = (float(parts[0]), float(parts[1]),
-                                  float(parts[2]), float(parts[3]))
-                s["landxml_off_e_m"] = ev
-                s["landxml_off_n_m"] = nv
-                s["landxml_off_z_m"] = zv
-                s["landxml_rot_deg"] = rv
-                save_settings(s)
-            except Exception as ex:
-                forms.alert("Could not parse survey origin:\n\n{}".format(ex))
+            path = ""
+        if path and os.path.isdir(path):
+            os.startfile(path)
+        else:
+            forms.alert("Folder does not exist:\n{}".format(
+                path or "(no open document)"))
 
-    elif choice == "Set annotate suffix text":
-        cur = s.get("annotate_suffix", "")
-        txt = forms.ask_for_string(
-            prompt="Suffix text appended on the second line of the\n"
-                   "duct-group label produced by Annotate > Annotate Ducts.\n\n"
-                   "Example: 'PVCU DUCTS', 'HDPE DUCTS', 'LV CONDUITS'.\n\n"
-                   "The first line is generated from the selection\n"
-                   "(e.g. '3x1 - 3No.200\u00d8').",
-            default=cur or "PVCU DUCTS",
-            title="Annotate suffix text")
-        if txt is not None:
-            s["annotate_suffix"] = txt.strip()
-            save_settings(s)
+    # ------------------------------------------------------------------
+    # Section Dims
+    # ------------------------------------------------------------------
+    def _refresh_pairs(self, select_index=-1):
+        # .NET Hashtables, not Python dicts: the WPF binding engine can
+        # only see the indexer on real .NET collection types.
+        items = ArrayList()
+        for i, p in enumerate(self._pairs):
+            row = Hashtable()
+            row["num"] = str(i + 1)
+            row["label"] = p["label"]
+            row["plane_a"] = p["plane_a"]
+            row["plane_b"] = p["plane_b"]
+            row["axis"] = p["axis"]
+            items.Add(row)
+        self.LstPairs.ItemsSource = items
+        if 0 <= select_index < items.Count:
+            self.LstPairs.SelectedIndex = select_index
 
-    elif choice == "Set pipe annotation offset (mm)":
-        cur = s.get("annotate_pipe_offset_mm", DEFAULT_ANNOTATE_PIPE_OFFSET_MM)
+    def _pair_from_fields(self):
+        pa = self.TxtPlaneA.Text.strip()
+        pb = self.TxtPlaneB.Text.strip()
+        if not pa or not pb:
+            forms.alert("Both reference-plane names (Plane A and Plane B) "
+                        "are needed.")
+            return None
+        axis = "height" if self.CmbAxis.SelectedIndex == 1 else "width"
+        label = self.TxtPairLabel.Text.strip() or "{} / {}".format(pa, pb)
+        return {"label": label, "plane_a": pa, "plane_b": pb, "axis": axis}
+
+    def on_pair_select(self, sender, args):
+        idx = self.LstPairs.SelectedIndex
+        if idx < 0 or idx >= len(self._pairs):
+            return
+        p = self._pairs[idx]
+        self.TxtPairLabel.Text = p["label"]
+        self.TxtPlaneA.Text = p["plane_a"]
+        self.TxtPlaneB.Text = p["plane_b"]
+        self.CmbAxis.SelectedIndex = 1 if p["axis"] == "height" else 0
+
+    def on_pair_add(self, sender, args):
+        pair = self._pair_from_fields()
+        if pair:
+            self._pairs.append(pair)
+            self._refresh_pairs(len(self._pairs) - 1)
+
+    def on_pair_update(self, sender, args):
+        idx = self.LstPairs.SelectedIndex
+        if idx < 0 or idx >= len(self._pairs):
+            forms.alert("Pick the pair to update in the list first.")
+            return
+        pair = self._pair_from_fields()
+        if pair:
+            self._pairs[idx] = pair
+            self._refresh_pairs(idx)
+
+    def on_pair_remove(self, sender, args):
+        idx = self.LstPairs.SelectedIndex
+        if idx < 0 or idx >= len(self._pairs):
+            forms.alert("Pick the pair to remove in the list first.")
+            return
+        del self._pairs[idx]
+        self._refresh_pairs(min(idx, len(self._pairs) - 1))
+
+    def on_pair_reset(self, sender, args):
+        self._pairs = _default_pairs()
+        self._refresh_pairs()
+
+    # ------------------------------------------------------------------
+    # Updates
+    # ------------------------------------------------------------------
+    def on_load_versions(self, sender, args):
+        repo = self.TxtRepo.Text.strip() or DEFAULT_GITHUB_REPO
+        token = self.PwdToken.Password.strip()
+        self.StatusText.Text = "Contacting GitHub..."
         try:
-            cur = float(cur)
-        except (TypeError, ValueError):
-            cur = DEFAULT_ANNOTATE_PIPE_OFFSET_MM
-        txt = forms.ask_for_string(
-            prompt="Perpendicular offset, in model mm, for each auto-placed\n"
-                   "'{D}mm @ 1:{X}' label produced by Annotate > Annotate Pipes.\n\n"
-                   "Default: 500. Larger values push the label further from\n"
-                   "the pipe. The leader still draws back to the pipe midpoint.",
-            default="{:g}".format(cur),
-            title="Pipe annotation offset (mm)")
-        if txt is not None:
-            try:
-                v = float(txt.strip())
-                if v >= 0:
-                    s["annotate_pipe_offset_mm"] = v
-                    save_settings(s)
-            except (TypeError, ValueError):
-                pass
-
-    elif choice == "List chamber dimension pairs":
-        pairs = get_chamber_dim_pairs()
-        if not pairs:
-            forms.alert("No chamber dimension pairs configured.")
-        else:
-            lines = []
-            for i, p in enumerate(pairs):
-                lines.append("{0}. {1}: {2} <-> {3} ({4})".format(
-                    i + 1, p["label"], p["plane_a"], p["plane_b"], p["axis"]))
-            forms.alert("Chamber dimension pairs:\n\n" + "\n".join(lines))
-
-    elif choice == "Add a chamber dimension pair":
-        label = forms.ask_for_string(
-            prompt="Label for this dimension (e.g. 'External Width').",
-            default="External Width", title="Pair label")
-        if label:
-            pa = forms.ask_for_string(
-                prompt="First reference-plane NAME in the chamber family\n"
-                       "(e.g. EXT_LEFT). Must match the family exactly.",
-                default="EXT_LEFT", title="Plane A name")
-            if pa:
-                pb = forms.ask_for_string(
-                    prompt="Opposite reference-plane NAME (e.g. EXT_RIGHT).",
-                    default="EXT_RIGHT", title="Plane B name")
-                if pb:
-                    axis = forms.SelectFromList.show(
-                        ["width", "height"],
-                        title="Axis: width (horizontal) or height (vertical)?",
-                        button_name="Use this axis")
-                    if axis:
-                        pairs = get_chamber_dim_pairs()
-                        pairs.append({"label": label.strip(),
-                                      "plane_a": pa.strip(),
-                                      "plane_b": pb.strip(),
-                                      "axis": axis})
-                        save_chamber_dim_pairs(pairs)
-
-    elif choice == "Edit a chamber dimension pair":
-        pairs = get_chamber_dim_pairs()
-        if not pairs:
-            forms.alert("No pairs to edit. Add one first.")
-        else:
-            labels = ["{0}. {1} ({2} <-> {3})".format(
-                i + 1, p["label"], p["plane_a"], p["plane_b"])
-                for i, p in enumerate(pairs)]
-            pick = forms.SelectFromList.show(
-                labels, title="Which pair to edit?", button_name="Edit")
-            if pick:
-                idx = labels.index(pick)
-                p = pairs[idx]
-                label = forms.ask_for_string(
-                    prompt="Label.", default=p["label"], title="Pair label")
-                if label is not None:
-                    pa = forms.ask_for_string(
-                        prompt="Plane A name.", default=p["plane_a"],
-                        title="Plane A name")
-                    pb = forms.ask_for_string(
-                        prompt="Plane B name.", default=p["plane_b"],
-                        title="Plane B name")
-                    axis = forms.SelectFromList.show(
-                        ["width", "height"],
-                        title="Axis (current: {0})".format(p["axis"]),
-                        button_name="Use this axis")
-                    pairs[idx] = {
-                        "label": (label or p["label"]).strip(),
-                        "plane_a": (pa or p["plane_a"]).strip(),
-                        "plane_b": (pb or p["plane_b"]).strip(),
-                        "axis": axis or p["axis"],
-                    }
-                    save_chamber_dim_pairs(pairs)
-
-    elif choice == "Remove a chamber dimension pair":
-        pairs = get_chamber_dim_pairs()
-        if not pairs:
-            forms.alert("No pairs to remove.")
-        else:
-            labels = ["{0}. {1} ({2} <-> {3})".format(
-                i + 1, p["label"], p["plane_a"], p["plane_b"])
-                for i, p in enumerate(pairs)]
-            pick = forms.SelectFromList.show(
-                labels, title="Which pair to remove?", button_name="Remove")
-            if pick:
-                idx = labels.index(pick)
-                del pairs[idx]
-                save_chamber_dim_pairs(pairs)
-
-    elif choice == "Reset chamber dimension pairs to default":
-        if forms.alert("Reset chamber dimension pairs to the default "
-                       "EXT_LEFT/RIGHT + EXT_TOP/BOT?", yes=True, no=True):
-            # Saving an empty list makes the getter fall back to defaults.
-            save_chamber_dim_pairs([])
-
-    elif choice == "Downgrade / reinstall a version (GitHub)":
-        import pymep_update as upd
-        from pymep_config import (
-            get_github_repo, get_github_token, get_local_version,
-        )
-        repo = get_github_repo()
-        token = get_github_token()
-        cur = get_local_version()
-        try:
-            versions = upd.list_versions(repo, token)
+            self._versions = upd.list_versions(repo, token)
         except Exception as ex:
+            self._versions = []
+            self.StatusText.Text = ""
             forms.alert(
-                "Couldn't list versions from GitHub ({}):\n\n{}\n\nIf "
-                "the repository is private, set the 'github_token' key in "
-                "pyMEP_settings.json.".format(repo, ex))
+                "Couldn't list versions from GitHub ({}):\n\n{}\n\nIf the "
+                "repository is private, fill in the access token above."
+                .format(repo, ex))
             return
-        if not versions:
+        cur = get_local_version()
+        self.CmbVersions.Items.Clear()
+        for v in self._versions:
+            self.CmbVersions.Items.Add(
+                v + ("   (installed)" if v == cur else ""))
+        if self._versions:
+            self.CmbVersions.SelectedIndex = 0
+            self.StatusText.Text = "{} versions found.".format(
+                len(self._versions))
+        else:
+            self.StatusText.Text = ""
             forms.alert("No tagged versions found on {}.".format(repo))
+
+    def on_install_version(self, sender, args):
+        idx = self.CmbVersions.SelectedIndex
+        if idx < 0 or idx >= len(self._versions):
+            forms.alert("Click 'Load versions' and pick a version first.")
             return
-        labels = [v + ("   (installed)" if v == cur else "")
-                  for v in versions]
-        pick = forms.SelectFromList.show(
-            labels,
-            title="Install which pyMEP version?",
-            button_name="Install this version",
-            multiselect=False,
-            info="Newest first. The chosen version is downloaded from "
-                 "GitHub and installed over the live extension; the "
-                 "current folder is removed after a successful install.")
-        if not pick:
-            return
-        ver = pick.split()[0]
+        ver = self._versions[idx]
+        repo = self.TxtRepo.Text.strip() or DEFAULT_GITHUB_REPO
+        token = self.PwdToken.Password.strip()
+        cur = get_local_version()
         if forms.alert(
-                "Install {} over the live extension (currently {})?"
+                "Install {} over the live extension (currently {})?\n\n"
+                "The current version's folder is removed after a successful "
+                "install - every version stays reinstallable from here."
                 .format(ver, cur or "(no version.txt)"),
-                title="Downgrade / reinstall",
+                title="Install version",
                 options=["Install", "Cancel"]) != "Install":
             return
-        zip_path = upd.download_extension_zip(ver, upd.zip_url_for(repo, ver),
-                                              repo=repo, token=token)
+        self.StatusText.Text = "Downloading {}...".format(ver)
+        zip_path = upd.download_extension_zip(
+            ver, upd.zip_url_for(repo, ver), repo=repo, token=token)
         if zip_path is None:
+            self.StatusText.Text = ""
             forms.alert(
                 "Download of {} failed - nothing was changed.\n\nIf the "
-                "repository is private, set the 'github_token' key in "
-                "pyMEP_settings.json.".format(ver))
+                "repository is private, fill in the access token above."
+                .format(ver))
             return
         try:
             new_ver = upd.deploy_zip(zip_path)
         except Exception as ex:
+            self.StatusText.Text = ""
             forms.alert("{}".format(ex))
             return
+        self.TxtInstalledVer.Text = new_ver or ver
+        self.StatusText.Text = "Installed {}.".format(new_ver or ver)
         if forms.alert(
                 "Installed {}.\n\nReload pyRevit now so it is live?"
                 .format(new_ver or ver),
                 title="Installed",
                 options=["Reload pyRevit", "Later"]) == "Reload pyRevit":
+            self.Close()
             try:
                 from pyrevit.loader import sessionmgr
                 sessionmgr.reload_pyrevit()
@@ -542,69 +395,26 @@ def handle_choice(choice):
                     "Automatic reload failed ({}).\n\nReload manually: "
                     "pyRevit tab > Reload.".format(ex))
 
-    elif choice == "Toggle output window auto-close":
-        cur = s.get("auto_close_output")
-        if isinstance(cur, str):
-            cur = cur.strip().lower() in ("true", "yes", "1", "on", "y")
-        new_val = not bool(cur)
-        s["auto_close_output"] = new_val
-        save_settings(s)
-        forms.alert(
-            "Output window auto-close is now: {}\n\n{}".format(
-                "ON" if new_val else "OFF",
-                "Each pyMEP command closes its output window when it "
-                "finishes. Windows with an error report always stay "
-                "open." if new_val else
-                "Output windows stay open after each command (the "
-                "default)."))
+    # ------------------------------------------------------------------
+    # bottom bar
+    # ------------------------------------------------------------------
+    def on_open_settings_file(self, sender, args):
+        if not os.path.exists(CONFIG_FILE):
+            save_settings(load_settings())
+        try:
+            os.startfile(CONFIG_FILE)
+        except Exception as ex:
+            forms.alert("Couldn't open {}:\n{}".format(CONFIG_FILE, ex))
 
-    elif choice == "Open active export folder":
-        path = get_export_folder(doc)
-        if path and os.path.isdir(path):
-            os.startfile(path)
-        else:
-            forms.alert("Folder does not exist:\n{}".format(path))
+    def on_ok(self, sender, args):
+        if self._apply():
+            self.Close()
+
+    def on_apply(self, sender, args):
+        self._apply()
+
+    def on_cancel(self, sender, args):
+        self.Close()
 
 
-# ---------------------------------------------------------------------------
-# Two-level dialog: category browser -> settings within category.
-# ---------------------------------------------------------------------------
-while True:
-    state    = _read_state()
-    cat_blurbs = _category_summary(state)
-
-    # Decorate each category line with its compact summary so the user
-    # can see relevant values at a glance.
-    items = []
-    for cat in CATEGORY_ORDER:
-        items.append("{}    -    {}".format(cat, cat_blurbs[cat]))
-    items.append("Close")
-
-    cat_choice = forms.SelectFromList.show(
-        items,
-        title="pyMEP Settings",
-        button_name="Open",
-        multiselect=False,
-        info="Pick a category. Each row shows current values at a glance.")
-
-    if not cat_choice or cat_choice == "Close":
-        break
-
-    # Strip the suffix back off to recover the bare category name.
-    chosen_cat = cat_choice.split("    -    ", 1)[0].strip()
-    if chosen_cat not in CATEGORY_ITEMS:
-        continue
-
-    # Inner loop: stays inside the picked category until "<- Back".
-    while True:
-        state = _read_state()
-        info  = _detail_summary(state, chosen_cat)
-        item_choice = forms.SelectFromList.show(
-            CATEGORY_ITEMS[chosen_cat],
-            title="pyMEP Settings - {}".format(chosen_cat),
-            button_name="Do it",
-            multiselect=False,
-            info=info)
-        if not item_choice or item_choice == "<- Back":
-            break
-        handle_choice(item_choice)
+SettingsWindow().ShowDialog()
