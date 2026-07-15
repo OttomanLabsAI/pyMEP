@@ -23,3 +23,13 @@ Use **pyMEP > Install Update** in the ribbon to download and deploy the
 newest tagged version in one go (or `supersede_pyExtensions.py` outside
 Revit). The deployed version is recorded in
 `pyMEP.extension/version.txt` and matches the git tag.
+
+## History
+
+Development started before this repository existed. The 13 surviving
+pre-git snapshots were imported as dated commits (branch
+`archive/pre-git`, merged into `main`'s ancestry) and tagged
+**v0.1.1 - v0.1.13**, so every version of pyMEP - including the
+pre-git ones - can be reinstalled from
+**Settings > General > Downgrade / reinstall a version (GitHub)**.
+Tagged history proper starts at **v0.2.0**.
