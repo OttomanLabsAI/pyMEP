@@ -56,13 +56,19 @@ GitHub (latest release, else newest tag, else the default branch) and
 installs it in one go: the repo zip is repackaged into
 `Downloads\pyMEP.extension.zip` (staged write - a failed download never
 leaves a truncated zip; if the download fails an existing zip in
-Downloads is offered instead), the current folder moves to
-`00 - Superseded\pyMEP\pyMEP.extension_<timestamp>`, the new version is
-extracted into place and archived alongside, then pyRevit offers to
-reload. Every failure after the move rolls the previous version back; if
-Windows won't release the live folder, nothing is touched and it points
-you at `supersede_pyExtensions.py`. Uses the `github_repo` /
-`github_token` / `update_downloads_folder` settings keys.
+Downloads is offered instead), then deployed atomically. The previous
+version's folder and the zip are REMOVED after a successful install -
+there is no superseded archive; any version stays one click away in
+*Settings > General > Downgrade / reinstall a version*. Every failure
+after the swap restores the previous version; if Windows won't release
+the live folder, nothing is touched and it points you at
+`supersede_pyExtensions.py`. Uses the `github_repo` / `github_token` /
+`update_downloads_folder` settings keys.
+
+The Settings dialog's General section also holds **Downgrade / reinstall
+a version (GitHub)**: a dropdown of every tagged version (newest first,
+installed one marked) - pick one and it downloads and installs exactly
+like Install Update.
 
 ### Civil 3D Conversion
 
@@ -252,12 +258,13 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 
 ## Updating
 
-Deployed copies are updated from GitHub, keeping the old version:
+Deployed copies are updated from GitHub:
 
 **Install Update** (pyMEP panel) downloads the newest tagged
-`pyMEP.extension` from the repo and deploys it - the live folder moves to
-`00 - Superseded\pyMEP\pyMEP.extension_<timestamp>` first. Outside Revit,
+`pyMEP.extension` from the repo and deploys it atomically (the previous
+folder is removed after success - reinstall any version from
+*Settings > General > Downgrade / reinstall*). Outside Revit,
 `supersede_pyExtensions.py` (repo root) deploys a downloaded
-`Downloads\pyMEP.extension.zip` the same way.
+`Downloads\pyMEP.extension.zip`, keeping a superseded copy.
 
 The deployed version is recorded in `version.txt` (matches the git tag).

@@ -177,6 +177,7 @@ CATEGORY_ITEMS = {
         "Clear export folder override",
         "Open active export folder",
         "Toggle output window auto-close",
+        "Downgrade / reinstall a version (GitHub)",
         "<- Back",
     ],
     "Ducts": [
@@ -476,6 +477,70 @@ def handle_choice(choice):
                        "EXT_LEFT/RIGHT + EXT_TOP/BOT?", yes=True, no=True):
             # Saving an empty list makes the getter fall back to defaults.
             save_chamber_dim_pairs([])
+
+    elif choice == "Downgrade / reinstall a version (GitHub)":
+        import pymep_update as upd
+        from pymep_config import (
+            get_github_repo, get_github_token, get_local_version,
+        )
+        repo = get_github_repo()
+        token = get_github_token()
+        cur = get_local_version()
+        try:
+            versions = upd.list_versions(repo, token)
+        except Exception as ex:
+            forms.alert(
+                "Couldn't list versions from GitHub ({}):\n\n{}\n\nIf "
+                "the repository is private, set the 'github_token' key in "
+                "pyMEP_settings.json.".format(repo, ex))
+            return
+        if not versions:
+            forms.alert("No tagged versions found on {}.".format(repo))
+            return
+        labels = [v + ("   (installed)" if v == cur else "")
+                  for v in versions]
+        pick = forms.SelectFromList.show(
+            labels,
+            title="Install which pyMEP version?",
+            button_name="Install this version",
+            multiselect=False,
+            info="Newest first. The chosen version is downloaded from "
+                 "GitHub and installed over the live extension; the "
+                 "current folder is removed after a successful install.")
+        if not pick:
+            return
+        ver = pick.split()[0]
+        if forms.alert(
+                "Install {} over the live extension (currently {})?"
+                .format(ver, cur or "(no version.txt)"),
+                title="Downgrade / reinstall",
+                options=["Install", "Cancel"]) != "Install":
+            return
+        zip_path = upd.download_extension_zip(ver, upd.zip_url_for(repo, ver),
+                                              repo=repo, token=token)
+        if zip_path is None:
+            forms.alert(
+                "Download of {} failed - nothing was changed.\n\nIf the "
+                "repository is private, set the 'github_token' key in "
+                "pyMEP_settings.json.".format(ver))
+            return
+        try:
+            new_ver = upd.deploy_zip(zip_path)
+        except Exception as ex:
+            forms.alert("{}".format(ex))
+            return
+        if forms.alert(
+                "Installed {}.\n\nReload pyRevit now so it is live?"
+                .format(new_ver or ver),
+                title="Installed",
+                options=["Reload pyRevit", "Later"]) == "Reload pyRevit":
+            try:
+                from pyrevit.loader import sessionmgr
+                sessionmgr.reload_pyrevit()
+            except Exception as ex:
+                forms.alert(
+                    "Automatic reload failed ({}).\n\nReload manually: "
+                    "pyRevit tab > Reload.".format(ex))
 
     elif choice == "Toggle output window auto-close":
         cur = s.get("auto_close_output")
