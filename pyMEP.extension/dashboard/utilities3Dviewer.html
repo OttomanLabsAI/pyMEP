@@ -1174,6 +1174,7 @@ applyTheme(); update(); tick();
           var sname = attr(attrs,"name") || "(unnamed)";
           curStruct = {name:sname, desc:attr(attrs,"desc")||"",
                        rim:num(attr(attrs,"elevRim")),
+                       sump:num(attr(attrs,"elevSump")),
                        x:null, y:null, inverts:[],
                        shape:null, d1:null, d2:null, material:null};
           structsByName[sname] = curStruct;
@@ -1280,11 +1281,16 @@ applyTheme(); update(); tick();
     if (z === null && st.rim !== null) z = st.rim - 0.05;
     return z;
   }
-  function lowestInvert(st){
-    var lows = [], i;
-    for (i = 0; i < st.inverts.length; i++)
-      if (st.inverts[i].elev !== null) lows.push(st.inverts[i].elev);
-    return lows.length ? Math.min.apply(null, lows) : null;
+  function structLevels(st){
+    /* Chamber levels come from the Struct's OWN elevRim / elevSump
+       attributes - NEVER from connected pipe inverts (deriving the sump
+       from inverts made every invert-less draw pit export with
+       depth 0, floating at cover level). Missing elevSump -> a nominal
+       1.2 m deep pit below the rim. */
+    var rim = st.rim, sump = st.sump;
+    if (sump === null) sump = (rim !== null ? rim : 0) - 1.2;
+    if (rim === null || rim <= sump) rim = sump + 1.2;
+    return {rim:rim, sump:sump};
   }
   function withNet(name, net){
     var sfx = " (" + net + ")";
@@ -1318,13 +1324,11 @@ applyTheme(); update(); tick();
           minN = Math.min(minN, st.y); maxN = Math.max(maxN, st.y);
           return;
         }
-        var low = lowestInvert(st);
-        var rim = st.rim !== null ? st.rim : (low !== null ? low : 0);
-        var sump = low !== null ? low : rim;
-        srows.push({st:st, rim:rim, sump:sump});
+        var lv = structLevels(st);
+        srows.push({st:st, rim:lv.rim, sump:lv.sump});
         minE = Math.min(minE, st.x); maxE = Math.max(maxE, st.x);
         minN = Math.min(minN, st.y); maxN = Math.max(maxN, st.y);
-        zs.push(rim, sump);
+        zs.push(lv.rim, lv.sump);
       });
       nw.pipes.forEach(function(pp){
         if (pp.dead){ omitted++; return; }
@@ -1377,9 +1381,8 @@ applyTheme(); update(); tick();
 
     if (nullStructs.length){
       var nrows = nullStructs.map(function(st){
-        var low = lowestInvert(st);
-        var rim = st.rim !== null ? st.rim : (low !== null ? low : 0);
-        var sump = low !== null ? low : rim;
+        var lv = structLevels(st);
+        var rim = lv.rim, sump = lv.sump;
         zs.push(rim, sump);
         totS++;
         return [st.name, st.desc || "Dummy null structure",
