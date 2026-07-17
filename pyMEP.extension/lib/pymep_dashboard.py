@@ -41,7 +41,7 @@ from pymep_structures_place import (
     _activate, _set_named_param_length_m,
 )
 
-__version__ = "1.8"
+__version__ = "1.9"
 
 EXPORT_KIND = "ol-utilities-structures"
 
@@ -237,6 +237,101 @@ def probe_instance_param_names(doc, symbol):
         except Exception:
             pass
     return sorted(names)
+
+
+def detect_vertical_anchor(doc, symbol, h_param_name, test_h_m=3.0):
+    """Where the family's insertion point sits vertically: drive its
+    height parameter to ``test_h_m`` on a throwaway instance (inside a
+    transaction that is ALWAYS rolled back - nothing stays in the model),
+    then read the bounding box around the placement point.
+
+    Returns (anchor, detail):
+      ('base',   detail) - bbox ~ [0, +H]      family grows UP
+      ('top',    detail) - bbox ~ [-H, 0]      family grows DOWN
+      ('center', detail) - bbox ~ [-H/2, +H/2] origin at mid-height
+      (None,     reason) - could not tell (param not drivable, no
+                           bounding box, creation failed, ...)
+    """
+    lvl = None
+    for l in FilteredElementCollector(doc).OfClass(Level):
+        lvl = l
+        break
+    t = Transaction(doc, "Probe family vertical origin")
+    t.Start()
+    try:
+        try:
+            _activate(doc, symbol)
+        except Exception:
+            pass
+        inst = None
+        if lvl is not None:
+            try:
+                inst = doc.Create.NewFamilyInstance(
+                    XYZ(0, 0, 0), symbol, lvl, StructuralType.NonStructural)
+            except Exception:
+                inst = None
+        if inst is None:
+            inst = doc.Create.NewFamilyInstance(
+                XYZ(0, 0, 0), symbol, StructuralType.NonStructural)
+
+        drove = False
+        for p in inst.GetParameters(h_param_name):
+            try:
+                if p.IsReadOnly or str(p.StorageType) != "Double":
+                    continue
+                if p.Set(mm2ft(test_h_m * 1000.0)):
+                    drove = True
+            except Exception:
+                continue
+        if not drove:
+            return (None, "height parameter '{}' is not drivable on an "
+                          "instance".format(h_param_name))
+        try:
+            doc.Regenerate()
+        except Exception:
+            pass
+        bb = inst.get_BoundingBox(None)
+        if bb is None:
+            return (None, "the probe instance has no bounding box")
+        base_z = 0.0
+        try:
+            base_z = inst.Location.Point.Z
+        except Exception:
+            pass
+        bot = (bb.Min.Z - base_z) * 0.3048
+        top = (bb.Max.Z - base_z) * 0.3048
+        detail = "bbox {:+.2f}..{:+.2f} m at H={:.1f} m".format(
+            bot, top, test_h_m)
+        tol = max(0.15 * test_h_m, 0.08)
+        if abs(bot) <= tol and abs(top - test_h_m) <= tol:
+            return ("base", detail)
+        if abs(bot + test_h_m) <= tol and abs(top) <= tol:
+            return ("top", detail)
+        if (abs(bot + test_h_m / 2.0) <= tol
+                and abs(top - test_h_m / 2.0) <= tol):
+            return ("center", detail)
+        return (None, "unclassifiable " + detail)
+    except Exception as ex:
+        return (None, "probe failed: {}".format(ex))
+    finally:
+        try:
+            t.RollBack()
+        except Exception:
+            pass
+
+
+def anchor_z(anchor, rim_m, sump_m, z_m):
+    """The level (m) the family ORIGIN must sit at for one row, given
+    where the family's insertion point is vertically: 'base' (grows up)
+    -> sump, 'top' (grows down) -> rim, 'center' -> mid-height. Missing
+    sump falls back to the row's z_m, missing rim to the sump."""
+    sump = sump_m if sump_m is not None else z_m
+    rim = rim_m if rim_m is not None else sump
+    if anchor == "top":
+        return float(rim)
+    if anchor == "center":
+        return (float(rim) + float(sump)) / 2.0
+    return float(sump)
 
 
 # ---------------------------------------------------------------------------
@@ -770,6 +865,35 @@ def run_place(shape):
         log("Could not probe the family's instance parameters - falling "
             "back to automatic name matching (L/W/H/DIA tried first).")
 
+    # 1c. where is the family's vertical origin? ----------------------------
+    # Never ASSUME the family extrudes +H up from a base origin - the
+    # Generic Box / Cylinder families insert at the TOP and grow down,
+    # which used to hang every chamber one full height too low.
+    anchor = None
+    h_name = param_map.get("H") if param_map else None
+    if h_name:
+        anchor, why = detect_vertical_anchor(doc, base_symbol, h_name)
+        if anchor:
+            log("Vertical origin detected: **{}** ({})".format(anchor, why))
+        else:
+            log("Vertical origin probe inconclusive: {}".format(why))
+    if anchor is None:
+        pick = forms.alert(
+            "Where is this family's insertion point vertically?\n\n"
+            "Base - the family grows UP from its origin\n"
+            "Top - the family grows DOWN from its origin (typical for "
+            "chambers modelled from cover level)\n"
+            "Mid-height - origin at half height",
+            title="Family vertical origin",
+            options=["Base - grows up", "Top - grows down",
+                     "Mid-height", "Cancel"])
+        if not pick or pick == "Cancel":
+            forms.alert("Cancelled.", exitscript=True)
+        anchor = {"Base - grows up": "base",
+                  "Top - grows down": "top",
+                  "Mid-height": "center"}[pick]
+        log("Vertical origin (picked by user): **{}**".format(anchor))
+
     # 2. dashboard export ---------------------------------------------------
     json_path = forms.pick_file(
         file_ext="json", title="Pick the dashboard structures export (.json)")
@@ -786,6 +910,13 @@ def run_place(shape):
                     "(scope was: {}).".format(label.lower(),
                                               meta.get("scope")),
                     exitscript=True)
+    # Rewrite every row's Z to the level the family ORIGIN must sit at,
+    # BEFORE solve_points / the offset writer consume z_m downstream.
+    for r in rows:
+        r["z_m"] = anchor_z(anchor, r["rim_m"], r["sump_m"], r["z_m"])
+    log("Placement Z basis: origin at **{}** -> offset driven to "
+        "**{}**.".format(anchor, {"base": "SUMP", "top": "RIM",
+                                  "center": "mid-height"}[anchor]))
     by_layer = rows_by_layer(rows)
     log("Export **{}** - scope: *{}* - generated {}".format(
         meta.get("source"), meta.get("scope"), meta.get("generated")))
