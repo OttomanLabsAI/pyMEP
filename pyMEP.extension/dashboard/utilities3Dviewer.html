@@ -269,6 +269,7 @@ td.cc{ width:24px; padding-left:2px; padding-right:2px; }
     </div>
     <div class="settings-bar">
       <span class="sb-label">Display</span>
+      <button id="exportModelBtn" title="Download everything currently in view - structures AND pipes - as one JSON">Export model</button>
       <button id="exportBtn" title="Download the structures currently in view as JSON">Export structs</button>
       <button id="exportPipesBtn" title="Download the pipes and ducts currently in view as JSON">Export pipes</button>
       <button id="themeToggle" aria-pressed="false" title="Toggle light / dark">
@@ -973,7 +974,7 @@ function shownInScene(m){
   while(o){ if(!o.visible){on=false;break;} o=o.parent; }
   return on;
 }
-function exportStructures(){
+function structRows(){
   const rows = [];
   for (const m of pickables){
     const u = m.userData;
@@ -991,30 +992,9 @@ function exportStructures(){
     else { row.shape="box"; row.length_m=d[7]; row.width_m=d[8]; }
     rows.push(row);
   }
-  if (!rows.length){
-    alert("Nothing to export - no structures are visible in the current view.");
-    return;
-  }
-  const bits = [];
-  if (st.solo) bits.push("layer: "+st.solo);
-  if (st.soloC){ const c=clusters.get(st.soloC); bits.push("group: "+c.desc+" · "+c.size); }
-  const hid = [...nets.values()].filter(n=>!n.visible).length;
-  if (hid && !st.solo) bits.push(hid+" layers hidden");
-  const payload = {
-    kind:"ol-utilities-structures", version:1,
-    source: SOURCE_CODE, generated: new Date().toISOString(),
-    epsg: M.epsg, origin: {easting: M.origin[0], northing: M.origin[1]},
-    scope: bits.length ? bits.join(" · ") : "all layers",
-    count: rows.length, structures: rows
-  };
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 1)],
-                                        {type:"application/json"}));
-  a.download = "STRUCTS-" + (M.slug||"landxml") + ".json";
-  document.body.appendChild(a); a.click();
-  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  return rows;
 }
-function exportPipes(){
+function pipeRows(){
   const rows = [];
   for (const m of pickables){
     const u = m.userData;
@@ -1032,29 +1012,66 @@ function exportPipes(){
     else { row.shape="box"; row.width_m=d[9]; row.height_m=d[10]; }
     rows.push(row);
   }
-  if (!rows.length){
-    alert("Nothing to export - no pipes are visible in the current view.");
-    return;
-  }
+  return rows;
+}
+function scopeText(){
   const bits = [];
   if (st.solo) bits.push("layer: "+st.solo);
   if (st.soloC){ const c=clusters.get(st.soloC); bits.push("group: "+c.desc+" · "+c.size); }
   const hid = [...nets.values()].filter(n=>!n.visible).length;
   if (hid && !st.solo) bits.push(hid+" layers hidden");
-  const payload = {
-    kind:"ol-utilities-pipes", version:1,
-    source: SOURCE_CODE, generated: new Date().toISOString(),
-    epsg: M.epsg, origin: {easting: M.origin[0], northing: M.origin[1]},
-    scope: bits.length ? bits.join(" · ") : "all layers",
-    count: rows.length, pipes: rows
-  };
+  return bits.length ? bits.join(" · ") : "all layers";
+}
+function payloadHead(kind){
+  return { kind, version:1,
+           source: SOURCE_CODE, generated: new Date().toISOString(),
+           epsg: M.epsg, origin: {easting: M.origin[0], northing: M.origin[1]},
+           scope: scopeText() };
+}
+function downloadJSON(payload, fname){
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 1)],
                                         {type:"application/json"}));
-  a.download = "PIPES-" + (M.slug||"landxml") + ".json";
+  a.download = fname;
   document.body.appendChild(a); a.click();
   setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
 }
+function exportModel(){
+  /* one combined file the Revit placers read for BOTH structures and
+     pipes - same visibility rules as the two single exports */
+  const s = structRows(), p = pipeRows();
+  if (!s.length && !p.length){
+    alert("Nothing to export - nothing is visible in the current view.");
+    return;
+  }
+  const payload = Object.assign(payloadHead("ol-utilities-model"), {
+    count: s.length + p.length,
+    structures_count: s.length, pipes_count: p.length,
+    structures: s, pipes: p
+  });
+  downloadJSON(payload, "MODEL-" + (M.slug||"landxml") + ".json");
+}
+function exportStructures(){
+  const rows = structRows();
+  if (!rows.length){
+    alert("Nothing to export - no structures are visible in the current view.");
+    return;
+  }
+  const payload = Object.assign(payloadHead("ol-utilities-structures"),
+                                {count: rows.length, structures: rows});
+  downloadJSON(payload, "STRUCTS-" + (M.slug||"landxml") + ".json");
+}
+function exportPipes(){
+  const rows = pipeRows();
+  if (!rows.length){
+    alert("Nothing to export - no pipes are visible in the current view.");
+    return;
+  }
+  const payload = Object.assign(payloadHead("ol-utilities-pipes"),
+                                {count: rows.length, pipes: rows});
+  downloadJSON(payload, "PIPES-" + (M.slug||"landxml") + ".json");
+}
+document.getElementById("exportModelBtn").onclick = exportModel;
 document.getElementById("exportBtn").onclick = exportStructures;
 document.getElementById("exportPipesBtn").onclick = exportPipes;
 document.getElementById("srcCode").textContent = SOURCE_CODE + " · 3D review";

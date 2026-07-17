@@ -34,6 +34,7 @@ import re
 
 PIPES_EXPORT_KIND = "ol-utilities-pipes"
 STRUCTURES_EXPORT_KIND = "ol-utilities-structures"
+MODEL_EXPORT_KIND = "ol-utilities-model"
 
 # Anything at or below this is 'dashboard-local metres', not a survey grid
 # coordinate (real eastings/northings are 6+ digits).
@@ -148,9 +149,8 @@ def read_pipes_export(path):
     if kind == STRUCTURES_EXPORT_KIND:
         raise ValueError(
             "This is a dashboard STRUCTURES export - it has no pipe "
-            "geometry. Export PIPES from the dashboard (kind '{}'), or use "
-            "Place Boxes / Place Cylinders for structures.".format(
-                PIPES_EXPORT_KIND))
+            "geometry. Export MODEL or PIPES from the dashboard, or use "
+            "Place Structures for structures.")
 
     raw = data.get("pipes")
     if raw is None and isinstance(data.get("rows"), list):
@@ -162,7 +162,10 @@ def read_pipes_export(path):
                 kind, PIPES_EXPORT_KIND))
 
     notes = []
-    if kind != PIPES_EXPORT_KIND:
+    if kind == MODEL_EXPORT_KIND:
+        notes.append("Combined MODEL export - reading its 'pipes' list "
+                     "({} pipes).".format(len(raw)))
+    elif kind != PIPES_EXPORT_KIND:
         notes.append("Export kind is '{}' (expected '{}') - reading its "
                      "'pipes' list anyway.".format(kind, PIPES_EXPORT_KIND))
 

@@ -1,7 +1,6 @@
 title: Civil 3D Conversion
 layout:
   - OpenDashboard
-  - 00_PlaceBoxes
-  - 01_PlaceCylinders
+  - 00_PlaceStructures
   - 02_PlacePipes
   - 03_CreatePipeSizes

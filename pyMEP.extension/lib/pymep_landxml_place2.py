@@ -317,7 +317,8 @@ def place_landxml_pipes(doc, rows, network_workset_map,
                         pipe_type_name, system_type_name, host_level_name,
                         off_e_m=None, off_n_m=None,
                         off_z_m=None, rot_deg=None,
-                        network_filter=None, log=None):
+                        network_filter=None, log=None,
+                        segment_name=None):
     """Place pipes from resolved LandXML rows, mirroring the Dynamo node.
 
     rows: list of dicts (from pymep_landxml.placement_rows) - name,
@@ -327,6 +328,10 @@ def place_landxml_pipes(doc, rows, network_workset_map,
         read from Settings (config.get_landxml_survey_transform), which falls
         back to the site DEFAULT_LANDXML_* constants. Pass explicit values
         only to override Settings for a one-off run.
+    segment_name: optional Revit PipeSegment name - written to every
+        placed pipe's 'Pipe Segment' instance parameter, and its size
+        list becomes the diameter-snapping candidates. None keeps the
+        pipe type's routing preferences.
     Returns (created, failed, skipped, mode, dia_set, mark_set).
     """
     # Resolve transform from Settings unless the caller overrode it.
@@ -418,6 +423,22 @@ def place_landxml_pipes(doc, rows, network_workset_map,
     _say(log, "Pipe type **{}**, system **{}**, level **{}**".format(
         pipe_type_name, system_type_name, host_level_name))
 
+    # ---- optional pipe segment override -----------------------------------
+    seg = None
+    if segment_name:
+        try:
+            from pymep_pipesizes import list_pipe_segments
+            for nm, sg in list_pipe_segments(doc):
+                if nm == segment_name:
+                    seg = sg
+                    break
+        except Exception:
+            seg = None
+        if seg is None:
+            _say(log, "Pipe segment '{}' not found in this model - the "
+                      "pipe type's routing preferences decide instead."
+                      .format(segment_name))
+
     # ---- workset resolution (per network) --------------------------------
     ws_lookup = {}
     if doc.IsWorkshared:
@@ -430,13 +451,24 @@ def place_landxml_pipes(doc, rows, network_workset_map,
                 ws_lookup[net] = existing[nm]
 
     # ---- snapping --------------------------------------------------------
-    avail = _routing_sizes_ft(doc, pt)
-    if avail:
-        _say(log, "Pipe type routes through {} size(s); diameters will snap "
-                  "to the nearest.".format(len(avail)))
-    else:
-        _say(log, "No readable sizes on the pipe type - diameters left at the "
-                  "type default (no corruption risk).")
+    avail = []
+    if seg is not None:
+        try:
+            from pymep_pipesizes import existing_segment_sizes_mm
+            avail = [mm2ft(v) for v in existing_segment_sizes_mm(seg)]
+        except Exception:
+            avail = []
+        if avail:
+            _say(log, "Snapping diameters to the {} size(s) on segment "
+                      "'{}'.".format(len(avail), segment_name))
+    if not avail:
+        avail = _routing_sizes_ft(doc, pt)
+        if avail:
+            _say(log, "Pipe type routes through {} size(s); diameters will "
+                      "snap to the nearest.".format(len(avail)))
+        else:
+            _say(log, "No readable sizes on the pipe type - diameters left "
+                      "at the type default (no corruption risk).")
 
     def snap_ft(dia_mm):
         if not dia_mm or not avail:
@@ -498,6 +530,47 @@ def place_landxml_pipes(doc, rows, network_workset_map,
             except Exception:
                 pass
         t2.Commit()
+
+    # ---- PHASE 2b: pipe segment override (before diameters, so the ------
+    # snapped size is valid for the segment that ends up on the pipe) ------
+    seg_set = 0
+    if placed and seg is not None:
+        bip = getattr(BuiltInParameter, "RBS_PIPE_SEGMENT_PARAM", None)
+        writable = bip is not None
+        t2b = Transaction(doc, "LandXML pipes - segment")
+        t2b.Start()
+        try:
+            doc.Regenerate()
+        except Exception:
+            pass
+        for (pipe, snap, name) in placed:
+            if not writable:
+                break
+            sub = SubTransaction(doc)
+            try:
+                sub.Start()
+                sp = pipe.get_Parameter(bip)
+                if sp is None or sp.IsReadOnly:
+                    writable = False
+                    sub.RollBack()
+                    break
+                sp.Set(seg.Id)
+                sub.Commit()
+                seg_set += 1
+            except Exception:
+                try:
+                    sub.RollBack()
+                except Exception:
+                    pass
+        t2b.Commit()
+        if seg_set:
+            _say(log, "'Pipe Segment' set to **{}** on **{}** pipes."
+                      .format(segment_name, seg_set))
+        else:
+            _say(log, "This Revit version keeps 'Pipe Segment' read-only "
+                      "on instances - the pipe type's routing preferences "
+                      "decide the segment (sizes were still added to "
+                      "'{}').".format(segment_name))
 
     # ---- PHASE 3: diameters (snapped, isolated) --------------------------
     dia_set = 0
