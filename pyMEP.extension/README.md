@@ -86,12 +86,12 @@ inverts by flowDir) and the buried-utilities networks are rendered in 3D.
 The landing screen also asks how the XML's pipe diameters are stored - mm
 (default, the Civil 3D convention) or m - and whether null structures
 start hidden (default yes; they load as their own NULL STRUCTURES layer
-you can toggle back on in the Networks list). Every export only includes
-what is currently turned ON in the dashboard. Three export buttons write
-the JSON files the placement buttons below consume: **Export model**
-(first - one combined `MODEL-*.json` with both structures and pipes,
-readable by Place Structures AND Place Pipes), **Export structs** and
-**Export pipes** (the single-kind files).
+you can toggle back on in the Networks list). One export button -
+**Export model** - writes the `MODEL-*.json` the placement buttons
+below consume: everything currently turned ON in the dashboard,
+structures AND pipes in one file (turn layers off first to export a
+subset). Place Structures and Place Pipes both read it; the older
+single-kind `STRUCTS-*` / `PIPES-*` files stay readable too.
 Fully offline (three.js is inlined). The dashboard is a self-contained
 HTML app bundled in `<extension>/dashboard/`; the button launches the
 newest `.html` in that folder, so upgrading the viewer is just dropping the
