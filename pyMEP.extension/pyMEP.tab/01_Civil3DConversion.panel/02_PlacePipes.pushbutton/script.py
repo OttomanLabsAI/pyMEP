@@ -96,6 +96,18 @@ if meta.get("source"):
     log("Source: **{}**   scope: {}".format(meta.get("source"),
                                             meta.get("scope") or "?"))
 
+# The dashboard's Workset settings ride inside the model export - they
+# win over the locally saved map as the fresher intent.
+_export_map = meta.get("workset_map")
+if isinstance(_export_map, dict) and _export_map:
+    for _k, _v in _export_map.items():
+        try:
+            saved_map[str(_k)] = str(_v)
+        except Exception:
+            pass
+    log("Export carries a workset map for **{}** layer(s) - it pre-fills "
+        "the pickers.".format(len(_export_map)))
+
 # Per-layer placeable tally (circular only - duct banks are Encasement's job)
 lay_place = {}
 skipped_box = 0

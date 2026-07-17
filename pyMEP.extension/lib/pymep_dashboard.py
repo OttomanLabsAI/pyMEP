@@ -163,7 +163,8 @@ def read_export(path):
             "desc": s.get("desc"),
         })
     meta = {k: data.get(k) for k in
-            ("source", "generated", "scope", "origin", "epsg", "count")}
+            ("source", "generated", "scope", "origin", "epsg", "count",
+             "workset_map")}
     return meta, rows
 
 
@@ -992,6 +993,17 @@ def run_place(shape=None):
 
     # 3. layer -> workset (same flow + saved map as Place Pipes) --------------
     saved_map = get_dashboard_layer_workset_map()
+    # The dashboard's Workset settings ride inside the model export -
+    # they win over the locally saved map as the fresher intent.
+    export_map = meta.get("workset_map")
+    if isinstance(export_map, dict) and export_map:
+        for k, v in export_map.items():
+            try:
+                saved_map[str(k)] = str(v)
+            except Exception:
+                pass
+        log("Export carries a workset map for **{}** layer(s) - it "
+            "pre-fills the pickers.".format(len(export_map)))
     ACTIVE = "(active workset)"
     worksets = list_worksets(doc)
     layer_workset_map = {}

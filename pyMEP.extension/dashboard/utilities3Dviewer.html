@@ -268,6 +268,7 @@ td.cc{ width:24px; padding-left:2px; padding-right:2px; }
     </div>
     <div class="settings-bar">
       <button id="exportModelBtn" title="Download everything currently in view - structures AND pipes - as one JSON (turn layers off to export a subset)">Export model</button>
+      <button id="barWsBtn" title="Workset settings - map layer names to Revit worksets; embedded in the model export">Worksets</button>
       <button id="themeToggle" aria-pressed="false" title="Toggle light / dark">
         <span class="th-dot" aria-hidden="true"></span><span id="themeLabel">Dark</span>
       </button>
@@ -1041,6 +1042,8 @@ function exportModel(){
     return;
   }
   const payload = Object.assign(payloadHead("ol-utilities-model"), {
+    workset_map: (window.worksetMapForExport ? window.worksetMapForExport()
+                                             : {}),
     count: s.length + p.length,
     structures_count: s.length, pipes_count: p.length,
     structures: s, pipes: p
@@ -1048,6 +1051,9 @@ function exportModel(){
   downloadJSON(payload, "MODEL-" + (M.slug||"landxml") + ".json");
 }
 document.getElementById("exportModelBtn").onclick = exportModel;
+document.getElementById("barWsBtn").onclick = function(){
+  if (window.openWorksetSettings) window.openWorksetSettings();
+};
 document.getElementById("srcCode").textContent = SOURCE_CODE + " · 3D review";
 document.title = SOURCE_CODE + " · Buried Utilities · 3D review";
 
@@ -1104,7 +1110,28 @@ applyTheme(); update(); tick();
       <label style="cursor:pointer;"><input type="checkbox" id="lxHideNull" checked> Start with null structures hidden</label>
       <div style="margin-top:.3rem;color:#999;font-size:.68rem;">They load as their own NULL STRUCTURES layer &mdash; toggle it back on in the Networks list.</div>
     </div>
+    <div style="margin-top:1.1rem;">
+      <button id="lxWsBtn" style="font:600 .72rem/1 inherit;letter-spacing:.06em;padding:.5rem 1.1rem;border:1px solid #888;border-radius:8px;background:#fff;color:#222;cursor:pointer;">Workset settings&hellip;</button>
+    </div>
     <div id="lxStatus" style="margin-top:1.2rem;font-size:.78rem;color:#444;min-height:1.3em;"></div>
+  </div>
+</div>
+<div id="lxSettings" style="position:fixed;inset:0;z-index:10000;background:rgba(15,15,15,.45);display:none;place-items:center;font-family:var(--font-brand,system-ui),sans-serif;">
+  <div style="background:#fff;color:#222;max-width:44rem;width:92vw;max-height:86vh;overflow:auto;padding:1.6rem 1.8rem;border-radius:12px;">
+    <div style="font-size:.95rem;font-weight:600;letter-spacing:.08em;">WORKSET SETTINGS</div>
+    <div style="margin:.5rem 0 1rem;color:#666;font-size:.78rem;line-height:1.5;">
+      Give each Revit workset the layer names that belong on it. The map is
+      saved in this browser and embedded in every <b>Export model</b> file -
+      the pyMEP placement buttons read it and pre-fill their
+      layer&nbsp;&rarr;&nbsp;workset mapping.
+    </div>
+    <div id="wsChips" style="margin:0 0 .8rem;font-size:.72rem;color:#666;"></div>
+    <div id="wsRows"></div>
+    <button id="wsAdd" style="font:600 .72rem/1 inherit;margin-top:.6rem;padding:.45rem .9rem;border:1px solid #888;border-radius:6px;background:#fff;cursor:pointer;">+ Add workset</button>
+    <div style="margin-top:1.2rem;text-align:right;">
+      <button id="wsCancel" style="font:600 .72rem/1 inherit;padding:.55rem 1.1rem;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer;">Cancel</button>
+      <button id="wsSave" style="font:600 .72rem/1 inherit;margin-left:.5rem;padding:.55rem 1.1rem;border:1px solid #222;border-radius:8px;background:#222;color:#fff;cursor:pointer;">Save &amp; close</button>
+    </div>
   </div>
 </div>
 <script>
@@ -1467,6 +1494,113 @@ applyTheme(); update(); tick();
       },
       nets: nets
     };
+  };
+
+  /* ---- workset settings (persisted in this browser, embedded in the
+     model export as workset_map so the Revit placers pre-fill their
+     layer -> workset mapping) ---- */
+  var wsOverlay = document.getElementById("lxSettings");
+  var wsRows = document.getElementById("wsRows");
+  var wsChips = document.getElementById("wsChips");
+  var lastLayerInput = null;
+
+  function loadWsCfg(){
+    try {
+      var v = JSON.parse(localStorage.getItem("olUtilWorksets") || "[]");
+      return Array.isArray(v) ? v : [];
+    } catch (e){ return []; }
+  }
+  function saveWsCfg(cfg){
+    try { localStorage.setItem("olUtilWorksets", JSON.stringify(cfg)); }
+    catch (e){}
+  }
+  window.worksetMapForExport = function(){
+    var map = {};
+    loadWsCfg().forEach(function(ws){
+      if (!ws || !ws.name) return;
+      (ws.layers || []).forEach(function(l){
+        l = String(l).trim();
+        if (l && !(l in map)) map[l] = String(ws.name);
+      });
+    });
+    return map;
+  };
+
+  function wsRow(name, layers){
+    var row = document.createElement("div");
+    row.style.cssText =
+      "display:flex;gap:.5rem;margin:.35rem 0;align-items:flex-start;";
+    row.innerHTML =
+      '<input class="ws-name" placeholder="Workset name" style="flex:0 0 12rem;font:inherit;font-size:.78rem;padding:.42rem .5rem;border:1px solid #bbb;border-radius:6px;">' +
+      '<input class="ws-layers" placeholder="Layer names, comma-separated" style="flex:1;font:inherit;font-size:.78rem;padding:.42rem .5rem;border:1px solid #bbb;border-radius:6px;">' +
+      '<button class="ws-del" title="Remove this workset" style="font:600 .8rem/1 inherit;padding:.42rem .6rem;border:1px solid #bbb;border-radius:6px;background:#fff;cursor:pointer;">&times;</button>';
+    row.querySelector(".ws-name").value = name || "";
+    row.querySelector(".ws-layers").value = (layers || []).join(", ");
+    row.querySelector(".ws-del").onclick = function(){ row.remove(); };
+    row.querySelector(".ws-layers").addEventListener("focus",
+      function(e){ lastLayerInput = e.target; });
+    wsRows.appendChild(row);
+    return row;
+  }
+  function wsOpen(){
+    wsRows.innerHTML = "";
+    var cfg = loadWsCfg();
+    if (!cfg.length) cfg = [{name: "", layers: []}];
+    cfg.forEach(function(ws){ wsRow(ws.name, ws.layers); });
+    lastLayerInput = wsRows.querySelector(".ws-layers");
+    wsChips.innerHTML = "";
+    var data = window.__PYMEP_DATA;
+    if (data && data.nets && data.nets.length){
+      var lab = document.createElement("div");
+      lab.textContent =
+        "Loaded layers - click one to add it to the last field you touched:";
+      lab.style.marginBottom = ".35rem";
+      wsChips.appendChild(lab);
+      data.nets.forEach(function(n){
+        var b = document.createElement("button");
+        b.textContent = n.name;
+        b.style.cssText =
+          "font:inherit;font-size:.7rem;margin:.15rem .3rem .15rem 0;" +
+          "padding:.25rem .55rem;border:1px solid #bbb;border-radius:999px;" +
+          "background:#f6f6f6;color:#222;cursor:pointer;";
+        b.onclick = function(){
+          var tgt = lastLayerInput || wsRows.querySelector(".ws-layers");
+          if (!tgt) return;
+          var cur = tgt.value.trim();
+          var have = cur ? cur.split(",").map(function(s){ return s.trim(); })
+                         : [];
+          if (have.indexOf(n.name) === -1) have.push(n.name);
+          tgt.value = have.join(", ");
+        };
+        wsChips.appendChild(b);
+      });
+    } else {
+      wsChips.textContent =
+        "No model loaded yet - type the layer names, or open this again " +
+        "after loading to pick them from a list.";
+    }
+    wsOverlay.style.display = "grid";
+  }
+  function wsCollect(){
+    var cfg = [];
+    var rows = wsRows.children;
+    for (var i = 0; i < rows.length; i++){
+      var name = rows[i].querySelector(".ws-name").value.trim();
+      var layers = rows[i].querySelector(".ws-layers").value
+        .split(",").map(function(s){ return s.trim(); })
+        .filter(function(s){ return s; });
+      if (name) cfg.push({name: name, layers: layers});
+    }
+    return cfg;
+  }
+  window.openWorksetSettings = wsOpen;
+  document.getElementById("lxWsBtn").onclick = wsOpen;
+  document.getElementById("wsAdd").onclick = function(){ wsRow("", []); };
+  document.getElementById("wsCancel").onclick =
+    function(){ wsOverlay.style.display = "none"; };
+  document.getElementById("wsSave").onclick = function(){
+    saveWsCfg(wsCollect());
+    wsOverlay.style.display = "none";
   };
 
   /* ---- landing UI ---- */
