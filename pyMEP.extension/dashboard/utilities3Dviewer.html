@@ -507,6 +507,7 @@ for (const nd of DATA.nets){
     }
     const m = new THREE.Mesh(geo, mat);
     m.position.set(d[2], d[3], (d[4]+d[5])/2);
+    if (d[6]!=="c" && d[10]) m.rotation.z = d[10]*Math.PI/180;
     const c = cluster("s", d[1]||NODESC, sSize(d), d[9]||"—");
     c.members.push(m); c.nets.add(nd.name);
     m.userData = {k:"s", net:nd.name, d, ck:c.ck};
@@ -983,7 +984,7 @@ function exportStructures(){
       easting: +(M.origin[0]+d[2]).toFixed(3),
       northing: +(M.origin[1]+d[3]).toFixed(3),
       rim_m: d[4], sump_m: d[5], depth_m: +(d[4]-d[5]).toFixed(3),
-      z_m: d[5], rotation_deg: 0,
+      z_m: d[5], rotation_deg: d[10] || 0,
       material: d[9]||null, desc: d[1]||null
     };
     if (d[6]==="c"){ row.shape="cyl"; row.dia_m = d[7]>0 ? d[7] : null; }
@@ -1311,6 +1312,65 @@ applyTheme(); update(); tick();
     var staged = [];
     var nullStructs = [];
 
+    // LandXML carries NO structure rotation (Civil 3D drops it on
+    // export), so derive one per chamber from its connected pipes: the
+    // largest-diameter run through the structure sets the angle
+    // (degrees CCW from east in plan, folded to [0,180) - chambers are
+    // 180-deg symmetric). Ties go to the longer plan run. Duct runs to
+    // draw pits often terminate on a dummy NullStruct sitting ON the
+    // pit rather than referencing it, so a pipe ending on a dummy
+    // contributes its angle to the nearest real structure within 1 m -
+    // directly-referenced pipes always win over nearby ones.
+    var orient = {};
+    function consider(name, rank, az, dia, plan){
+      var cur = orient[name];
+      if (cur && cur.rank < rank) return;
+      if (!cur || cur.rank > rank || dia > cur.dia + 1e-9 ||
+          (Math.abs(dia - cur.dia) <= 1e-9 && plan > cur.plan))
+        orient[name] = {rank:rank, az:az, dia:dia, plan:plan};
+    }
+    var realXY = [];
+    p.networks.forEach(function(nw){
+      nw.structs.forEach(function(st){
+        if (hasXY(st) && !isDummy(st)) realXY.push(st);
+      });
+    });
+    function nearestReal(st){
+      var best = null, bd = 1.0;
+      for (var i = 0; i < realXY.length; i++){
+        var ddx = realXY[i].x - st.x, ddy = realXY[i].y - st.y;
+        var d = Math.sqrt(ddx*ddx + ddy*ddy);
+        if (d <= bd){ bd = d; best = realXY[i]; }
+      }
+      return best;
+    }
+    p.networks.forEach(function(nw){
+      nw.pipes.forEach(function(pp){
+        if (pp.dead) return;
+        var s = pp.refStart ? p.structsByName[pp.refStart] : null;
+        var e = pp.refEnd ? p.structsByName[pp.refEnd] : null;
+        if (!hasXY(s) || !hasXY(e)) return;
+        var dx = e.x - s.x, dy = e.y - s.y;
+        var plan = Math.sqrt(dx*dx + dy*dy);
+        if (plan < 0.05) return;
+        var az = Math.atan2(dy, dx) * 180 / Math.PI;
+        az = ((az % 180) + 180) % 180;
+        var dia = pp.d1 !== null ? pp.d1 : 0;
+        [s, e].forEach(function(st){
+          if (!isDummy(st)){
+            consider(st.name, 0, az, dia, plan);
+          } else {
+            var near = nearestReal(st);
+            if (near) consider(near.name, 1, az, dia, plan);
+          }
+        });
+      });
+    });
+    function rotFor(st){
+      var o = orient[st.name];
+      return o ? Math.round(o.az * 100) / 100 : 0;
+    }
+
     p.networks.forEach(function(nw){
       var srows = [], prows = [];
       nw.structs.forEach(function(st){
@@ -1360,7 +1420,7 @@ applyTheme(); update(); tick();
                 st.shape || "c",
                 st.d1 !== null ? st.d1 : (st.shape === "r" ? 0.6 : 1.0),
                 st.d2 !== null ? st.d2 : (st.shape === "r" ? 0.6 : 0),
-                st.material || ""];
+                st.material || "", rotFor(st)];
       });
       var pipes = sn.prows.map(function(row){
         var pp = row.p;
@@ -1387,7 +1447,8 @@ applyTheme(); update(); tick();
         totS++;
         return [st.name, st.desc || "Dummy null structure",
                 r2(st.x - origin[0]), r2(st.y - origin[1]),
-                r3(rim), r3(sump), "c", 0.5, 0, st.material || ""];
+                r3(rim), r3(sump), "c", 0.5, 0, st.material || "",
+                rotFor(st)];
       });
       nets.push({name:"NULL STRUCTURES", structs:nrows, pipes:[],
                  hidden: !!hideNull});
