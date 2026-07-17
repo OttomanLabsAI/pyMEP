@@ -252,6 +252,18 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `update_downloads_folder` | override the Downloads folder used by Install Update |
 | `auto_close_output` | close each command's output window when it finishes (error reports stay open) |
 
+## Ribbon order on reload
+
+Revit's ribbon API cannot MOVE a panel in a running session, so a
+pyRevit reload appends any renamed panel at the end of the tab - and
+the Setup panel is renamed on every release (its title carries the
+version). `startup.py` fixes this: on the first idle moment after
+every load/reload it re-sorts the pyMEP tab's panels back into the
+layout order through the Autodesk.Windows ribbon, so updates no longer
+scramble the tab. (Buttons INSIDE a panel that were renamed by an
+update still sit at the panel's end until the next full Revit
+restart - that one is not fixable in-session.)
+
 ## Lib modules
 
 | module | purpose |
