@@ -92,6 +92,14 @@ below consume: everything currently turned ON in the dashboard,
 structures AND pipes in one file (turn layers off first to export a
 subset). Place Structures and Place Pipes both read it; the older
 single-kind `STRUCTS-*` / `PIPES-*` files stay readable too.
+
+**Workset settings** (button on the landing screen and in the sidebar
+bar) - list your Revit worksets and give each one the layer names that
+belong on it; after a model is loaded the layers appear as clickable
+chips. The map is saved in the browser and embedded in every model
+export as `workset_map` - the placement buttons read it and pre-fill
+their layer -> workset mapping (it wins over the locally saved map;
+anything unmapped still gets the usual pickers).
 Fully offline (three.js is inlined). The dashboard is a self-contained
 HTML app bundled in `<extension>/dashboard/`; the button launches the
 newest `.html` in that folder, so upgrading the viewer is just dropping the

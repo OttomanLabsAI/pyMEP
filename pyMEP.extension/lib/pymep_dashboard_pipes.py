@@ -221,7 +221,8 @@ def read_pipes_export(path):
                          .format(oe, on))
 
     meta = {k: data.get(k) for k in
-            ("source", "generated", "scope", "origin", "epsg", "count")}
+            ("source", "generated", "scope", "origin", "epsg", "count",
+             "workset_map")}
     return meta, rows, notes
 
 
