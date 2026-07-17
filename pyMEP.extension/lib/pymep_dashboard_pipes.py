@@ -233,12 +233,16 @@ def placement_rows(rows, only_circular=True, layers=None):
             continue
         if lset is not None and r["layer"] not in lset:
             continue
+        # Dashboard z = INVERT level (inside bottom of pipe); Revit pipes
+        # are CENTERLINE-defined, so without this half-diameter lift every
+        # pipe sits D/2 too low (450 mm on a 900 dia main).
+        half_m = (float(r["dia_mm"]) / 2000.0) if r["dia_mm"] else 0.0
         out.append({
             "name": r["name"],
             "network": r["layer"],
             "dia_mm": r["dia_mm"],
-            "sx": r["sx"], "sy": r["sy"], "sz": r["sz"],
-            "ex": r["ex"], "ey": r["ey"], "ez": r["ez"],
+            "sx": r["sx"], "sy": r["sy"], "sz": r["sz"] + half_m,
+            "ex": r["ex"], "ey": r["ey"], "ez": r["ez"] + half_m,
         })
     return out
 
