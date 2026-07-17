@@ -4,9 +4,10 @@ dashboard and place Revit pipes, exactly like the LandXML Model Pipes
 button but fed from the dashboard JSON.
 
 Flow (mirrors Drainage > Model Pipes):
-  1. Pick the dashboard pipes export (.json) - use the EXPORT button in
-     the 3D viewer; it exports whatever is currently in view, so isolate
-     a layer/group first to place just that subset.
+  1. Pick the dashboard export (.json) - a combined MODEL-*.json or a
+     PIPES-*.json both work; the EXPORT buttons in the 3D viewer export
+     whatever is currently in view, so isolate a layer/group first to
+     place just that subset.
   2. Read the export (start/end/diameter per pipe; rectangular duct-bank
      rows are reported and skipped - only circular runs become pipes).
   3. Pick which layers to model.
@@ -72,8 +73,9 @@ log("### Place Pipes from dashboard export")
 # ---------------------------------------------------------------------------
 # 1. Pick export + read
 # ---------------------------------------------------------------------------
-json_path = forms.pick_file(file_ext="json",
-                            title="Pick a dashboard PIPES export (.json)")
+json_path = forms.pick_file(
+    file_ext="json",
+    title="Pick a dashboard MODEL or PIPES export (.json)")
 if not json_path:
     forms.alert("No export selected.", exitscript=True)
 log("Export: **{}**".format(os.path.basename(json_path)))
@@ -219,6 +221,36 @@ pipe_type_name = _pick(PipeType, "Pick the pipe type", default_pt,
 system_type_name = _pick(PipingSystemType, "Pick the piping system type",
                          default_st, "piping system type")
 
+# Pipe segment for the placed pipes: the picked one is written to every
+# pipe's 'Pipe Segment' instance parameter and receives the export's
+# sizes. The routing-preferences option leaves Revit's per-size pick.
+SEG_ROUTE = "(leave to the pipe type's routing preferences)"
+SEG_MARK = "   (configured in Settings)"
+_seg_default = get_landxml_segment_name()
+_seg_names = [n for n, _s in list_pipe_segments(doc)]
+segment_name = ""
+if _seg_names:
+    _choices = []
+    if _seg_default and _seg_default in _seg_names:
+        _choices.append(_seg_default + SEG_MARK)
+    _choices.append(SEG_ROUTE)
+    for _n in sorted(_seg_names):
+        if _n != _seg_default:
+            _choices.append(_n)
+    _sp = forms.SelectFromList.show(
+        _choices, title="Pipe segment for the placed pipes",
+        button_name="Use this", multiselect=False)
+    if not _sp:
+        forms.alert("No segment choice made - aborting.", exitscript=True)
+    if _sp == SEG_ROUTE:
+        segment_name = ""
+    elif _sp.endswith(SEG_MARK):
+        segment_name = _seg_default
+    else:
+        segment_name = _sp
+    log("Pipe segment: **{}**".format(
+        segment_name or "(routing preferences)"))
+
 _levels = sorted(FilteredElementCollector(doc).OfClass(Level).ToElements(),
                  key=lambda lv: lv.Elevation)
 if not _levels:
@@ -254,9 +286,10 @@ map_lines = ["  {}  ->  {}".format(l, layer_workset_map.get(l) or ACTIVE)
              for l in chosen_layers]
 if forms.alert(
         "Ready to place.\n\nLayers -> worksets:\n{}\n\n"
-        "Pipe type: {}\nSystem type: {}\nLevel: {}\n\nPlace now?".format(
+        "Pipe type: {}\nSystem type: {}\nSegment: {}\nLevel: {}\n\n"
+        "Place now?".format(
             "\n".join(map_lines), pipe_type_name, system_type_name,
-            host_level_name),
+            segment_name or "(routing preferences)", host_level_name),
         title="Confirm", options=["Place pipes", "Cancel"]) != "Place pipes":
     forms.alert("Cancelled.", exitscript=True)
 
@@ -264,9 +297,9 @@ if forms.alert(
 # 5b. Ensure the export's circular sizes exist on the configured Segment
 #     (identical to Model Pipes; idempotent, non-fatal)
 # ---------------------------------------------------------------------------
-_seg_name = get_landxml_segment_name()
+_seg_name = segment_name or get_landxml_segment_name()
 if not _seg_name:
-    log("Pipe sizes: no segment configured in Settings > LandXML - skipped "
+    log("Pipe sizes: no segment picked or configured - skipped "
         "(use Create Pipe Sizes for a manual run).")
 else:
     _segment = None
@@ -307,7 +340,8 @@ def _place(off_e=None, off_n=None, off_z=None, rot=None):
         pipe_type_name=pipe_type_name, system_type_name=system_type_name,
         host_level_name=host_level_name,
         off_e_m=off_e, off_n_m=off_n, off_z_m=off_z, rot_deg=rot,
-        network_filter=set(chosen_layers), log=log)
+        network_filter=set(chosen_layers), log=log,
+        segment_name=segment_name or None)
 
 
 try:

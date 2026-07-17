@@ -228,8 +228,9 @@ def main():
 
     # ---------------- structures ----------------
     sdoc = json.load(open(args.structs))
-    check(sdoc.get("kind") == "ol-utilities-structures",
-          "structs kind is ol-utilities-structures")
+    check(sdoc.get("kind") in ("ol-utilities-structures",
+                               "ol-utilities-model"),
+          "structs kind is ol-utilities-structures (or a MODEL export)")
     rows = sdoc.get("structures", [])
     real = {n: s for n, s in structs.items() if not s["dummy"]}
     check(len(rows) == len(real),
@@ -327,8 +328,9 @@ def main():
     # ---------------- pipes (untouched by the fix) ----------------
     if args.pipes:
         pdoc = json.load(open(args.pipes))
-        check(pdoc.get("kind") == "ol-utilities-pipes",
-              "pipes kind is ol-utilities-pipes")
+        check(pdoc.get("kind") in ("ol-utilities-pipes",
+                                   "ol-utilities-model"),
+              "pipes kind is ol-utilities-pipes (or a MODEL export)")
         prows = pdoc.get("pipes", [])
         checked, bad_ends = 0, []
         for r in prows:

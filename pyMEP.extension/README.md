@@ -86,26 +86,37 @@ inverts by flowDir) and the buried-utilities networks are rendered in 3D.
 The landing screen also asks how the XML's pipe diameters are stored - mm
 (default, the Civil 3D convention) or m - and whether null structures
 start hidden (default yes; they load as their own NULL STRUCTURES layer
-you can toggle back on in the Networks list). Both exports only include
-what is currently turned ON in the dashboard. Two export buttons - **Export structs** and **Export
-pipes** - write the JSON files the placement buttons below consume.
+you can toggle back on in the Networks list). Every export only includes
+what is currently turned ON in the dashboard. Three export buttons write
+the JSON files the placement buttons below consume: **Export model**
+(first - one combined `MODEL-*.json` with both structures and pipes,
+readable by Place Structures AND Place Pipes), **Export structs** and
+**Export pipes** (the single-kind files).
 Fully offline (three.js is inlined). The dashboard is a self-contained
 HTML app bundled in `<extension>/dashboard/`; the button launches the
 newest `.html` in that folder, so upgrading the viewer is just dropping the
 new file in (`dashboard_html_path` in settings overrides it).
 
-**Place Boxes** / **Place Cylinders** - place every box (rectangular) or
-cylindrical chamber from an OttomanLabs utilities-dashboard export: pick the
-family, pick the `.json` exported from the 3D viewer's EXPORT button, pick a
-workset. One type per layer is duplicated from the picked type; dimensions and
-rim/sump/depth go to instance parameters, the structure name to Mark and the
-description to Comments.
+**Place Structures** - places every box AND cylindrical chamber from a
+dashboard export (`MODEL-*.json` or `STRUCTS-*.json`) in one run: pick
+the export, pick the layers, map each layer to a workset (same saved
+layer->workset map as Place Pipes, one confirm when it covers every
+layer), then pick one family per shape present and map its L/W/H/DIA
+instance parameters. Each family's vertical origin is auto-detected
+(base / top / mid-height, probe instance in a rolled-back transaction)
+so the chamber lands with its sump, rim or centre at the right level.
+One type per layer is duplicated from each picked type; dimensions and
+rim/sump/depth go to instance parameters, the structure name to Mark,
+the description to Comments, the derived rotation to the instance.
 
-**Place Pipes** - places Revit pipes from a dashboard PIPES export (the
-viewer's Export pipes button): pick layers, map each layer to a workset (remembered between
+**Place Pipes** - places Revit pipes from a dashboard export
+(`MODEL-*.json` or `PIPES-*.json`): pick layers, map each layer to a workset (remembered between
 runs), pipe type / system type / host level from Settings with pickers as
-fallback, sizes silently ensured on the configured segment, Marks from the
-pipe names, diameters snapped to the pipe type's sizes. Survey transform:
+fallback, then pick the pipe Segment for the placed pipes (configured
+one offered first; or leave it to the type's routing preferences) - the
+export's sizes are ensured on that segment, it is written to every
+pipe's 'Pipe Segment' instance parameter, and diameters snap to its
+size list. Marks come from the pipe names. Survey transform:
 the Settings offsets first, then the model's own survey position; if
 neither fits, it offers to place at the internal origin using the
 export's own origin (optionally saving it to Settings). Rectangular duct-bank
