@@ -66,15 +66,14 @@ svg{ display:block; }
 .title-strip .code{ font-family:var(--font-brand); font-weight:500; font-size:.56rem;
   letter-spacing:.2em; text-transform:uppercase; color:var(--ink-60); margin-top:.35rem; }
 
-.settings-bar{ display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
+.settings-bar{ display:flex; align-items:center; gap:.3rem; flex-wrap:nowrap;
   border-bottom:1px solid var(--hair); padding:.5rem .6rem; }
-.sb-label{ font-family:var(--font-brand); font-weight:600; font-size:.62rem;
-  letter-spacing:.28em; text-transform:uppercase; margin-right:auto; }
 .settings-bar button{
   font-family:var(--font-brand); font-size:.6rem; letter-spacing:.12em;
   text-transform:uppercase; border:1px solid var(--hair); background:var(--paper);
-  color:var(--ink); padding:.3rem .5rem .24rem; display:inline-flex; align-items:center;
-  gap:.35rem; white-space:nowrap; }
+  color:var(--ink); padding:.32rem .5rem .26rem; display:inline-flex;
+  align-items:center; justify-content:center; gap:.35rem; white-space:nowrap;
+  flex:1 1 0; min-width:0; }
 .settings-bar button:hover{ background:var(--ink); color:var(--paper); }
 .th-dot{ width:.66rem; height:.66rem; border:1px solid currentColor; border-radius:50%;
   background:linear-gradient(90deg, currentColor 0 50%, transparent 50% 100%); }
@@ -268,10 +267,7 @@ td.cc{ width:24px; padding-left:2px; padding-right:2px; }
       <div class="code" id="srcCode">LandXML · 3D review</div>
     </div>
     <div class="settings-bar">
-      <span class="sb-label">Display</span>
-      <button id="exportModelBtn" title="Download everything currently in view - structures AND pipes - as one JSON">Export model</button>
-      <button id="exportBtn" title="Download the structures currently in view as JSON">Export structs</button>
-      <button id="exportPipesBtn" title="Download the pipes and ducts currently in view as JSON">Export pipes</button>
+      <button id="exportModelBtn" title="Download everything currently in view - structures AND pipes - as one JSON (turn layers off to export a subset)">Export model</button>
       <button id="themeToggle" aria-pressed="false" title="Toggle light / dark">
         <span class="th-dot" aria-hidden="true"></span><span id="themeLabel">Dark</span>
       </button>
@@ -1051,29 +1047,7 @@ function exportModel(){
   });
   downloadJSON(payload, "MODEL-" + (M.slug||"landxml") + ".json");
 }
-function exportStructures(){
-  const rows = structRows();
-  if (!rows.length){
-    alert("Nothing to export - no structures are visible in the current view.");
-    return;
-  }
-  const payload = Object.assign(payloadHead("ol-utilities-structures"),
-                                {count: rows.length, structures: rows});
-  downloadJSON(payload, "STRUCTS-" + (M.slug||"landxml") + ".json");
-}
-function exportPipes(){
-  const rows = pipeRows();
-  if (!rows.length){
-    alert("Nothing to export - no pipes are visible in the current view.");
-    return;
-  }
-  const payload = Object.assign(payloadHead("ol-utilities-pipes"),
-                                {count: rows.length, pipes: rows});
-  downloadJSON(payload, "PIPES-" + (M.slug||"landxml") + ".json");
-}
 document.getElementById("exportModelBtn").onclick = exportModel;
-document.getElementById("exportBtn").onclick = exportStructures;
-document.getElementById("exportPipesBtn").onclick = exportPipes;
 document.getElementById("srcCode").textContent = SOURCE_CODE + " · 3D review";
 document.title = SOURCE_CODE + " · Buried Utilities · 3D review";
 
