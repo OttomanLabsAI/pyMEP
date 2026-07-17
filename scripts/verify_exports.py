@@ -16,6 +16,12 @@ Pipes (PIPES-*.json, kind ol-utilities-pipes) DO use inverts - each
 end's z_m must equal its structure's <Invert elev> for that refPipe
 (flowDir out at the start, in at the end).
 
+rotation_deg: LandXML carries no structure rotation, so the viewer
+derives one from the connected pipes - the largest-diameter run through
+the structure sets the angle (degrees CCW from east, folded to
+[0,180); ties go to the longer plan run; no usable pipe -> 0). The
+verifier recomputes that rule from the XML and compares.
+
 Usage:
   python3 scripts/verify_exports.py --xml FILE.xml --structs STRUCTS.json
                                     [--pipes PIPES.json]
@@ -47,36 +53,125 @@ def is_dummy(name, desc):
     return "nullstruct" in n or "dummy null" in (desc or "").lower()
 
 
+def metresish(v):
+    """Mirror of the viewer's metresish(): linear dims >= 50 are mm."""
+    if v is None:
+        return None
+    return v / 1000.0 if abs(v) >= 50 else v
+
+
 def parse_landxml(path):
-    """-> (structs, pipes): structs[name] = {rim, sump, inverts:[...]},
-    pipes[name] = {refStart, refEnd}. Names are the raw LandXML names."""
+    """-> (structs, pipes): structs[name] = {rim, sump, x, y,
+    inverts:[...]}, pipes[name] = {refStart, refEnd, dia, dead}.
+    Names are the raw LandXML names."""
     structs, pipes = {}, {}
     for _, el in ET.iterparse(path, events=("end",)):
         tag = strip_ns(el.tag)
         if tag == "Struct":
             name = el.get("name") or "(unnamed)"
             inverts = []
+            x = y = None
             for ch in el:
-                if strip_ns(ch.tag) == "Invert":
+                ctag = strip_ns(ch.tag)
+                if ctag == "Invert":
                     inverts.append({
                         "elev": fnum(ch.get("elev")),
                         "dir": (ch.get("flowDir") or "").lower(),
                         "ref": ch.get("refPipe"),
                     })
+                elif ctag == "Center" and ch.text:
+                    parts = ch.text.split()
+                    if len(parts) >= 2:
+                        a, b = fnum(parts[0]), fnum(parts[1])
+                        if a is not None and b is not None:
+                            # column order: NORTHING then EASTING
+                            x, y = b, a
             structs[name] = {
                 "rim": fnum(el.get("elevRim")),
                 "sump": fnum(el.get("elevSump")),
+                "x": x, "y": y,
                 "inverts": inverts,
                 "dummy": is_dummy(name, el.get("desc")),
             }
             el.clear()
         elif tag == "Pipe":
+            dia, dead = None, False
+            for ch in el:
+                ctag = strip_ns(ch.tag)
+                if ctag == "CircPipe":
+                    dv = fnum(ch.get("diameter"))
+                    if dv is not None:
+                        dia = dv / 1000.0      # viewer default: mm
+                        if dv <= 0:
+                            dead = True
+                elif ctag in ("RectPipe", "EggPipe", "ElliPipe"):
+                    dia = metresish(fnum(ch.get("width"))) or 0.1
             pipes[el.get("name") or "(unnamed)"] = {
                 "refStart": el.get("refStart"),
                 "refEnd": el.get("refEnd"),
+                "dia": dia, "dead": dead,
             }
             el.clear()
     return structs, pipes
+
+
+def has_xy(st):
+    return (st is not None and st["x"] is not None and st["y"] is not None
+            and not (abs(st["x"]) < 1e-6 and abs(st["y"]) < 1e-6))
+
+
+def expected_rotations(structs, pipes):
+    """{struct name: degrees} - the viewer's derivation rule, recomputed
+    independently: largest-dia pipe through the structure, folded to
+    [0,180), ties to the longer plan run. A pipe ending on a dummy
+    NullStruct contributes to the nearest real structure within 1 m;
+    directly-referenced pipes always win over nearby ones."""
+    import math
+    orient = {}    # name -> (rank, az, dia, plan); rank 0 direct, 1 near
+
+    def consider(name, rank, az, dia, plan):
+        cur = orient.get(name)
+        if cur and cur[0] < rank:
+            return
+        if (cur is None or cur[0] > rank or dia > cur[2] + 1e-9
+                or (abs(dia - cur[2]) <= 1e-9 and plan > cur[3])):
+            orient[name] = (rank, az, dia, plan)
+
+    real_xy = [(n, s) for n, s in structs.items()
+               if not s["dummy"] and has_xy(s)]
+
+    def nearest_real(st):
+        best, bd = None, 1.0
+        for n, s in real_xy:
+            d = math.hypot(s["x"] - st["x"], s["y"] - st["y"])
+            if d <= bd:
+                bd, best = d, n
+        return best
+
+    for pname, pp in pipes.items():
+        if pp["dead"]:
+            continue
+        s = structs.get(pp["refStart"])
+        e = structs.get(pp["refEnd"])
+        if not has_xy(s) or not has_xy(e):
+            continue
+        dx, dy = e["x"] - s["x"], e["y"] - s["y"]
+        plan = math.sqrt(dx * dx + dy * dy)
+        if plan < 0.05:
+            continue
+        az = math.degrees(math.atan2(dy, dx)) % 180.0
+        dia = pp["dia"] if pp["dia"] is not None else 0
+        for ref in (pp["refStart"], pp["refEnd"]):
+            st = structs.get(ref)
+            if st is None:
+                continue
+            if not st["dummy"]:
+                consider(ref, 0, az, dia, plan)
+            else:
+                near = nearest_real(st)
+                if near:
+                    consider(near, 1, az, dia, plan)
+    return dict((n, o[1]) for n, o in orient.items())
 
 
 def xml_name(row_name, layer, structs):
@@ -195,6 +290,26 @@ def main():
                   "z 9.83 (got rim {} sump {} depth {} z {})".format(
                       elv["rim_m"], elv["sump_m"], elv["depth_m"],
                       elv["z_m"]))
+
+    # rotation: recompute the pipe-run derivation from the XML
+    exp_rot = expected_rotations(structs, pipes)
+    bad_rot, nonzero = [], 0
+    for r in rows:
+        xn = xml_name(r["name"], r.get("layer", ""), structs)
+        if xn is None:
+            continue
+        want = exp_rot.get(xn, 0.0)
+        got = float(r.get("rotation_deg") or 0.0)
+        diff = abs(got - want) % 180.0
+        diff = min(diff, 180.0 - diff)
+        if diff > 0.06:
+            bad_rot.append((r["name"], got, round(want, 2)))
+        if got:
+            nonzero += 1
+    check(not bad_rot,
+          "rotation_deg matches the dominant-pipe-run rule on every row "
+          "({} rows carry a non-zero rotation) (bad: {})".format(
+              nonzero, bad_rot[:5]))
 
     # the invert-less structures must all have real depth now
     no_inv = {n for n, s in real.items() if not s["inverts"]}
