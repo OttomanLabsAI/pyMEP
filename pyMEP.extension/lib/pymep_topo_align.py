@@ -279,26 +279,40 @@ def drape_floor_to_surfaces(doc, floor, surface_ids, log=None):
     t = Transaction(doc, "Drape floor to topo")
     t.Start()
     try:
+        # ResetSlabShape FIRST: it clears prior edits AND disables shape
+        # editing (wiping the vertices), so Enable() must come AFTER it -
+        # the other way round reads back zero points.
+        try:
+            editor.ResetSlabShape()
+        except Exception:
+            pass    # never shape-edited yet - nothing to reset
         try:
             if not editor.IsEnabled:
                 editor.Enable()
         except Exception:
             pass
         try:
-            editor.ResetSlabShape()
-        except Exception:
-            pass    # never shape-edited yet - nothing to reset
-        try:
             doc.Regenerate()
         except Exception:
             pass
 
         verts = list(editor.SlabShapeVertices)
+        if not verts:
+            # some builds surface the vertices only after another
+            # enable + regenerate round
+            try:
+                editor.Enable()
+                doc.Regenerate()
+            except Exception:
+                pass
+            verts = list(editor.SlabShapeVertices)
         total = len(verts)
         if not total:
             raise RuntimeError(
-                "The floor has no slab-shape points (enable shape "
-                "editing failed).")
+                "The floor has no slab-shape points even after enabling "
+                "shape editing. Floors sloped by a SLOPE ARROW (and some "
+                "in-place / curved floors) cannot be shape edited - "
+                "remove the slope arrow and re-run.")
 
         # read every target FIRST, then modify - keeps the ray casting
         # independent of the floor deforming under the loop
