@@ -31,7 +31,7 @@ pyMEP.extension/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
     01_Civil3DConversion.panel/ # Create LandXML Dashboard, Place Boxes/Cylinders/Pipes, Create Pipe Sizes
     02_Modelling.panel/         # Encasement, Gully to MH
-    03_Topography.panel/        # Align to Topo, Cut Toposolid
+    03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
     06_Annotate.panel/          # 4 annotation buttons
@@ -184,6 +184,15 @@ the top one). Instances not above any chosen surface, or already on it
 selected MEP elements (vertical cut, +50 mm above the top so it always breaks
 the surface). Cutter instances stay in the model tagged with the comment
 `pyMEP_TopoCut`; deleting a cutter removes its cut.
+
+**Drape Floor to Topo** - pick a floor, then a toposolid / topography /
+floor to follow: every slab-shape sub-element point of the floor is
+moved to the surface's level at that X,Y (vertical projection, nearest
+hit from above). Prior shape edits are reset first so the result
+follows the surface exactly at the floor's points; add points to the
+floor (Shape Editing > Add Point) and re-run for a denser drape.
+Misses (no surface at that plan position) are reported and stay on the
+flat plane.
 
 ### Chamber Drawing Setup
 

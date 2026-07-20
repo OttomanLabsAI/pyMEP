@@ -223,3 +223,104 @@ def align_instances_to_surfaces(doc, symbol_ids, surface_ids, log=None):
               "XY {}, skipped {}.".format(adjusted, unchanged, missed,
                                           skipped))
     return adjusted, missed, skipped, unchanged
+
+
+def drape_floor_to_surfaces(doc, floor, surface_ids, log=None):
+    """Move every slab-shape sub-element point of ``floor`` so it sits on
+    the chosen surfaces' TOP at that plan position (vertical ray from
+    above, nearest hit wins). Any previous shape edits are reset first,
+    so each point gets exactly one move from the flat plane - which makes
+    the ModifySubElement offset unambiguous. Points whose vertical ray
+    misses every surface stay on the flat plane and are reported.
+
+    Returns (moved, missed, total_points)."""
+    view3d = _get_3d_view(doc)
+    if view3d is None:
+        raise RuntimeError(
+            "No usable (non-template) 3D view for the projection - open "
+            "the default {3D} view once and re-run.")
+
+    id_list = List[ElementId]()
+    top = None
+    for sid in surface_ids:
+        id_list.Add(sid)
+        try:
+            bb = doc.GetElement(sid).get_BoundingBox(None)
+            if bb is not None:
+                top = bb.Max.Z if top is None else max(top, bb.Max.Z)
+        except Exception:
+            pass
+    if top is None:
+        raise RuntimeError("Could not read a bounding box off the picked "
+                           "surface - is it hidden or empty?")
+    shoot_from = top + 10.0
+    intersector = ReferenceIntersector(id_list, FindReferenceTarget.Face,
+                                       view3d)
+
+    # Revit 2024+ has GetSlabShapeEditor(); older builds the property.
+    editor = None
+    try:
+        editor = floor.GetSlabShapeEditor()
+    except Exception:
+        editor = None
+    if editor is None:
+        try:
+            editor = floor.SlabShapeEditor
+        except Exception:
+            editor = None
+    if editor is None:
+        raise RuntimeError(
+            "This floor exposes no slab shape editor (sloped-by-arrow "
+            "and some in-place floors cannot be shape edited).")
+
+    moved = 0
+    missed = 0
+    total = 0
+    t = Transaction(doc, "Drape floor to topo")
+    t.Start()
+    try:
+        try:
+            if not editor.IsEnabled:
+                editor.Enable()
+        except Exception:
+            pass
+        try:
+            editor.ResetSlabShape()
+        except Exception:
+            pass    # never shape-edited yet - nothing to reset
+        try:
+            doc.Regenerate()
+        except Exception:
+            pass
+
+        verts = list(editor.SlabShapeVertices)
+        total = len(verts)
+        if not total:
+            raise RuntimeError(
+                "The floor has no slab-shape points (enable shape "
+                "editing failed).")
+
+        # read every target FIRST, then modify - keeps the ray casting
+        # independent of the floor deforming under the loop
+        plan = []
+        for v in verts:
+            p = v.Position
+            plan.append((v, p, _top_z(doc, shoot_from, intersector,
+                                      p.X, p.Y)))
+        for (v, p, z) in plan:
+            if z is None:
+                missed += 1
+                continue
+            try:
+                editor.ModifySubElement(v, z - p.Z)
+                moved += 1
+            except Exception:
+                missed += 1
+        t.Commit()
+    except Exception:
+        t.RollBack()
+        raise
+    _say(log, "Slab shape: **{}** point(s) moved onto the surface, {} "
+              "missed (no surface below/above that XY), {} total.".format(
+                  moved, missed, total))
+    return moved, missed, total
