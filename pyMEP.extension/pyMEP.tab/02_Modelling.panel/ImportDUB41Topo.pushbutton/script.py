@@ -30,19 +30,40 @@ data = json.load(codecs.open(JSON_PATH, "r", "utf-8"))
 pl = doc.ActiveProjectLocation
 pp = pl.GetProjectPosition(DB.XYZ.Zero)  # shared coords of internal origin
 if abs(pp.EastWest) < 1e-6 and abs(pp.NorthSouth) < 1e-6:
-    forms.alert("Shared coordinates don't look established in this model "
-                "(survey position of internal origin is 0,0).\n\n"
-                "Acquire/establish ITM shared coordinates first, then re-run.",
-                exitscript=True)
+    # No shared coordinates: offer to drop the site centre on the model's
+    # internal origin instead (true elevations kept) - same rescue the
+    # pipe / structure placers offer. Cancel keeps the old hard stop.
+    _xs = [p[0] for p in data["outer_loop"]]
+    _ys = [p[1] for p in data["outer_loop"]]
+    _cE = (min(_xs) + max(_xs)) / 2.0
+    _cN = (min(_ys) + max(_ys)) / 2.0
+    if forms.alert(
+            "Shared coordinates don't look established in this model "
+            "(survey position of internal origin is 0,0), so the ITM "
+            "coordinates can't be mapped to their true position.\n\n"
+            "I can place the surface at the model's INTERNAL ORIGIN "
+            "instead: the site centre (E {:.1f}, N {:.1f}) lands at 0,0 "
+            "and true elevations are kept.\n\n"
+            "For a correctly georeferenced surface: Manage > Coordinates "
+            "> Specify Coordinates at Point (or Acquire from an ITM "
+            "link), then re-run.".format(_cE, _cN),
+            title="No shared coordinates",
+            options=["Place at internal origin",
+                     "Cancel"]) != "Place at internal origin":
+        forms.alert("Cancelled - nothing was created.", exitscript=True)
 
-tt = pl.GetTotalTransform()
-o = tt.Origin
-fwd_is_int_to_shared = (abs(o.X - pp.EastWest) < 1e-4 and
-                        abs(o.Y - pp.NorthSouth) < 1e-4)
-sh2int = tt.Inverse if fwd_is_int_to_shared else tt
+    def to_internal(p):  # p = [E, N, Z] in metres, site centre -> 0,0
+        return DB.XYZ((p[0] - _cE) * M2FT, (p[1] - _cN) * M2FT,
+                      p[2] * M2FT)
+else:
+    tt = pl.GetTotalTransform()
+    o = tt.Origin
+    fwd_is_int_to_shared = (abs(o.X - pp.EastWest) < 1e-4 and
+                            abs(o.Y - pp.NorthSouth) < 1e-4)
+    sh2int = tt.Inverse if fwd_is_int_to_shared else tt
 
-def to_internal(p):  # p = [E, N, Z] in metres
-    return sh2int.OfPoint(DB.XYZ(p[0] * M2FT, p[1] * M2FT, p[2] * M2FT))
+    def to_internal(p):  # p = [E, N, Z] in metres
+        return sh2int.OfPoint(DB.XYZ(p[0] * M2FT, p[1] * M2FT, p[2] * M2FT))
 
 # --- level & type ---
 levels = list(DB.FilteredElementCollector(doc).OfClass(DB.Level))
