@@ -1,0 +1,2 @@
+title: "Drape Floor\nto Topo"
+tooltip: "Pick a floor, then a toposolid / topography / floor to follow: every slab-shape sub-element point of the floor is moved to the surface's level at that X,Y (vertical projection, nearest hit from above). Prior shape edits are reset first; add points to the floor for a denser drape."

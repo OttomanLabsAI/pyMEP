@@ -1,2 +1,0 @@
-title: "Import DUB41\nEG+FG Topo"
-tooltip: "Creates the 'Composite EG+FG' Toposolid from ITM survey data (TIN extracted from the CSE Navisworks model). Asks for the data JSON on run. Requires Revit 2024+ and shared coordinates established in the model. Settings at the top of script.py: point thinning, hole filter, level/type."
