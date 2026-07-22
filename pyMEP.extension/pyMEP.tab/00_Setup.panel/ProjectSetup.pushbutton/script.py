@@ -35,8 +35,10 @@ DEFAULT_CONFIG = os.path.join(_FOLDER, "configs", "default.json")
 # 1. config selection -------------------------------------------------------
 choice = forms.alert(
     "Set up this model from what?\n\n"
-    "- A dashboard MODEL export: one piping system per layer, named "
-    "exactly like the layer, plus the worksets from its workset map.\n"
+    "- A dashboard MODEL export: one piping system per layer (named "
+    "exactly like the layer), the worksets from its workset map, and "
+    "one isolation view template per workset (named after the workset, "
+    "only that workset visible).\n"
     "- A JSON config (the bundled example default.json, or browse to a "
     "per-project file).",
     title="Project Setup",
