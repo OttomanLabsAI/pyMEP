@@ -25,6 +25,7 @@ one run):
 
 import json
 import math
+import os
 
 import clr
 clr.AddReference("RevitAPI")
@@ -529,11 +530,15 @@ def solve_points(doc, rows, log=None, force_offset=None):
 # ---------------------------------------------------------------------------
 def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
                                workset_name="", log=None, param_map=None,
-                               pts_info=None, layer_workset_map=None):
+                               pts_info=None, layer_workset_map=None,
+                               system_type_map=None):
     """Place every row with its layer's type. Sizes and levels are written
     to INSTANCE parameters only. ``layer_workset_map`` ({layer: workset
-    name, '' = active}) wins over the single ``workset_name``. Returns
-    (created, failed, mode)."""
+    name, '' = active}) wins over the single ``workset_name``.
+    ``system_type_map`` ({lower layer: PipingSystemType ElementId}) makes
+    each instance take its layer-named system type - the same automation
+    as the pipes; families with no writable system parameter are counted
+    and reported, never failed. Returns (created, failed, mode)."""
     if not rows:
         raise ValueError("No structures to place.")
 
@@ -647,6 +652,33 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
     mark_set = 0
     offset_set = 0
     moved = 0
+    sys_set = 0
+    sys_ro = 0
+
+    def _try_system_type(inst, r):
+        """True when the layer-named system type stuck on the instance."""
+        stid = system_type_map.get((r.get("layer") or "").strip().lower())
+        if stid is None:
+            return False
+        bip = getattr(BuiltInParameter, "RBS_PIPING_SYSTEM_TYPE_PARAM",
+                      None)
+        if bip is not None:
+            try:
+                p = inst.get_Parameter(bip)
+                if p is not None and not p.IsReadOnly:
+                    p.Set(stid)
+                    return True
+            except Exception:
+                pass
+        try:
+            p = inst.LookupParameter("System Type")
+            if p is not None and not p.IsReadOnly \
+                    and str(p.StorageType) == "ElementId":
+                p.Set(stid)
+                return True
+        except Exception:
+            pass
+        return False
     if placed:
         t2 = Transaction(doc, "Dashboard structure params")
         t2.Start()
@@ -736,6 +768,11 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
                 nm = _try_text(inst, LAYER_PARAM_NAMES, r["layer"])
                 if nm:
                     _hit(nm)
+                if system_type_map:
+                    if _try_system_type(inst, r):
+                        sys_set += 1
+                    else:
+                        sys_ro += 1
                 if r.get("desc"):
                     try:
                         cp = inst.get_Parameter(
@@ -752,6 +789,17 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
                     pass
         t2.Commit()
 
+    if system_type_map and (sys_set or sys_ro):
+        if sys_set:
+            _say(log, "Layer-named system type set on **{}** instance(s)"
+                      "{}.".format(sys_set,
+                                   " ({} had no writable system "
+                                   "parameter)".format(sys_ro)
+                                   if sys_ro else ""))
+        else:
+            _say(log, "This family exposes no writable system-type "
+                      "parameter - the layer name still went to the "
+                      "text parameters above.")
     _say(log, "Hosted on the level at Z=0; 'Offset from level' driven to "
               "the structure Z on **{}** (physically moved: {}). Mark set "
               "on **{}**.".format(offset_set, moved, mark_set))
@@ -784,54 +832,16 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
 # shared button flow
 # ---------------------------------------------------------------------------
 def _pick_family_symbol(doc, forms, log, what):
-    """Family picker with the load-an-.rfa fallback loop. Returns
-    (label, FamilySymbol)."""
+    """Family picker with the load-an-.rfa fallback loop (legacy list
+    flow, kept for reuse). Returns (label, FamilySymbol)."""
     from pymep_structures_place import list_family_symbols as _raw_syms
 
-    def _counts():
-        raw = _raw_syms(doc)
-        fams = [f for f in FilteredElementCollector(doc).OfClass(Family)]
-        return raw, len(fams)
-
     syms = list_chamber_symbols(doc)
-    while not syms:
-        raw, n_fams = _counts()
-        choice = forms.alert(
-            "pymep_dashboard v{}\n\n"
-            "No point-placeable family types found.\n"
-            "  - loadable families in this project: {}\n"
-            "  - family types of any kind (incl. curtain system): {}\n\n"
-            "If the first number is 0, this project has no families "
-            "loaded - I can load an .rfa for you now.\n"
-            "If it is NOT 0, pick 'Show all types anyway' and tell me "
-            "what you see.".format(__version__, n_fams, len(raw)),
-            title="Place chambers",
-            options=["Load a family (.rfa)...",
-                     "Show all types anyway", "Cancel"])
-        if choice == "Load a family (.rfa)...":
-            rfa = forms.pick_file(file_ext="rfa",
-                                  title="Pick the chamber family (.rfa)")
-            if rfa:
-                t = Transaction(doc, "Load dashboard family")
-                t.Start()
-                try:
-                    ok = doc.LoadFamily(rfa)
-                    t.Commit()
-                    log("Loaded family: **{}** ({})".format(
-                        rfa, "ok" if ok else "already loaded / unchanged"))
-                except Exception as ex:
-                    t.RollBack()
-                    forms.alert("Could not load:\n{}".format(ex))
-            syms = list_chamber_symbols(doc)
-        elif choice == "Show all types anyway":
-            syms = _raw_syms(doc)
-            if not syms:
-                forms.alert("This project contains zero family types of "
-                            "any kind. Load a family first.",
-                            exitscript=True)
-            break
-        else:
-            forms.alert("Cancelled.", exitscript=True)
+    if not syms:
+        syms = _raw_syms(doc)
+    if not syms:
+        forms.alert("This project contains zero placeable family types - "
+                    "load a family first.", exitscript=True)
 
     class SymOpt(object):
         def __init__(self, lbl, sym):
@@ -840,8 +850,7 @@ def _pick_family_symbol(doc, forms, log, what):
 
     sym_pick = forms.SelectFromList.show(
         [SymOpt(lbl, sym) for lbl, sym in syms],
-        title="Pick the family for {} (one type per layer will be made "
-              "from it)".format(what),
+        title="Pick the family for {}".format(what),
         button_name="Use this family", multiselect=False, name_attr="name")
     if not sym_pick:
         forms.alert("No family picked.", exitscript=True)
@@ -912,14 +921,26 @@ def _resolve_anchor(doc, forms, log, base_symbol, fam_label, param_map):
     return anchor
 
 
+def list_chamber_symbols_by_category(doc):
+    """{category name: [(label, symbol), ...]} of every point-placeable
+    family type, for the category-first picker."""
+    cats = {}
+    for lbl, sym in list_chamber_symbols(doc):
+        try:
+            cat = sym.Category
+            cname = cat.Name if cat is not None else "(no category)"
+        except Exception:
+            cname = "(no category)"
+        cats.setdefault(cname, []).append((lbl, sym))
+    return cats
+
+
 def run_place(shape=None):
-    """The Place Structures button flow: the export is picked FIRST (it
-    decides which shapes need a family), then one family + parameter
-    mapping + vertical-origin probe per shape present, then each layer
-    is mapped to a workset exactly like Place Pipes (same saved map, one
-    confirm when it covers every layer). ``shape`` None places boxes AND
-    cylinders in one run; 'box' / 'cyl' restricts to one shape (the
-    legacy single-shape entry points)."""
+    """The Place Structures button: ONE setup window (export, layers +
+    per-layer worksets, category-first family pickers, layer-named
+    system type option), then the parameter-mapping prompts, vertical
+    origin probe, transform and placement. ``shape`` optionally
+    restricts to 'box' / 'cyl' (legacy entry points)."""
     from pyrevit import revit, forms, script
     from pymep_config import (get_pipe_host_level_name,
                               get_dashboard_layer_workset_map,
@@ -934,141 +955,226 @@ def run_place(shape=None):
     log("### Place chambers from a dashboard export")
     log("pymep_dashboard **v{}**".format(__version__))
 
-    # 1. export FIRST - it decides which shapes need a family ----------------
-    json_path = forms.pick_file(
-        file_ext="json",
-        title="Pick a dashboard MODEL or STRUCTS export (.json)")
-    if not json_path:
-        forms.alert("No export selected.", exitscript=True)
-    try:
-        meta, rows = read_export(json_path)
-    except Exception as ex:
-        forms.alert("Could not read the export:\n\n{}".format(ex),
-                    exitscript=True)
-    if shape:
-        rows = [r for r in rows if r["shape"] == shape]
-    else:
-        rows = [r for r in rows if r["shape"] in ("box", "cyl")]
-    if not rows:
-        forms.alert("The export contains no placeable structures "
-                    "(scope was: {}).".format(meta.get("scope")),
-                    exitscript=True)
+    saved_map = get_dashboard_layer_workset_map()
+    worksets = list_worksets(doc)
+    ACTIVE = "(active workset)"
+    xaml_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "pymep_place_structures.xaml")
 
-    tally = {}
-    for r in rows:
-        lay = tally.setdefault(r["layer"], {"box": 0, "cyl": 0})
-        lay[r["shape"]] += 1
+    from System.Collections import ArrayList, Hashtable
 
-    def _mix(t):
-        bits = []
-        if t["box"]:
-            bits.append("{} box".format(t["box"]))
-        if t["cyl"]:
-            bits.append("{} cyl".format(t["cyl"]))
-        return " + ".join(bits) or "0"
+    class PlaceWindow(forms.WPFWindow):
 
+        def __init__(self):
+            forms.WPFWindow.__init__(self, xaml_path)
+            self.result = None
+            self.meta = None
+            self.rows = None
+            self.path = None
+            self._order = []          # layer names in list order
+            self._cats = {}           # category -> [(label, sym)]
+            self._box_syms = []
+            self._cyl_syms = []
+            self.CmbWorkset.Items.Clear()
+            self.CmbWorkset.Items.Add(ACTIVE)
+            for w in worksets:
+                self.CmbWorkset.Items.Add(w)
+            self.CmbWorkset.SelectedIndex = 0
+            self._fill_categories()
+            self.StatusText.Text = "Pick a dashboard MODEL or STRUCTS " \
+                                   "export to begin."
+
+        # ---- export ----
+        def on_browse(self, sender, args):
+            path = forms.pick_file(
+                file_ext="json",
+                title="Pick a dashboard MODEL or STRUCTS export (.json)")
+            if not path:
+                return
+            try:
+                meta, rows = read_export(path)
+            except Exception as ex:
+                forms.alert("Could not read the export:\n\n{}".format(ex))
+                return
+            if shape:
+                rows = [r for r in rows if r["shape"] == shape]
+            else:
+                rows = [r for r in rows if r["shape"] in ("box", "cyl")]
+            if not rows:
+                forms.alert("The export contains no placeable structures "
+                            "(scope was: {}).".format(meta.get("scope")))
+                return
+            self.path = path
+            self.meta = meta
+            self.rows = rows
+            self.TxtExport.Text = path
+            export_map = meta.get("workset_map")
+            export_map = export_map if isinstance(export_map, dict) else {}
+            tally = {}
+            for r in rows:
+                t = tally.setdefault(r["layer"], {"box": 0, "cyl": 0})
+                t[r["shape"]] += 1
+            items = ArrayList()
+            self._order = sorted(tally, key=lambda s: s.lower())
+            for lay in self._order:
+                ws = str(export_map.get(lay) or saved_map.get(lay) or "")
+                if ws and worksets and ws not in worksets:
+                    ws = ""
+                row = Hashtable()
+                row["layer"] = lay
+                row["box"] = str(tally[lay]["box"] or "")
+                row["cyl"] = str(tally[lay]["cyl"] or "")
+                row["workset"] = ws
+                items.Add(row)
+            self.LstLayers.ItemsSource = items
+            self.LstLayers.SelectAll()
+            self.StatusText.Text = ("{} structures across {} layers - "
+                                    "{}".format(len(rows), len(self._order),
+                                                meta.get("source") or ""))
+
+        # ---- worksets ----
+        def on_assign_ws(self, sender, args):
+            pick = self.CmbWorkset.SelectedItem
+            if pick is None or self.LstLayers.ItemsSource is None:
+                return
+            ws = "" if str(pick) == ACTIVE else str(pick)
+            for row in self.LstLayers.SelectedItems:
+                row["workset"] = ws
+            self.LstLayers.Items.Refresh()
+
+        # ---- families ----
+        def _fill_categories(self):
+            self._cats = list_chamber_symbols_by_category(doc)
+            names = sorted(self._cats, key=lambda s: s.lower())
+            for combo in (self.CmbBoxCat, self.CmbCylCat):
+                sel = combo.SelectedItem
+                combo.Items.Clear()
+                for c in names:
+                    combo.Items.Add(c)
+                if sel is not None and str(sel) in names:
+                    combo.SelectedItem = str(sel)
+
+        def _fill_fams(self, cat_combo, fam_combo, store):
+            del store[:]
+            fam_combo.Items.Clear()
+            cname = cat_combo.SelectedItem
+            if cname is None:
+                return
+            for lbl, sym in self._cats.get(str(cname), []):
+                store.append(sym)
+                fam_combo.Items.Add(lbl)
+            if fam_combo.Items.Count:
+                fam_combo.SelectedIndex = 0
+
+        def on_box_cat_changed(self, sender, args):
+            self._fill_fams(self.CmbBoxCat, self.CmbBoxFam, self._box_syms)
+
+        def on_cyl_cat_changed(self, sender, args):
+            self._fill_fams(self.CmbCylCat, self.CmbCylFam, self._cyl_syms)
+
+        def on_load_rfa(self, sender, args):
+            rfa = forms.pick_file(file_ext="rfa",
+                                  title="Pick the chamber family (.rfa)")
+            if not rfa:
+                return
+            t = Transaction(doc, "Load dashboard family")
+            t.Start()
+            try:
+                ok = doc.LoadFamily(rfa)
+                t.Commit()
+                self.StatusText.Text = "Loaded {} ({}).".format(
+                    rfa, "ok" if ok else "already loaded / unchanged")
+            except Exception as ex:
+                t.RollBack()
+                forms.alert("Could not load:\n{}".format(ex))
+                return
+            self._fill_categories()
+
+        # ---- bottom bar ----
+        def _chosen_symbol(self, fam_combo, store):
+            i = fam_combo.SelectedIndex
+            if i < 0 or i >= len(store):
+                return None, None
+            return str(fam_combo.SelectedItem), store[i]
+
+        def on_place(self, sender, args):
+            if not self.rows:
+                forms.alert("Pick a dashboard export first.")
+                return
+            chosen = [str(row["layer"])
+                      for row in self.LstLayers.SelectedItems]
+            if not chosen:
+                forms.alert("Select at least one layer in the list.")
+                return
+            sel_rows = [r for r in self.rows if r["layer"] in set(chosen)]
+            shapes_here = set(r["shape"] for r in sel_rows)
+            fams = {}
+            if "box" in shapes_here:
+                lbl, sym = self._chosen_symbol(self.CmbBoxFam,
+                                               self._box_syms)
+                if sym is None:
+                    forms.alert("Pick a category + family for the BOX "
+                                "chambers.")
+                    return
+                fams["box"] = (lbl, sym)
+            if "cyl" in shapes_here:
+                lbl, sym = self._chosen_symbol(self.CmbCylFam,
+                                               self._cyl_syms)
+                if sym is None:
+                    forms.alert("Pick a category + family for the "
+                                "CYLINDRICAL chambers.")
+                    return
+                fams["cyl"] = (lbl, sym)
+            ws_map = {}
+            for row in self.LstLayers.ItemsSource:
+                if str(row["layer"]) in set(chosen):
+                    ws_map[str(row["layer"])] = str(row["workset"] or "")
+            self.result = {
+                "path": self.path, "meta": self.meta, "rows": sel_rows,
+                "layers": chosen, "ws_map": ws_map, "fams": fams,
+                "assign_sys": bool(self.ChkSystemType.IsChecked),
+            }
+            self.Close()
+
+        def on_cancel(self, sender, args):
+            self.Close()
+
+    win = PlaceWindow()
+    win.ShowDialog()
+    res = win.result
+    if not res:
+        log("Cancelled.")
+        log.close()
+        script.exit()
+
+    meta = res["meta"]
+    rows = res["rows"]
+    by_layer = rows_by_layer(rows)
+    layer_workset_map = res["ws_map"]
     log("Export **{}** - scope: *{}* - generated {}".format(
         meta.get("source"), meta.get("scope"), meta.get("generated")))
-    log("**{}** structures across **{}** layers:".format(
-        len(rows), len(tally)))
-    for lay in sorted(tally,
-                      key=lambda k: -(tally[k]["box"] + tally[k]["cyl"])):
-        log("  - {}  ({})".format(lay, _mix(tally[lay])))
+    log("**{}** structures across **{}** layers.".format(
+        len(rows), len(by_layer)))
+    for lay in sorted(by_layer, key=lambda k: k.lower()):
+        log("  - {}  x{}  ->  {}".format(
+            lay, len(by_layer[lay]), layer_workset_map.get(lay) or ACTIVE))
 
-    # 2. pick layers ----------------------------------------------------------
-    class LayerOption(object):
-        def __init__(self, name):
-            self.name_raw = name
-            self.name = "{}   -   {}".format(name, _mix(tally[name]))
-
-    chosen = forms.SelectFromList.show(
-        [LayerOption(n) for n in sorted(tally)],
-        title="Pick layers to place", button_name="Map worksets ->",
-        multiselect=True, name_attr="name")
-    if not chosen:
-        forms.alert("No layers picked.", exitscript=True)
-    chosen_layers = [o.name_raw for o in chosen]
-    rows = [r for r in rows if r["layer"] in chosen_layers]
-    by_layer = rows_by_layer(rows)
-
-    # 3. layer -> workset (same flow + saved map as Place Pipes) --------------
-    saved_map = get_dashboard_layer_workset_map()
-    # The dashboard's Workset settings ride inside the model export -
-    # they win over the locally saved map as the fresher intent.
-    export_map = meta.get("workset_map")
-    if isinstance(export_map, dict) and export_map:
-        for k, v in export_map.items():
-            try:
-                saved_map[str(k)] = str(v)
-            except Exception:
-                pass
-        log("Export carries a workset map for **{}** layer(s) - it "
-            "pre-fills the pickers.".format(len(export_map)))
-    ACTIVE = "(active workset)"
-    worksets = list_worksets(doc)
-    layer_workset_map = {}
     if worksets:
-        ws_choices = [ACTIVE] + worksets
-        proposed = {}
-        for lay in chosen_layers:
-            if lay not in saved_map:
-                proposed = None
-                break
-            val = str(saved_map.get(lay) or "").strip()
-            if val and val not in worksets:
-                proposed = None
-                break
-            proposed[lay] = val
-        use_saved = False
-        if proposed is not None:
-            prop_lines = ["  {}  ->  {}".format(l, proposed[l] or ACTIVE)
-                          for l in chosen_layers]
-            answer = forms.alert(
-                "Saved workset mappings cover every chosen layer:\n\n{}\n\n"
-                "Use these?".format("\n".join(prop_lines)),
-                title="Layer -> workset",
-                options=["Use these", "Re-pick"])
-            if answer == "Use these":
-                layer_workset_map = dict(proposed)
-                use_saved = True
-                log("Using saved layer -> workset map:")
-                for l in chosen_layers:
-                    log("  - {} -> {}".format(l, proposed[l] or ACTIVE))
-        if not use_saved:
-            for lay in chosen_layers:
-                preset = str(saved_map.get(lay) or "").strip()
-                log("Map '{}' ({}) to a workset.{}".format(
-                    lay, _mix(tally[lay]),
-                    "  Previously: {}".format(preset) if preset else ""))
-                picked = forms.SelectFromList.show(
-                    ws_choices, title="Workset for: {}".format(lay),
-                    button_name="Assign", multiselect=False)
-                if not picked:
-                    forms.alert("Cancelled workset mapping - aborting.",
-                                exitscript=True)
-                layer_workset_map[lay] = "" if picked == ACTIVE else picked
-        # Persist only when workshared (the non-workshared branch forces
-        # '' and would clobber real names) - same rule as Place Pipes.
         merged = dict(saved_map)
         merged.update(layer_workset_map)
         try:
             save_dashboard_layer_workset_map(merged)
         except Exception:
             pass
-    else:
-        log("Document is not workshared - structures go on the active "
-            "workset.")
-        for lay in chosen_layers:
-            layer_workset_map[lay] = ""
 
-    # 4. one family + param map + vertical origin per shape -------------------
-    shapes = [s for s in ("box", "cyl") if any(r["shape"] == s for r in rows)]
+    # per-shape parameter mapping + vertical origin --------------------------
+    shapes = [s for s in ("box", "cyl") if s in res["fams"]]
     fams = {}
     for sp in shapes:
-        n_sp = sum(1 for r in rows if r["shape"] == sp)
-        what = "{} {} chambers".format(
-            n_sp, "BOX" if sp == "box" else "CYLINDRICAL")
-        fam_label, base_symbol = _pick_family_symbol(doc, forms, log, what)
+        fam_label, base_symbol = res["fams"][sp]
+        log("Family for {}: **{}**".format(
+            "BOX chambers" if sp == "box" else "CYLINDRICAL chambers",
+            fam_label))
         keys = ["L", "W", "H"] if sp == "box" else ["DIA", "H"]
         param_map = _map_params(doc, forms, log, base_symbol, fam_label,
                                 keys)
@@ -1089,7 +1195,7 @@ def run_place(shape=None):
                 {"base": "SUMP", "top": "RIM",
                  "center": "mid-height"}[fams[sp]["anchor"]]))
 
-    # 5. host level (auto) -----------------------------------------------------
+    # host level (auto) ------------------------------------------------------
     _levels = sorted(FilteredElementCollector(doc).OfClass(Level).ToElements(),
                      key=lambda lv: lv.Elevation)
     if not _levels:
@@ -1104,7 +1210,32 @@ def run_place(shape=None):
         host_level_name = safe_name(_levels[0])
     log("Host level (auto): **{}**".format(host_level_name))
 
-    # 6. transform once - fail here and NOTHING gets created ------------------
+    # layer-named system types (same automation as the pipes) ----------------
+    system_type_map = None
+    if res["assign_sys"]:
+        from Autodesk.Revit.DB.Plumbing import PipingSystemType
+        by_name = {}
+        for pst in FilteredElementCollector(doc).OfClass(PipingSystemType):
+            nm = _el_name(pst).strip().lower()
+            if nm and nm not in by_name:
+                by_name[nm] = pst.Id
+        system_type_map = {}
+        missing = []
+        for lay in by_layer:
+            stid = by_name.get(lay.strip().lower())
+            if stid is not None:
+                system_type_map[lay.strip().lower()] = stid
+            else:
+                missing.append(lay)
+        log("Layer-named system types found for **{}** of {} layer(s){}."
+            .format(len(system_type_map), len(by_layer),
+                    " - missing: {} (run Project Setup from this export "
+                    "to create them)".format(", ".join(missing))
+                    if missing else ""))
+        if not system_type_map:
+            system_type_map = None
+
+    # transform once - fail here and NOTHING gets created --------------------
     pts_info = None
     try:
         pts_info = solve_points(doc, rows, log=log)
@@ -1147,23 +1278,7 @@ def run_place(shape=None):
                         "\n\nFull details are in the output window."
                         .format(ex), exitscript=True)
 
-    # 7. confirm ----------------------------------------------------------------
-    fam_lines = "\n".join("  {}: {}".format(
-        "Boxes" if sp == "box" else "Cylinders", fams[sp]["label"])
-        for sp in shapes)
-    if forms.alert(
-            "Place {} chambers from:\n  {}\n\n{}\n"
-            "Types: one per layer ({})\n"
-            "Worksets: per layer (see output window)\n"
-            "Sizes -> mapped instance params (see output window)\n"
-            "Z: via 'Offset from level' (level at 0)\n"
-            "Level (auto): {}\n\nPlace now?".format(
-                len(rows), meta.get("source"), fam_lines, len(by_layer),
-                host_level_name),
-            title="Confirm", options=["Place", "Cancel"]) != "Place":
-        forms.alert("Cancelled.", exitscript=True)
-
-    # 8. place - one pass per shape, same pre-solved transform ----------------
+    # place - one pass per shape, same pre-solved transform ------------------
     created = 0
     failed = 0
     instances = []
@@ -1180,7 +1295,8 @@ def run_place(shape=None):
                 doc, sp_rows, symbols_by_layer,
                 host_level_name=host_level_name,
                 layer_workset_map=layer_workset_map, log=log,
-                param_map=fams[sp]["param_map"], pts_info=sp_pts)
+                param_map=fams[sp]["param_map"], pts_info=sp_pts,
+                system_type_map=system_type_map)
             created += c
             failed += f
             instances.extend(insts)

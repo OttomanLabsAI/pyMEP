@@ -106,10 +106,14 @@ newest `.html` in that folder, so upgrading the viewer is just dropping the
 new file in (`dashboard_html_path` in settings overrides it).
 
 **Place Structures** - places every box AND cylindrical chamber from a
-dashboard export (`MODEL-*.json` or `STRUCTS-*.json`) in one run: pick
-the export, pick the layers, map each layer to a workset (same saved
-layer->workset map as Place Pipes, one confirm when it covers every
-layer), then pick one family per shape present and map its L/W/H/DIA
+dashboard export (`MODEL-*.json` or `STRUCTS-*.json`) in one run,
+driven from a single setup window: browse to the export, highlight the
+layers to place, assign each a workset (pre-filled from the export's
+workset map / previous runs), pick the family per shape present -
+CATEGORY first (Generic Models, Plumbing Fixtures, ...), then the type
+- and optionally give every instance the piping system type named
+exactly like its layer (same automation as the pipes; created by
+Project Setup). Then map each family's L/W/H/DIA
 instance parameters. Each family's vertical origin is auto-detected
 (base / top / mid-height, probe instance in a rolled-back transaction)
 so the chamber lands with its sump, rim or centre at the right level.
