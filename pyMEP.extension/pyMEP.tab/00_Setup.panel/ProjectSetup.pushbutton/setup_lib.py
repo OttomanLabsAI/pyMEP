@@ -461,6 +461,20 @@ def _apply_template_settings(doc, tmpl, e, filters_by_name, ws_ids,
         except Exception as ex:
             warnings.append("filter '{}': {}".format(fname, ex))
 
+    # "all_worksets_visible": every user workset in the model turned on
+    # - the full-model companion of the per-workset isolation templates.
+    if e.get("all_worksets_visible"):
+        if not doc.IsWorkshared:
+            warnings.append("workset visibility skipped - model not "
+                            "workshared")
+        else:
+            for wkey in ws_ids:
+                try:
+                    tmpl.SetWorksetVisibility(ws_ids[wkey],
+                                              WorksetVisibility.Visible)
+                except Exception as ex:
+                    warnings.append("workset '{}': {}".format(wkey, ex))
+
     # "solo_workset": ONLY this workset visible - every other user
     # workset in the model (not just config ones) is hidden. Used by the
     # dashboard-export flow's per-workset isolation templates.
@@ -601,7 +615,8 @@ STAGES = [
 
 # ---------------------------------------------------------------------------
 # config built from a dashboard MODEL export (one piping system per pipe
-# layer, exact layer names; worksets from the embedded workset_map)
+# layer, exact layer names; worksets + isolation templates from the
+# workset map; classification per layer - automatic or user-chosen)
 # ---------------------------------------------------------------------------
 PIPE_CLASSIFICATIONS = [
     "Sanitary", "Vent", "DomesticColdWater", "DomesticHotWater",
@@ -609,16 +624,44 @@ PIPE_CLASSIFICATIONS = [
     "FireProtectOther", "SupplyHydronic", "ReturnHydronic", "OtherPipe",
 ]
 
+# Keyword table for the AUTOMATIC per-layer classification (generic MEP
+# naming conventions, checked in order - first hit wins; hydronic runs
+# get Supply/Return split on a RETURN/...R marker).
+AUTO_CLASS_KEYWORDS = (
+    (("SVP", "VENT"), "Vent"),
+    (("CHW", "LTHW", "MTHW", "HTHW", "HYDRONIC", "HTG", "HEATING"),
+     "SupplyHydronic"),
+    (("SPR", "SPRINKLER", "FIRE", "WET RISER"), "FireProtectWet"),
+    (("DRY RISER",), "FireProtectDry"),
+    (("FW", "SW", "FOUL", "STORM", "RWD", "RAINWATER", "SAN", "DRAIN",
+      "CND", "CONDENSATE", "SOIL"), "Sanitary"),
+    (("DHW", "HWS", "HOT WATER"), "DomesticHotWater"),
+    (("DCW", "BCW", "CWS", "COLD WATER", "WATER MAIN", "POTABLE"),
+     "DomesticColdWater"),
+)
+DEFAULT_CLASSIFICATION = "Sanitary"
 
-def config_from_model_export(path, classification="Sanitary",
-                             fallback_workset_map=None):
-    """Build a Project Setup config from a dashboard MODEL-*.json (or
-    PIPES-*.json): one piping system per pipe layer, named EXACTLY like
-    the layer; worksets (and one isolation view template per workset)
-    from the export's embedded workset_map - falling back to
-    ``fallback_workset_map`` ({layer: workset}, e.g. the locally saved
-    dashboard map) when the export carries none. Raises ValueError with
-    a readable message on anything unusable."""
+
+def classify_layer(layer):
+    """Automatic MEP classification for one layer name. Unrecognised
+    names fall back to DEFAULT_CLASSIFICATION (drainage-dominated
+    utilities exports; ducts-modelled-as-pipes do not care)."""
+    up = str(layer or "").upper()
+    for keys, cls in AUTO_CLASS_KEYWORDS:
+        for k in keys:
+            if k in up:
+                if cls == "SupplyHydronic" and ("RETURN" in up
+                                                or (k + "R") in up):
+                    return "ReturnHydronic"
+                return cls
+    return DEFAULT_CLASSIFICATION
+
+
+def read_model_export(path, fallback_workset_map=None):
+    """-> (layers, worksets) out of a dashboard MODEL-*.json (or
+    PIPES-*.json). Worksets come from the embedded workset_map, falling
+    back to ``fallback_workset_map`` ({layer: workset}) when the export
+    carries none. Raises ValueError on anything unusable."""
     try:
         with open(path, "rb") as f:
             raw = f.read()
@@ -658,20 +701,45 @@ def config_from_model_export(path, classification="Sanitary",
                 wseen.add(nm.lower())
                 worksets.append(nm)
         worksets.sort(key=lambda s: s.lower())
+    return layers, worksets
 
+
+def config_from_layers(layer_classifications, worksets):
+    """Build the Project Setup config from [(layer, classification),
+    ...] pairs + a workset list: systems grouped per classification
+    (exact layer names), one isolation view template per workset."""
+    groups = {}
+    order = []
+    for lay, cls in layer_classifications:
+        if cls not in groups:
+            groups[cls] = []
+            order.append(cls)
+        groups[cls].append({"name": lay})
     return {
-        "worksets": worksets,
-        "piping_systems": [{
-            "group": "Dashboard layers",
-            "classification": classification,
-            "systems": [{"name": lay} for lay in layers],
-        }],
+        "worksets": list(worksets),
+        "piping_systems": [
+            {"group": cls, "classification": cls, "systems": groups[cls]}
+            for cls in order
+        ],
         "filters": [],
-        # one isolation template per workset, named exactly after it:
-        # ONLY that workset on, every other user workset hidden
+        # one isolation template per workset (named exactly after it:
+        # ONLY that workset on, every other user workset hidden), plus a
+        # Full Model template with every workset visible
         "view_templates": [
             {"name": ws, "base_view_type": "FloorPlan",
              "solo_workset": ws}
             for ws in worksets
+        ] + [
+            {"name": "Civil 3D XML import", "base_view_type": "FloorPlan",
+             "all_worksets_visible": True}
         ],
     }
+
+
+def config_from_model_export(path, classification="Sanitary",
+                             fallback_workset_map=None):
+    """One-classification-for-everything convenience wrapper around
+    read_model_export + config_from_layers."""
+    layers, worksets = read_model_export(path, fallback_workset_map)
+    return config_from_layers([(lay, classification) for lay in layers],
+                              worksets)
