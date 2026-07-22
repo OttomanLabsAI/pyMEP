@@ -85,7 +85,8 @@
                 </DockPanel>
             </GroupBox>
 
-            <StackPanel Grid.Column="1">
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="0,0,6,0">
                 <GroupBox Header="Family for BOX chambers">
                     <StackPanel>
                         <TextBlock Text="Category" Style="{StaticResource FieldLabel}"/>
@@ -151,6 +152,7 @@
                     </StackPanel>
                 </GroupBox>
             </StackPanel>
+            </ScrollViewer>
         </Grid>
 
         <!-- bottom bar -->
