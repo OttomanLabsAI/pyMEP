@@ -53,13 +53,6 @@ if choice.startswith("Build"):
         file_ext="json", title="Pick a dashboard MODEL export (.json)")
     if not cfg_path:
         forms.alert("No export picked.", exitscript=True)
-    cls_pick = forms.SelectFromList.show(
-        setup_lib.PIPE_CLASSIFICATIONS,
-        title="System classification for the layer systems (a donor "
-              "type of this classification must exist in the model)",
-        button_name="Use this classification", multiselect=False)
-    if not cls_pick:
-        forms.alert("No classification picked.", exitscript=True)
     fallback_map = None
     try:
         from pymep_config import get_dashboard_layer_workset_map
@@ -67,10 +60,45 @@ if choice.startswith("Build"):
     except Exception:
         fallback_map = None
     try:
-        config = setup_lib.config_from_model_export(
-            cfg_path, cls_pick, fallback_workset_map=fallback_map)
+        layers, worksets = setup_lib.read_model_export(
+            cfg_path, fallback_workset_map=fallback_map)
     except ValueError as ex:
         forms.alert("{}".format(ex), exitscript=True)
+
+    mode = forms.alert(
+        "How should each layer's piping system get its MEP "
+        "classification? ({} layers)\n\n"
+        "Automatic infers it from the layer name (drainage / vent / "
+        "fire / hydronic / domestic keywords; anything unrecognised "
+        "becomes {}). Choosing asks once per layer.".format(
+            len(layers), setup_lib.DEFAULT_CLASSIFICATION),
+        title="Layer classifications",
+        options=["Automatic (from the layer names)",
+                 "Choose layer by layer...", "Cancel"])
+    if not mode or mode == "Cancel":
+        script.exit()
+    pairs = []
+    if mode.startswith("Automatic"):
+        for lay in layers:
+            pairs.append((lay, setup_lib.classify_layer(lay)))
+        output.print_md("#### Automatic layer classifications")
+        for lay, cls in pairs:
+            output.print_md("- {}  ->  **{}**".format(lay, cls))
+    else:
+        last = setup_lib.DEFAULT_CLASSIFICATION
+        for i, lay in enumerate(layers):
+            ordered = [last] + [c for c in setup_lib.PIPE_CLASSIFICATIONS
+                                if c != last]
+            pick = forms.SelectFromList.show(
+                ordered,
+                title="Classification for layer '{}'  ({} of {})".format(
+                    lay, i + 1, len(layers)),
+                button_name="Use this", multiselect=False)
+            if not pick:
+                forms.alert("Cancelled.", exitscript=True)
+            pairs.append((lay, pick))
+            last = pick
+    config = setup_lib.config_from_layers(pairs, worksets)
     if not config.get("worksets"):
         forms.alert(
             "This export carries no workset map, and no saved layer -> "
