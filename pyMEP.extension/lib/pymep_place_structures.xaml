@@ -143,6 +143,13 @@
                 <Button x:Name="BtnLoadRfa" Content="Load a family (.rfa)..."
                         MinWidth="150" Padding="8,3" HorizontalAlignment="Left"
                         Click="on_load_rfa"/>
+                <GroupBox Header="Coordinates">
+                    <StackPanel>
+                        <ComboBox x:Name="CmbCoords"/>
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Which survey origin + rotation maps the export's coordinates into this model: the model's own Revit coordinates (Manage &gt; Coordinates - recommended when shared coordinates are established) or the E/N/Z/rotation offsets from pyMEP Settings. Whichever is picked, the other is still tried automatically if the pick lands out of range."/>
+                    </StackPanel>
+                </GroupBox>
                 <GroupBox Header="Options" Margin="0,12,0,0">
                     <StackPanel>
                         <CheckBox x:Name="ChkSystemType" IsChecked="True" Margin="0,4,0,2"

@@ -431,7 +431,8 @@ def _set_all_named_length_m(inst, names, value_m):
 # ---------------------------------------------------------------------------
 # transform solving (validated BEFORE anything is created)
 # ---------------------------------------------------------------------------
-def solve_points(doc, rows, log=None, force_offset=None):
+def solve_points(doc, rows, log=None, force_offset=None,
+                 prefer_model=None):
     """Solve the survey->internal transform for ``rows``: the Settings
     offset first, then the model's own project position. Every attempt is
     logged with the resulting distance. Returns (pts, mode, offsets) where
@@ -485,6 +486,9 @@ def solve_points(doc, rows, log=None, force_offset=None):
         candidates.append(("model project position", pp))
     except Exception:
         pass
+
+    if prefer_model and pp is not None:
+        candidates.reverse()
 
     if force_offset is not None:
         candidates = [("export origin (site at internal origin)",
@@ -968,6 +972,12 @@ def run_place(shape=None):
                     "Top - grows down", "Mid-height"]
     ORIGIN_VALUES = {"Base - grows up": "base", "Top - grows down": "top",
                      "Mid-height": "center"}
+    COORD_MODEL = "Model's Revit coordinates (Manage > Coordinates)"
+    COORD_SETTINGS = "pyMEP Settings offsets (E/N/Z/rotation)"
+    from pymep_landxml_place2 import model_survey_position
+    _mp = model_survey_position(doc)
+    has_georef = _mp is not None and (abs(_mp[0]) > 1e-6
+                                      or abs(_mp[1]) > 1e-6)
 
     class PlaceWindow(forms.WPFWindow):
 
@@ -991,6 +1001,10 @@ def run_place(shape=None):
                 for o in ORIGIN_ITEMS:
                     combo.Items.Add(o)
                 combo.SelectedIndex = 0
+            self.CmbCoords.Items.Clear()
+            self.CmbCoords.Items.Add(COORD_MODEL)
+            self.CmbCoords.Items.Add(COORD_SETTINGS)
+            self.CmbCoords.SelectedIndex = 0 if has_georef else 1
             self._fill_categories()
             self.StatusText.Text = "Pick a dashboard MODEL or STRUCTS " \
                                    "export to begin."
@@ -1196,6 +1210,8 @@ def run_place(shape=None):
                 "path": self.path, "meta": self.meta, "rows": sel_rows,
                 "layers": chosen, "ws_map": ws_map, "fams": fams,
                 "assign_sys": bool(self.ChkSystemType.IsChecked),
+                "prefer_model":
+                    str(self.CmbCoords.SelectedItem) == COORD_MODEL,
             }
             self.Close()
 
@@ -1308,9 +1324,12 @@ def run_place(shape=None):
             system_type_map = None
 
     # transform once - fail here and NOTHING gets created --------------------
+    log("Coordinates: **{}**".format(
+        COORD_MODEL if res["prefer_model"] else COORD_SETTINGS))
     pts_info = None
     try:
-        pts_info = solve_points(doc, rows, log=log)
+        pts_info = solve_points(doc, rows, log=log,
+                                prefer_model=res["prefer_model"])
     except Exception as ex:
         import traceback
         log(traceback.format_exc())
