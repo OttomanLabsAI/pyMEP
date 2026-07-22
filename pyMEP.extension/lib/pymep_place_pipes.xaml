@@ -1,0 +1,123 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Place Pipes"
+        Width="880" Height="600" MinWidth="800" MinHeight="520"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Background="White">
+    <Window.Resources>
+        <Style TargetType="ComboBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Padding" Value="10,8,10,10"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,6,10,0"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="SideButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="88"/>
+            <Setter Property="Margin" Value="8,3,0,0"/>
+            <Setter Property="Padding" Value="8,2"/>
+        </Style>
+        <Style x:Key="DialogButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <GroupBox Grid.Row="0" Header="Dashboard export" Margin="14,12,14,0">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Browse..."
+                        Style="{StaticResource SideButton}" Click="on_browse"/>
+                <TextBox x:Name="TxtExport" Height="24" IsReadOnly="True"
+                         VerticalContentAlignment="Center" Margin="0,3,0,0"/>
+            </DockPanel>
+        </GroupBox>
+
+        <Grid Grid.Row="1" Margin="14,10,14,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="320"/>
+            </Grid.ColumnDefinitions>
+
+            <GroupBox Grid.Column="0" Header="Layers to model" Margin="0,0,10,0">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Bottom">
+                        <DockPanel Margin="0,8,0,0">
+                            <TextBlock Text="Workset" Style="{StaticResource FieldLabel}"/>
+                            <Button DockPanel.Dock="Right" Content="Assign to selected"
+                                    Style="{StaticResource SideButton}" Click="on_assign_ws"/>
+                            <ComboBox x:Name="CmbWorkset"/>
+                        </DockPanel>
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Highlighted rows are placed (all selected after loading). Rectangular duct-bank rows are skipped automatically - only circular runs become pipes."/>
+                    </StackPanel>
+                    <ListView x:Name="LstLayers" SelectionMode="Extended">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Layer"   Width="230" DisplayMemberBinding="{Binding [layer]}"/>
+                                <GridViewColumn Header="Pipes"   Width="56"  DisplayMemberBinding="{Binding [pipes]}"/>
+                                <GridViewColumn Header="Workset" Width="150" DisplayMemberBinding="{Binding [workset]}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </DockPanel>
+            </GroupBox>
+
+            <StackPanel Grid.Column="1">
+                <GroupBox Header="Pipe">
+                    <StackPanel>
+                        <TextBlock Text="Pipe type" Style="{StaticResource FieldLabel}"/>
+                        <ComboBox x:Name="CmbPipeType"/>
+                        <TextBlock Text="System type (fallback)" Style="{StaticResource FieldLabel}"/>
+                        <ComboBox x:Name="CmbSystemType"/>
+                        <TextBlock Text="Segment" Style="{StaticResource FieldLabel}"/>
+                        <ComboBox x:Name="CmbSegment"/>
+                        <TextBlock Text="Host level" Style="{StaticResource FieldLabel}"/>
+                        <ComboBox x:Name="CmbLevel"/>
+                    </StackPanel>
+                </GroupBox>
+                <GroupBox Header="Options">
+                    <StackPanel>
+                        <CheckBox x:Name="ChkLayerSystems" IsChecked="True" Margin="0,4,0,2"
+                                  Content="Use the layer-named system type per layer"/>
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Each pipe takes the piping system type named exactly like its layer (created by Project Setup). Layers without one fall back to the system type picked above. The picked Segment receives the export's sizes and is written to every pipe."/>
+                    </StackPanel>
+                </GroupBox>
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="#DDDDDD"
+                Background="#F5F5F5" Margin="0,10,0,0">
+            <DockPanel Margin="14,10">
+                <TextBlock x:Name="StatusText" DockPanel.Dock="Left"
+                           VerticalAlignment="Center" Foreground="#666666"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Place" IsDefault="True"
+                            Style="{StaticResource DialogButton}" Click="on_place"/>
+                    <Button Content="Cancel" Style="{StaticResource DialogButton}"
+                            Click="on_cancel"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

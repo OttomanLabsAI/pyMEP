@@ -1,30 +1,21 @@
 # -*- coding: utf-8 -*-
-"""Place Pipes - read a pipes export from the OttomanLabs utilities
-dashboard and place Revit pipes, exactly like the LandXML Model Pipes
-button but fed from the dashboard JSON.
+"""Place Pipes - read a dashboard export (MODEL-*.json or PIPES-*.json)
+and place Revit pipes, driven from ONE setup window:
 
-Flow (mirrors Drainage > Model Pipes):
-  1. Pick the dashboard export (.json) - a combined MODEL-*.json or a
-     PIPES-*.json both work; the EXPORT buttons in the 3D viewer export
-     whatever is currently in view, so isolate a layer/group first to
-     place just that subset.
-  2. Read the export (start/end/diameter per pipe; rectangular duct-bank
-     rows are reported and skipped - only circular runs become pipes).
-  3. Pick which layers to model.
-  4. Map each layer -> a project workset ('' = active). Saved mappings
-     that still resolve are confirmed in ONE dialog.
-  5. Pipe type / piping system type / host level come straight from
-     Settings when the configured names exist in the model; a picker
-     only appears for the ones that don't resolve.
-  6. Place (after the final confirm):
-       - silently ensure the export's circular sizes exist on the pipe
-         Segment configured in Settings > LandXML (idempotent, non-fatal);
-       - transform survey -> internal exactly as Model Pipes does
-         (Settings offsets first, model survey position fallback); if
-         neither fits, offers to place at the model's internal origin
-         using the EXPORT's own origin as the offset;
-       - create pipes (+worksets), set Marks from the pipe name, set
-         diameters snapped to the pipe type's available sizes.
+  * browse to the export - layers list with per-row workset assignment
+    (pre-filled from the export's workset map / previous runs),
+  * pipe type / system type / segment / host level dropdowns
+    (Settings-configured names preselected),
+  * option: every pipe takes the piping system type named exactly like
+    its layer (created by Project Setup); unmapped layers fall back to
+    the picked system type.
+
+Placement mechanics are unchanged: the export's circular sizes are
+ensured on the picked Segment (idempotent, non-fatal), the survey
+transform tries the Settings offsets then the model's own position -
+with the place-at-internal-origin rescue when neither fits - and every
+pipe gets its Mark, snapped diameter, workset and 'Pipe Segment'.
+Rectangular duct-bank rows are skipped: only circular runs become pipes.
 """
 
 __title__  = "Place\nPipes"
@@ -48,7 +39,7 @@ from pymep_dashboard_pipes import (
     read_pipes_export, placement_rows, distinct_circular_sizes,
 )
 from pymep_landxml_place2 import (
-    place_landxml_pipes, list_type_names, list_worksets,
+    place_landxml_pipes, list_type_names, list_worksets, _el_name,
 )
 from pymep_pipesizes import list_pipe_segments, add_sizes_to_segment
 from pymep_revit import safe_name
@@ -56,6 +47,7 @@ from pymep_log import Logger
 
 import clr
 clr.AddReference("RevitAPI")
+from System.Collections import ArrayList, Hashtable
 from Autodesk.Revit.DB import FilteredElementCollector, Level
 from Autodesk.Revit.DB.Plumbing import PipeType, PipingSystemType
 
@@ -66,140 +58,190 @@ doc = revit.doc
 default_pt = get_pipe_type_name()
 default_st = get_pipe_system_type_name()
 default_lvl = get_pipe_host_level_name()
+default_seg = get_landxml_segment_name()
 saved_map = get_dashboard_layer_workset_map()
+worksets = list_worksets(doc)
+ACTIVE = "(active workset)"
+SEG_ROUTE = "(leave to the pipe type's routing preferences)"
 
 log("### Place Pipes from dashboard export")
 
-# ---------------------------------------------------------------------------
-# 1. Pick export + read
-# ---------------------------------------------------------------------------
-json_path = forms.pick_file(
-    file_ext="json",
-    title="Pick a dashboard MODEL or PIPES export (.json)")
-if not json_path:
-    forms.alert("No export selected.", exitscript=True)
-log("Export: **{}**".format(os.path.basename(json_path)))
+XAML_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
+    "pymep_place_pipes.xaml")
 
-try:
-    meta, rows, notes = read_pipes_export(json_path)
-except Exception as ex:
-    import traceback
-    log("Read failed:")
-    log(traceback.format_exc())
+
+def _fill_names(combo, names, preferred):
+    combo.Items.Clear()
+    for n in names:
+        combo.Items.Add(n)
+    if preferred and preferred in names:
+        combo.SelectedItem = preferred
+    elif combo.Items.Count:
+        combo.SelectedIndex = 0
+
+
+class PipesWindow(forms.WPFWindow):
+
+    def __init__(self):
+        forms.WPFWindow.__init__(self, XAML_PATH)
+        self.result = None
+        self.meta = None
+        self.rows = None
+        self.notes = []
+        self.path = None
+        self.skipped_box = 0
+        self.CmbWorkset.Items.Clear()
+        self.CmbWorkset.Items.Add(ACTIVE)
+        for w in worksets:
+            self.CmbWorkset.Items.Add(w)
+        self.CmbWorkset.SelectedIndex = 0
+        _fill_names(self.CmbPipeType, list_type_names(doc, PipeType),
+                    default_pt)
+        _fill_names(self.CmbSystemType,
+                    list_type_names(doc, PipingSystemType), default_st)
+        seg_names = [n for n, _s in list_pipe_segments(doc)]
+        self.CmbSegment.Items.Clear()
+        self.CmbSegment.Items.Add(SEG_ROUTE)
+        for n in seg_names:
+            self.CmbSegment.Items.Add(n)
+        if default_seg and default_seg in seg_names:
+            self.CmbSegment.SelectedItem = default_seg
+        else:
+            self.CmbSegment.SelectedIndex = 0
+        self._levels = sorted(
+            FilteredElementCollector(doc).OfClass(Level).ToElements(),
+            key=lambda lv: lv.Elevation)
+        self._level_names = [safe_name(lv) for lv in self._levels]
+        _fill_names(self.CmbLevel, self._level_names, default_lvl)
+        self.StatusText.Text = "Pick a dashboard MODEL or PIPES export " \
+                               "to begin."
+
+    def on_browse(self, sender, args):
+        path = forms.pick_file(
+            file_ext="json",
+            title="Pick a dashboard MODEL or PIPES export (.json)")
+        if not path:
+            return
+        try:
+            meta, rows, notes = read_pipes_export(path)
+        except Exception as ex:
+            forms.alert("Could not read the export:\n\n{}".format(ex))
+            return
+        lay_place = {}
+        skipped_box = 0
+        for r in rows:
+            if r["is_circular"]:
+                lay_place[r["layer"]] = lay_place.get(r["layer"], 0) + 1
+            else:
+                skipped_box += 1
+        if not lay_place:
+            forms.alert("No placeable (circular) pipes in this export.")
+            return
+        self.path = path
+        self.meta = meta
+        self.rows = rows
+        self.notes = notes
+        self.skipped_box = skipped_box
+        self.TxtExport.Text = path
+        export_map = meta.get("workset_map")
+        export_map = export_map if isinstance(export_map, dict) else {}
+        items = ArrayList()
+        for lay in sorted(lay_place, key=lambda s: s.lower()):
+            ws = str(export_map.get(lay) or saved_map.get(lay) or "")
+            if ws and worksets and ws not in worksets:
+                ws = ""
+            row = Hashtable()
+            row["layer"] = lay
+            row["pipes"] = str(lay_place[lay])
+            row["workset"] = ws
+            items.Add(row)
+        self.LstLayers.ItemsSource = items
+        self.LstLayers.SelectAll()
+        self.StatusText.Text = ("{} placeable pipes across {} layers"
+                                "{} - {}".format(
+                                    sum(lay_place.values()), len(lay_place),
+                                    ", {} duct-bank rows skipped".format(
+                                        skipped_box) if skipped_box else "",
+                                    meta.get("source") or ""))
+
+    def on_assign_ws(self, sender, args):
+        pick = self.CmbWorkset.SelectedItem
+        if pick is None or self.LstLayers.ItemsSource is None:
+            return
+        ws = "" if str(pick) == ACTIVE else str(pick)
+        for row in self.LstLayers.SelectedItems:
+            row["workset"] = ws
+        self.LstLayers.Items.Refresh()
+
+    def on_place(self, sender, args):
+        if not self.rows:
+            forms.alert("Pick a dashboard export first.")
+            return
+        chosen = [str(row["layer"]) for row in self.LstLayers.SelectedItems]
+        if not chosen:
+            forms.alert("Select at least one layer in the list.")
+            return
+        if self.CmbPipeType.SelectedItem is None:
+            forms.alert("This project has no pipe types - load one first.")
+            return
+        if self.CmbSystemType.SelectedItem is None:
+            forms.alert("This project has no piping system types.")
+            return
+        if self.CmbLevel.SelectedItem is None:
+            forms.alert("This project has no levels.")
+            return
+        ws_map = {}
+        for row in self.LstLayers.ItemsSource:
+            if str(row["layer"]) in set(chosen):
+                ws_map[str(row["layer"])] = str(row["workset"] or "")
+        seg = str(self.CmbSegment.SelectedItem)
+        self.result = {
+            "layers": chosen, "ws_map": ws_map,
+            "pipe_type": str(self.CmbPipeType.SelectedItem),
+            "system_type": str(self.CmbSystemType.SelectedItem),
+            "segment": "" if seg == SEG_ROUTE else seg,
+            "level": str(self.CmbLevel.SelectedItem),
+            "layer_systems": bool(self.ChkLayerSystems.IsChecked),
+        }
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.Close()
+
+
+win = PipesWindow()
+win.ShowDialog()
+res = win.result
+if not res:
+    log("Cancelled.")
     log.close()
-    forms.alert("Could not read the export:\n\n{}\n\nThe full traceback is "
-                "in the pyRevit output window and the log file."
-                .format(ex), exitscript=True)
-for n in notes:
+    script.exit()
+
+meta = win.meta
+rows = win.rows
+skipped_box = win.skipped_box
+for n in win.notes:
     log(n)
 if meta.get("source"):
     log("Source: **{}**   scope: {}".format(meta.get("source"),
                                             meta.get("scope") or "?"))
+chosen_layers = res["layers"]
+layer_workset_map = res["ws_map"]
+pipe_type_name = res["pipe_type"]
+system_type_name = res["system_type"]
+segment_name = res["segment"]
+host_level_name = res["level"]
+log("Layers: " + ", ".join(
+    "{} -> {}".format(l, layer_workset_map.get(l) or ACTIVE)
+    for l in chosen_layers))
+log("Pipe type **{}**, fallback system **{}**, segment **{}**, level "
+    "**{}**.".format(pipe_type_name, system_type_name,
+                     segment_name or "(routing preferences)",
+                     host_level_name))
 
-# The dashboard's Workset settings ride inside the model export - they
-# win over the locally saved map as the fresher intent.
-_export_map = meta.get("workset_map")
-if isinstance(_export_map, dict) and _export_map:
-    for _k, _v in _export_map.items():
-        try:
-            saved_map[str(_k)] = str(_v)
-        except Exception:
-            pass
-    log("Export carries a workset map for **{}** layer(s) - it pre-fills "
-        "the pickers.".format(len(_export_map)))
-
-# Per-layer placeable tally (circular only - duct banks are Encasement's job)
-lay_place = {}
-skipped_box = 0
-for r in rows:
-    if r["is_circular"]:
-        lay_place[r["layer"]] = lay_place.get(r["layer"], 0) + 1
-    else:
-        skipped_box += 1
-if skipped_box:
-    log("{} rectangular duct-bank row(s) will be skipped (pipes are round; "
-        "use the Encasement workflow for duct banks).".format(skipped_box))
-
-total_place = sum(lay_place.values())
-if total_place == 0:
-    forms.alert("No placeable (circular) pipes in this export.",
-                exitscript=True)
-
-# ---------------------------------------------------------------------------
-# 2. Pick layers
-# ---------------------------------------------------------------------------
-class LayerOption(object):
-    def __init__(self, name):
-        self.name_raw = name
-        self.name = "{}   -   {} placeable".format(name, lay_place.get(name, 0))
-
-lay_opts = [LayerOption(n) for n in sorted(lay_place) if lay_place.get(n, 0)]
-log("{} placeable pipes across {} layer(s).".format(total_place,
-                                                    len(lay_opts)))
-chosen = forms.SelectFromList.show(
-    lay_opts, title="Pick layers to model", button_name="Map worksets ->",
-    multiselect=True, name_attr="name")
-if not chosen:
-    forms.alert("No layers picked.", exitscript=True)
-chosen_layers = [o.name_raw for o in chosen]
-
-# ---------------------------------------------------------------------------
-# 3. Map each layer -> workset (saved map first, one confirm)
-# ---------------------------------------------------------------------------
-ACTIVE = "(active workset)"
-worksets = list_worksets(doc)
-layer_workset_map = {}
-if worksets:
-    ws_choices = [ACTIVE] + worksets
-
-    proposed = {}
-    for lay in chosen_layers:
-        if lay not in saved_map:
-            proposed = None
-            break
-        val = str(saved_map.get(lay) or "").strip()
-        if val and val not in worksets:
-            proposed = None
-            break
-        proposed[lay] = val
-
-    use_saved = False
-    if proposed is not None:
-        prop_lines = ["  {}  ->  {}".format(l, proposed[l] or ACTIVE)
-                      for l in chosen_layers]
-        answer = forms.alert(
-            "Saved workset mappings cover every chosen layer:\n\n{}\n\n"
-            "Use these?".format("\n".join(prop_lines)),
-            title="Layer -> workset",
-            options=["Use these", "Re-pick"])
-        if answer == "Use these":
-            layer_workset_map = dict(proposed)
-            use_saved = True
-            log("Using saved layer -> workset map:")
-            for l in chosen_layers:
-                log("  - {} -> {}".format(l, proposed[l] or ACTIVE))
-
-    if not use_saved:
-        for lay in chosen_layers:
-            preset = str(saved_map.get(lay) or "").strip()
-            log("Map '{}' ({} pipes) to a workset.{}".format(
-                lay, lay_place.get(lay, 0),
-                "  Previously: {}".format(preset) if preset else ""))
-            picked = forms.SelectFromList.show(
-                ws_choices, title="Workset for: {}".format(lay),
-                button_name="Assign", multiselect=False)
-            if not picked:
-                forms.alert("Cancelled workset mapping - aborting.",
-                            exitscript=True)
-            layer_workset_map[lay] = "" if picked == ACTIVE else picked
-else:
-    forms.alert("Document is not workshared - pipes go on the active "
-                "workset.", title="Not workshared")
-    for lay in chosen_layers:
-        layer_workset_map[lay] = ""
-
-# Persist only when workshared (same rule as Model Pipes: the
-# non-workshared branch forces '' and would clobber real names).
+# Persist only when workshared (the non-workshared branch forces '' and
+# would clobber real names) - same rule as before.
 if worksets:
     merged = dict(saved_map)
     merged.update(layer_workset_map)
@@ -208,106 +250,34 @@ if worksets:
     except Exception:
         pass
 
-# ---------------------------------------------------------------------------
-# 4. Pipe type / system type / level from Settings, pickers as fallback
-# ---------------------------------------------------------------------------
-def _pick(cls, title, default, what):
-    names = list_type_names(doc, cls)
-    if not names:
-        forms.alert("This project has no {}s.".format(what), exitscript=True)
-    if default and default in names:
-        log("Using configured {}: **{}** (change in Settings).".format(
-            what, default))
-        return default
-    if default:
-        log("Configured default {} '{}' not found in this model - "
-            "pick one.".format(what, default))
-    picked = forms.SelectFromList.show(
-        names, title=title, button_name="Use this", multiselect=False)
-    if not picked:
-        forms.alert("Nothing picked - aborting.", exitscript=True)
-    return picked
-
-pipe_type_name = _pick(PipeType, "Pick the pipe type", default_pt,
-                       "pipe type")
-system_type_name = _pick(PipingSystemType, "Pick the piping system type",
-                         default_st, "piping system type")
-
-# Pipe segment for the placed pipes: the picked one is written to every
-# pipe's 'Pipe Segment' instance parameter and receives the export's
-# sizes. The routing-preferences option leaves Revit's per-size pick.
-SEG_ROUTE = "(leave to the pipe type's routing preferences)"
-SEG_MARK = "   (configured in Settings)"
-_seg_default = get_landxml_segment_name()
-_seg_names = [n for n, _s in list_pipe_segments(doc)]
-segment_name = ""
-if _seg_names:
-    _choices = []
-    if _seg_default and _seg_default in _seg_names:
-        _choices.append(_seg_default + SEG_MARK)
-    _choices.append(SEG_ROUTE)
-    for _n in sorted(_seg_names):
-        if _n != _seg_default:
-            _choices.append(_n)
-    _sp = forms.SelectFromList.show(
-        _choices, title="Pipe segment for the placed pipes",
-        button_name="Use this", multiselect=False)
-    if not _sp:
-        forms.alert("No segment choice made - aborting.", exitscript=True)
-    if _sp == SEG_ROUTE:
-        segment_name = ""
-    elif _sp.endswith(SEG_MARK):
-        segment_name = _seg_default
-    else:
-        segment_name = _sp
-    log("Pipe segment: **{}**".format(
-        segment_name or "(routing preferences)"))
-
-_levels = sorted(FilteredElementCollector(doc).OfClass(Level).ToElements(),
-                 key=lambda lv: lv.Elevation)
-if not _levels:
-    forms.alert("This project has no levels.", exitscript=True)
-
-host_level_name = None
-if default_lvl and any(safe_name(lv) == default_lvl for lv in _levels):
-    host_level_name = default_lvl
-    log("Using configured host level: **{}** (change in Settings)."
-        .format(default_lvl))
-else:
-    class LvlOpt(object):
-        def __init__(self, lv):
-            self.name_raw = safe_name(lv)
-            self.name = "{}   (elev {:.3f} m)".format(self.name_raw,
-                                                      lv.Elevation * 0.3048)
-
-    _lvl_opts = [LvlOpt(lv) for lv in _levels]
-    if default_lvl:
-        log("Configured default level '{}' not found in this model - "
-            "pick one.".format(default_lvl))
-    _lvl_pick = forms.SelectFromList.show(
-        _lvl_opts, title="Pick the host level", button_name="Use this",
-        multiselect=False, name_attr="name")
-    if not _lvl_pick:
-        forms.alert("No level picked.", exitscript=True)
-    host_level_name = _lvl_pick.name_raw
+# layer-named system types (same automation as Place Structures) -----------
+network_system_map = None
+if res["layer_systems"]:
+    by_name = {}
+    for pst in FilteredElementCollector(doc).OfClass(PipingSystemType):
+        nm = _el_name(pst).strip().lower()
+        if nm and nm not in by_name:
+            by_name[nm] = pst.Id
+    network_system_map = {}
+    missing = []
+    for lay in chosen_layers:
+        stid = by_name.get(lay.strip().lower())
+        if stid is not None:
+            network_system_map[lay] = stid
+        else:
+            missing.append(lay)
+    log("Layer-named system types found for **{}** of {} layer(s){}."
+        .format(len(network_system_map), len(chosen_layers),
+                " - falling back to '{}' for: {} (run Project Setup from "
+                "this export to create them)".format(
+                    system_type_name, ", ".join(missing))
+                if missing else ""))
+    if not network_system_map:
+        network_system_map = None
 
 # ---------------------------------------------------------------------------
-# 5. Confirm
-# ---------------------------------------------------------------------------
-map_lines = ["  {}  ->  {}".format(l, layer_workset_map.get(l) or ACTIVE)
-             for l in chosen_layers]
-if forms.alert(
-        "Ready to place.\n\nLayers -> worksets:\n{}\n\n"
-        "Pipe type: {}\nSystem type: {}\nSegment: {}\nLevel: {}\n\n"
-        "Place now?".format(
-            "\n".join(map_lines), pipe_type_name, system_type_name,
-            segment_name or "(routing preferences)", host_level_name),
-        title="Confirm", options=["Place pipes", "Cancel"]) != "Place pipes":
-    forms.alert("Cancelled.", exitscript=True)
-
-# ---------------------------------------------------------------------------
-# 5b. Ensure the export's circular sizes exist on the configured Segment
-#     (identical to Model Pipes; idempotent, non-fatal)
+# Ensure the export's circular sizes exist on the picked Segment
+# (identical to Model Pipes; idempotent, non-fatal)
 # ---------------------------------------------------------------------------
 _seg_name = segment_name or get_landxml_segment_name()
 if not _seg_name:
@@ -320,8 +290,7 @@ else:
             _segment = _sg
             break
     if _segment is None:
-        log("Pipe sizes: configured segment '{}' not found in this model - "
-            "skipped (use Create Pipe Sizes for a manual run)."
+        log("Pipe sizes: segment '{}' not found in this model - skipped."
             .format(_seg_name))
     else:
         try:
@@ -340,8 +309,8 @@ else:
                 .format(_seg_name, ex))
 
 # ---------------------------------------------------------------------------
-# 6. Place - same engine as Model Pipes; on a transform failure, offer the
-#    export origin as the offset (same rescue the structure placer offers)
+# Place - same engine as Model Pipes; on a transform failure, offer the
+# export origin as the offset (same rescue the structure placer offers)
 # ---------------------------------------------------------------------------
 p_rows = placement_rows(rows, only_circular=True, layers=set(chosen_layers))
 
@@ -353,7 +322,8 @@ def _place(off_e=None, off_n=None, off_z=None, rot=None):
         host_level_name=host_level_name,
         off_e_m=off_e, off_n_m=off_n, off_z_m=off_z, rot_deg=rot,
         network_filter=set(chosen_layers), log=log,
-        segment_name=segment_name or None)
+        segment_name=segment_name or None,
+        network_system_map=network_system_map)
 
 
 try:
