@@ -1,3 +1,4 @@
 title: pyMEP v1.22.0
 layout:
   - SetupTools
+  - ProjectSetup

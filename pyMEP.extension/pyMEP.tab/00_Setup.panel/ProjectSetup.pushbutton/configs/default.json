@@ -1,0 +1,137 @@
+{
+  "worksets": [
+    "MEP - Mechanical Pipework",
+    "MEP - Public Health",
+    "MEP - Fire Protection",
+    "MEP - Ventilation",
+    "MEP - Electrical Containment",
+    "REF - Architecture",
+    "REF - Structure"
+  ],
+  "piping_systems": [
+    {
+      "group": "Domestic",
+      "classification": "DomesticColdWater",
+      "systems": [
+        { "name": "DCWS - Domestic Cold Water Supply", "abbreviation": "DCWS", "color": [0, 128, 255] },
+        { "name": "BCWS - Boosted Cold Water Supply", "abbreviation": "BCWS", "color": [0, 64, 255] }
+      ]
+    },
+    {
+      "group": "Domestic",
+      "classification": "DomesticHotWater",
+      "systems": [
+        { "name": "DHWS - Domestic Hot Water Supply", "abbreviation": "DHWS", "color": [255, 0, 0] },
+        { "name": "DHWR - Domestic Hot Water Return", "abbreviation": "DHWR", "color": [255, 128, 0] }
+      ]
+    },
+    {
+      "group": "Fire Protection",
+      "classification": "FireProtectWet",
+      "systems": [
+        { "name": "SPR - Sprinkler Wet", "abbreviation": "SPR", "color": [192, 0, 0] }
+      ]
+    },
+    {
+      "group": "Fire Protection",
+      "classification": "FireProtectDry",
+      "systems": [
+        { "name": "DRY - Dry Riser", "abbreviation": "DRY", "color": [192, 64, 0] }
+      ]
+    },
+    {
+      "group": "Fire Protection",
+      "classification": "FireProtectPreaction",
+      "systems": [
+        { "name": "PAC - Pre-Action", "abbreviation": "PAC", "color": [150, 0, 0] }
+      ]
+    },
+    {
+      "group": "Drainage",
+      "classification": "Sanitary",
+      "systems": [
+        { "name": "FWD - Foul Water Drainage", "abbreviation": "FWD", "color": [107, 72, 48] },
+        { "name": "RWD - Rainwater Drainage", "abbreviation": "RWD", "color": [0, 100, 60] },
+        { "name": "CND - Condensate Drainage", "abbreviation": "CND", "color": [128, 128, 192] }
+      ]
+    },
+    {
+      "group": "Drainage",
+      "classification": "Vent",
+      "systems": [
+        { "name": "SVP - Soil Vent Pipe", "abbreviation": "SVP", "color": [128, 96, 64] }
+      ]
+    },
+    {
+      "group": "Hydronic",
+      "classification": "SupplyHydronic",
+      "systems": [
+        { "name": "CHWF - Chilled Water Flow", "abbreviation": "CHWF", "color": [0, 200, 255] },
+        { "name": "LTHWF - Low Temp Hot Water Flow", "abbreviation": "LTHWF", "color": [255, 0, 128] }
+      ]
+    },
+    {
+      "group": "Hydronic",
+      "classification": "ReturnHydronic",
+      "systems": [
+        { "name": "CHWR - Chilled Water Return", "abbreviation": "CHWR", "color": [0, 140, 180] },
+        { "name": "LTHWR - Low Temp Hot Water Return", "abbreviation": "LTHWR", "color": [180, 0, 90] }
+      ]
+    }
+  ],
+  "filters": [
+    {
+      "name": "PIPE - CHW",
+      "categories": ["OST_PipeCurves", "OST_PipeFitting", "OST_PipeAccessory", "OST_FlexPipeCurves", "OST_PipeInsulations"],
+      "rules": [
+        { "parameter": "RBS_PIPING_SYSTEM_TYPE_PARAM", "rule": "contains", "value": "CHW" }
+      ]
+    },
+    {
+      "name": "PIPE - Drainage",
+      "categories": ["OST_PipeCurves", "OST_PipeFitting", "OST_PipeAccessory"],
+      "rules": [
+        { "parameter": "RBS_PIPING_SYSTEM_TYPE_PARAM", "rule": "contains", "value": "Drainage" }
+      ]
+    },
+    {
+      "name": "PIPE - Fire",
+      "categories": ["OST_PipeCurves", "OST_PipeFitting", "OST_PipeAccessory"],
+      "rules": [
+        { "parameter": "RBS_PIPING_SYSTEM_TYPE_PARAM", "rule": "begins_with", "value": "SPR" }
+      ]
+    }
+  ],
+  "view_templates": [
+    {
+      "name": "MEP - Working Plan",
+      "base_view_type": "FloorPlan",
+      "scale": 50,
+      "detail_level": "Fine",
+      "discipline": "Coordination",
+      "filters": [
+        { "filter": "PIPE - CHW", "visible": true, "projection_line_color": [0, 200, 255], "solid_fill_color": [0, 200, 255], "halftone": false },
+        { "filter": "PIPE - Drainage", "visible": true, "projection_line_color": [107, 72, 48], "halftone": false },
+        { "filter": "PIPE - Fire", "visible": true, "projection_line_color": [192, 0, 0], "halftone": false }
+      ],
+      "workset_visibility": {
+        "REF - Architecture": "Visible",
+        "REF - Structure": "Hidden"
+      }
+    },
+    {
+      "name": "MEP - Coordination Plan",
+      "base_view_type": "FloorPlan",
+      "scale": 100,
+      "detail_level": "Medium",
+      "discipline": "Coordination",
+      "filters": [
+        { "filter": "PIPE - Fire", "visible": true, "projection_line_color": [192, 0, 0], "halftone": true }
+      ],
+      "workset_visibility": {
+        "REF - Architecture": "Visible",
+        "REF - Structure": "Visible"
+      }
+    }
+  ]
+}
