@@ -571,3 +571,70 @@ STAGES = [
     ("View filters", stage_filters),
     ("View templates", stage_view_templates),
 ]
+
+
+# ---------------------------------------------------------------------------
+# config built from a dashboard MODEL export (one piping system per pipe
+# layer, exact layer names; worksets from the embedded workset_map)
+# ---------------------------------------------------------------------------
+PIPE_CLASSIFICATIONS = [
+    "Sanitary", "Vent", "DomesticColdWater", "DomesticHotWater",
+    "FireProtectWet", "FireProtectDry", "FireProtectPreaction",
+    "FireProtectOther", "SupplyHydronic", "ReturnHydronic", "OtherPipe",
+]
+
+
+def config_from_model_export(path, classification="Sanitary"):
+    """Build a Project Setup config from a dashboard MODEL-*.json (or
+    PIPES-*.json): one piping system per pipe layer, named EXACTLY like
+    the layer; worksets from the export's embedded workset_map when
+    present. Filter/template stages come back empty. Raises ValueError
+    with a readable message on anything unusable."""
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+        data = json.loads(raw.decode("utf-8-sig", "replace"))
+    except Exception as ex:
+        raise ValueError("Could not read the export:\n{}".format(ex))
+    if not isinstance(data, dict) or not isinstance(data.get("pipes"), list):
+        raise ValueError(
+            "This is not a dashboard model/pipes export - it has no "
+            "'pipes' list (kind='{}').".format(
+                data.get("kind") if isinstance(data, dict) else "?"))
+
+    layers = []
+    seen = set()
+    for p in data.get("pipes") or []:
+        try:
+            lay = str(p.get("layer") or "").strip()
+        except Exception:
+            continue
+        if lay and lay.lower() not in seen:
+            seen.add(lay.lower())
+            layers.append(lay)
+    layers.sort(key=lambda s: s.lower())
+    if not layers:
+        raise ValueError("The export has no pipe layers to build piping "
+                         "systems from.")
+
+    worksets = []
+    wmap = data.get("workset_map")
+    if isinstance(wmap, dict):
+        wseen = set()
+        for v in wmap.values():
+            nm = str(v or "").strip()
+            if nm and nm.lower() not in wseen:
+                wseen.add(nm.lower())
+                worksets.append(nm)
+        worksets.sort(key=lambda s: s.lower())
+
+    return {
+        "worksets": worksets,
+        "piping_systems": [{
+            "group": "Dashboard layers",
+            "classification": classification,
+            "systems": [{"name": lay} for lay in layers],
+        }],
+        "filters": [],
+        "view_templates": [],
+    }
