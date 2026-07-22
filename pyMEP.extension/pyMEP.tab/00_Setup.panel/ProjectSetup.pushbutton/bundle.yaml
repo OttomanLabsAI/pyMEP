@@ -1,0 +1,2 @@
+title: "Project\nSetup"
+tooltip: "Set up an MEP model from a JSON config in one run - four stages in order: 1) Worksets, 2) Piping system types (donor-duplicated per classification, grouped like the Revit browser tree), 3) View filters, 4) View templates with filter overrides and workset visibility. Every name/colour/abbreviation lives in the config (bundled default.json, or browse to a per-project file); run it twice and everything reports Skipped. Results print as a Stage/Item/Status/Detail table."
