@@ -82,7 +82,8 @@
                 </DockPanel>
             </GroupBox>
 
-            <StackPanel Grid.Column="1">
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="0,0,6,0">
                 <GroupBox Header="Pipe">
                     <StackPanel>
                         <TextBlock Text="Pipe type" Style="{StaticResource FieldLabel}"/>
@@ -104,6 +105,7 @@
                     </StackPanel>
                 </GroupBox>
             </StackPanel>
+            </ScrollViewer>
         </Grid>
 
         <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="#DDDDDD"
