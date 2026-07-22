@@ -34,25 +34,46 @@ DEFAULT_CONFIG = os.path.join(_FOLDER, "configs", "default.json")
 
 # 1. config selection -------------------------------------------------------
 choice = forms.alert(
-    "Set up this model from which config?\n\nBundled default:\n{}".format(
-        DEFAULT_CONFIG),
+    "Set up this model from what?\n\n"
+    "- A dashboard MODEL export: one piping system per layer, named "
+    "exactly like the layer, plus the worksets from its workset map.\n"
+    "- A JSON config (the bundled example default.json, or browse to a "
+    "per-project file).",
     title="Project Setup",
-    options=["Use the bundled default.json",
+    options=["Build from a dashboard MODEL export...",
+             "Use the bundled default.json (example values)",
              "Browse for a project config...", "Cancel"])
 if not choice or choice == "Cancel":
     script.exit()
-if choice.startswith("Browse"):
-    cfg_path = forms.pick_file(file_ext="json",
-                               title="Pick the project setup config (.json)")
-    if not cfg_path:
-        forms.alert("No config picked.", exitscript=True)
-else:
-    cfg_path = DEFAULT_CONFIG
 
-try:
-    config = setup_lib.load_config(cfg_path)
-except ValueError as ex:
-    forms.alert("{}".format(ex), exitscript=True)
+if choice.startswith("Build"):
+    cfg_path = forms.pick_file(
+        file_ext="json", title="Pick a dashboard MODEL export (.json)")
+    if not cfg_path:
+        forms.alert("No export picked.", exitscript=True)
+    cls_pick = forms.SelectFromList.show(
+        setup_lib.PIPE_CLASSIFICATIONS,
+        title="System classification for the layer systems (a donor "
+              "type of this classification must exist in the model)",
+        button_name="Use this classification", multiselect=False)
+    if not cls_pick:
+        forms.alert("No classification picked.", exitscript=True)
+    try:
+        config = setup_lib.config_from_model_export(cfg_path, cls_pick)
+    except ValueError as ex:
+        forms.alert("{}".format(ex), exitscript=True)
+else:
+    if choice.startswith("Browse"):
+        cfg_path = forms.pick_file(
+            file_ext="json", title="Pick the project setup config (.json)")
+        if not cfg_path:
+            forms.alert("No config picked.", exitscript=True)
+    else:
+        cfg_path = DEFAULT_CONFIG
+    try:
+        config = setup_lib.load_config(cfg_path)
+    except ValueError as ex:
+        forms.alert("{}".format(ex), exitscript=True)
 
 # 2. stage selection (all pre-selected) -------------------------------------
 stage_names = [nm for nm, _fn in setup_lib.STAGES]
