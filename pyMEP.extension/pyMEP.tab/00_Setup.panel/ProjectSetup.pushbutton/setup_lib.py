@@ -558,7 +558,15 @@ def stage_view_templates(doc, config, results):
                 # ElementId return on older builds.
                 res = scratch.CreateViewTemplate()
                 tmpl = res if isinstance(res, View) else doc.GetElement(res)
-                tmpl.Name = name
+                try:
+                    tmpl.Name = name
+                except Exception:
+                    # never leave an orphan auto-named template behind
+                    try:
+                        doc.Delete(tmpl.Id)
+                    except Exception:
+                        pass
+                    raise
 
                 warnings = []
                 _apply_template_settings(doc, tmpl, e, filters_by_name,
@@ -602,12 +610,15 @@ PIPE_CLASSIFICATIONS = [
 ]
 
 
-def config_from_model_export(path, classification="Sanitary"):
+def config_from_model_export(path, classification="Sanitary",
+                             fallback_workset_map=None):
     """Build a Project Setup config from a dashboard MODEL-*.json (or
     PIPES-*.json): one piping system per pipe layer, named EXACTLY like
-    the layer; worksets from the export's embedded workset_map when
-    present. Filter/template stages come back empty. Raises ValueError
-    with a readable message on anything unusable."""
+    the layer; worksets (and one isolation view template per workset)
+    from the export's embedded workset_map - falling back to
+    ``fallback_workset_map`` ({layer: workset}, e.g. the locally saved
+    dashboard map) when the export carries none. Raises ValueError with
+    a readable message on anything unusable."""
     try:
         with open(path, "rb") as f:
             raw = f.read()
@@ -637,6 +648,8 @@ def config_from_model_export(path, classification="Sanitary"):
 
     worksets = []
     wmap = data.get("workset_map")
+    if not (isinstance(wmap, dict) and wmap):
+        wmap = fallback_workset_map
     if isinstance(wmap, dict):
         wseen = set()
         for v in wmap.values():

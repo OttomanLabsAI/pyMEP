@@ -60,10 +60,26 @@ if choice.startswith("Build"):
         button_name="Use this classification", multiselect=False)
     if not cls_pick:
         forms.alert("No classification picked.", exitscript=True)
+    fallback_map = None
     try:
-        config = setup_lib.config_from_model_export(cfg_path, cls_pick)
+        from pymep_config import get_dashboard_layer_workset_map
+        fallback_map = get_dashboard_layer_workset_map()
+    except Exception:
+        fallback_map = None
+    try:
+        config = setup_lib.config_from_model_export(
+            cfg_path, cls_pick, fallback_workset_map=fallback_map)
     except ValueError as ex:
         forms.alert("{}".format(ex), exitscript=True)
+    if not config.get("worksets"):
+        forms.alert(
+            "This export carries no workset map, and no saved layer -> "
+            "workset map was found on this machine either - so NO "
+            "worksets and NO per-workset view templates will be "
+            "created (the layer systems still will).\n\nSet up the "
+            "dashboard's Workset settings (Worksets button), Export "
+            "model again, and re-run for the templates.",
+            title="Project Setup - no worksets in export")
 else:
     if choice.startswith("Browse"):
         cfg_path = forms.pick_file(
