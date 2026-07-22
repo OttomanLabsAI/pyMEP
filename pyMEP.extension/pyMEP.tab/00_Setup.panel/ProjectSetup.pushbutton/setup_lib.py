@@ -730,7 +730,7 @@ def config_from_layers(layer_classifications, worksets):
              "solo_workset": ws}
             for ws in worksets
         ] + [
-            {"name": "Civil 3D XML import", "base_view_type": "FloorPlan",
+            {"name": "Civil 3D XML Import", "base_view_type": "FloorPlan",
              "all_worksets_visible": True}
         ],
     }
