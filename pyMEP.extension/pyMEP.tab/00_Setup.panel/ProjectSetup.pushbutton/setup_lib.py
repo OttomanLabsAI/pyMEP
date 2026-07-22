@@ -461,6 +461,24 @@ def _apply_template_settings(doc, tmpl, e, filters_by_name, ws_ids,
         except Exception as ex:
             warnings.append("filter '{}': {}".format(fname, ex))
 
+    # "solo_workset": ONLY this workset visible - every other user
+    # workset in the model (not just config ones) is hidden. Used by the
+    # dashboard-export flow's per-workset isolation templates.
+    solo = e.get("solo_workset")
+    if solo:
+        if not doc.IsWorkshared:
+            warnings.append("solo workset skipped - model not workshared")
+        elif _key(solo) not in ws_ids:
+            warnings.append("workset '{}' not found".format(solo))
+        else:
+            for wkey in ws_ids:
+                vis = (WorksetVisibility.Visible if wkey == _key(solo)
+                       else WorksetVisibility.Hidden)
+                try:
+                    tmpl.SetWorksetVisibility(ws_ids[wkey], vis)
+                except Exception as ex:
+                    warnings.append("workset '{}': {}".format(wkey, ex))
+
     wsv = e.get("workset_visibility") or {}
     if wsv and not doc.IsWorkshared:
         warnings.append("workset visibility skipped - model not workshared")
@@ -636,5 +654,11 @@ def config_from_model_export(path, classification="Sanitary"):
             "systems": [{"name": lay} for lay in layers],
         }],
         "filters": [],
-        "view_templates": [],
+        # one isolation template per workset, named exactly after it:
+        # ONLY that workset on, every other user workset hidden
+        "view_templates": [
+            {"name": ws, "base_view_type": "FloorPlan",
+             "solo_workset": ws}
+            for ws in worksets
+        ],
     }
