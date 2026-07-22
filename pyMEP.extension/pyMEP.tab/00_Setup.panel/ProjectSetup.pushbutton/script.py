@@ -65,39 +65,52 @@ if choice.startswith("Build"):
     except ValueError as ex:
         forms.alert("{}".format(ex), exitscript=True)
 
-    mode = forms.alert(
-        "How should each layer's piping system get its MEP "
-        "classification? ({} layers)\n\n"
-        "Automatic infers it from the layer name (drainage / vent / "
-        "fire / hydronic / domestic keywords; anything unrecognised "
-        "becomes {}). Choosing asks once per layer.".format(
-            len(layers), setup_lib.DEFAULT_CLASSIFICATION),
-        title="Layer classifications",
-        options=["Automatic (from the layer names)",
-                 "Choose layer by layer...", "Cancel"])
-    if not mode or mode == "Cancel":
+    # one grid window: classifications pre-filled automatically from the
+    # layer names, overridable per row before OK
+    from System.Collections import ArrayList, Hashtable
+
+    class ClassWindow(forms.WPFWindow):
+
+        def __init__(self):
+            forms.WPFWindow.__init__(
+                self, os.path.join(_FOLDER, "assign_grid.xaml"))
+            self.result = None
+            self.CmbValue.Items.Clear()
+            for c in setup_lib.PIPE_CLASSIFICATIONS:
+                self.CmbValue.Items.Add(c)
+            self.CmbValue.SelectedIndex = 0
+            items = ArrayList()
+            for lay in layers:
+                row = Hashtable()
+                row["layer"] = lay
+                row["value"] = setup_lib.classify_layer(lay)
+                items.Add(row)
+            self.LstRows.ItemsSource = items
+
+        def on_assign(self, sender, args):
+            pick = self.CmbValue.SelectedItem
+            if pick is None:
+                return
+            for row in self.LstRows.SelectedItems:
+                row["value"] = str(pick)
+            self.LstRows.Items.Refresh()
+
+        def on_ok(self, sender, args):
+            self.result = [(str(row["layer"]), str(row["value"]))
+                           for row in self.LstRows.ItemsSource]
+            self.Close()
+
+        def on_cancel(self, sender, args):
+            self.Close()
+
+    cwin = ClassWindow()
+    cwin.ShowDialog()
+    if not cwin.result:
         script.exit()
-    pairs = []
-    if mode.startswith("Automatic"):
-        for lay in layers:
-            pairs.append((lay, setup_lib.classify_layer(lay)))
-        output.print_md("#### Automatic layer classifications")
-        for lay, cls in pairs:
-            output.print_md("- {}  ->  **{}**".format(lay, cls))
-    else:
-        last = setup_lib.DEFAULT_CLASSIFICATION
-        for i, lay in enumerate(layers):
-            ordered = [last] + [c for c in setup_lib.PIPE_CLASSIFICATIONS
-                                if c != last]
-            pick = forms.SelectFromList.show(
-                ordered,
-                title="Classification for layer '{}'  ({} of {})".format(
-                    lay, i + 1, len(layers)),
-                button_name="Use this", multiselect=False)
-            if not pick:
-                forms.alert("Cancelled.", exitscript=True)
-            pairs.append((lay, pick))
-            last = pick
+    pairs = cwin.result
+    output.print_md("#### Layer classifications")
+    for lay, cls in pairs:
+        output.print_md("- {}  ->  **{}**".format(lay, cls))
     config = setup_lib.config_from_layers(pairs, worksets)
     if not config.get("worksets"):
         forms.alert(

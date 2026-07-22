@@ -318,7 +318,7 @@ def place_landxml_pipes(doc, rows, network_workset_map,
                         off_e_m=None, off_n_m=None,
                         off_z_m=None, rot_deg=None,
                         network_filter=None, log=None,
-                        segment_name=None):
+                        segment_name=None, network_system_map=None):
     """Place pipes from resolved LandXML rows, mirroring the Dynamo node.
 
     rows: list of dicts (from pymep_landxml.placement_rows) - name,
@@ -332,6 +332,9 @@ def place_landxml_pipes(doc, rows, network_workset_map,
         placed pipe's 'Pipe Segment' instance parameter, and its size
         list becomes the diameter-snapping candidates. None keeps the
         pipe type's routing preferences.
+    network_system_map: optional {network name: PipingSystemType
+        ElementId} - each pipe is created with its layer's system type,
+        falling back to ``system_type_name`` for unmapped layers.
     Returns (created, failed, skipped, mode, dia_set, mark_set).
     """
     # Resolve transform from Settings unless the caller overrode it.
@@ -496,7 +499,11 @@ def place_landxml_pipes(doc, rows, network_workset_map,
             if p0.DistanceTo(p1) < _MIN_PIPE_LEN_FT:
                 skipped_short += 1
                 continue
-            pipe = Pipe.Create(doc, st.Id, pt.Id, lvl.Id, p0, p1)
+            sid = None
+            if network_system_map:
+                sid = network_system_map.get(net)
+            pipe = Pipe.Create(doc, sid if sid is not None else st.Id,
+                               pt.Id, lvl.Id, p0, p1)
             wsid = ws_lookup.get(net)
             if wsid is not None:
                 wp = pipe.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM)

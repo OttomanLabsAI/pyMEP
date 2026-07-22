@@ -963,6 +963,12 @@ def run_place(shape=None):
 
     from System.Collections import ArrayList, Hashtable
 
+    SKIP_PARAM = "(skip - do not write)"
+    ORIGIN_ITEMS = ["Auto-detect (probe the family)", "Base - grows up",
+                    "Top - grows down", "Mid-height"]
+    ORIGIN_VALUES = {"Base - grows up": "base", "Top - grows down": "top",
+                     "Mid-height": "center"}
+
     class PlaceWindow(forms.WPFWindow):
 
         def __init__(self):
@@ -980,6 +986,11 @@ def run_place(shape=None):
             for w in worksets:
                 self.CmbWorkset.Items.Add(w)
             self.CmbWorkset.SelectedIndex = 0
+            for combo in (self.CmbBoxOrigin, self.CmbCylOrigin):
+                combo.Items.Clear()
+                for o in ORIGIN_ITEMS:
+                    combo.Items.Add(o)
+                combo.SelectedIndex = 0
             self._fill_categories()
             self.StatusText.Text = "Pick a dashboard MODEL or STRUCTS " \
                                    "export to begin."
@@ -1072,6 +1083,47 @@ def run_place(shape=None):
         def on_cyl_cat_changed(self, sender, args):
             self._fill_fams(self.CmbCylCat, self.CmbCylFam, self._cyl_syms)
 
+        # ---- parameter mapping (probed when the family changes) ----
+        def _fill_params(self, fam_combo, store, combo_keys):
+            sym = None
+            i = fam_combo.SelectedIndex
+            if 0 <= i < len(store):
+                sym = store[i]
+            names = probe_instance_param_names(doc, sym) if sym else []
+            for combo, key in combo_keys:
+                combo.Items.Clear()
+                combo.Items.Add(SKIP_PARAM)
+                ordered = sorted(names, key=lambda n: (
+                    0 if n.upper() == key
+                    else (1 if key in n.upper() else 2), n.lower()))
+                for n in ordered:
+                    combo.Items.Add(n)
+                if ordered and (ordered[0].upper() == key
+                                or key in ordered[0].upper()):
+                    combo.SelectedIndex = 1
+                else:
+                    combo.SelectedIndex = 0
+
+        def on_box_fam_changed(self, sender, args):
+            self._fill_params(self.CmbBoxFam, self._box_syms,
+                              [(self.CmbBoxL, "L"), (self.CmbBoxW, "W"),
+                               (self.CmbBoxH, "H")])
+
+        def on_cyl_fam_changed(self, sender, args):
+            self._fill_params(self.CmbCylFam, self._cyl_syms,
+                              [(self.CmbCylDia, "DIA"),
+                               (self.CmbCylH, "H")])
+
+        def _param_pick(self, combo):
+            v = combo.SelectedItem
+            if v is None or str(v) == SKIP_PARAM:
+                return None
+            return str(v)
+
+        def _origin_pick(self, combo):
+            v = combo.SelectedItem
+            return ORIGIN_VALUES.get(str(v)) if v is not None else None
+
         def on_load_rfa(self, sender, args):
             rfa = forms.pick_file(file_ext="rfa",
                                   title="Pick the chamber family (.rfa)")
@@ -1116,7 +1168,13 @@ def run_place(shape=None):
                     forms.alert("Pick a category + family for the BOX "
                                 "chambers.")
                     return
-                fams["box"] = (lbl, sym)
+                pm = {"L": self._param_pick(self.CmbBoxL),
+                      "W": self._param_pick(self.CmbBoxW),
+                      "H": self._param_pick(self.CmbBoxH)}
+                if self.CmbBoxH.Items.Count <= 1:
+                    pm = None    # probe found nothing - auto name match
+                fams["box"] = (lbl, sym, pm,
+                               self._origin_pick(self.CmbBoxOrigin))
             if "cyl" in shapes_here:
                 lbl, sym = self._chosen_symbol(self.CmbCylFam,
                                                self._cyl_syms)
@@ -1124,7 +1182,12 @@ def run_place(shape=None):
                     forms.alert("Pick a category + family for the "
                                 "CYLINDRICAL chambers.")
                     return
-                fams["cyl"] = (lbl, sym)
+                pm = {"DIA": self._param_pick(self.CmbCylDia),
+                      "H": self._param_pick(self.CmbCylH)}
+                if self.CmbCylH.Items.Count <= 1:
+                    pm = None    # probe found nothing - auto name match
+                fams["cyl"] = (lbl, sym, pm,
+                               self._origin_pick(self.CmbCylOrigin))
             ws_map = {}
             for row in self.LstLayers.ItemsSource:
                 if str(row["layer"]) in set(chosen):
@@ -1167,19 +1230,28 @@ def run_place(shape=None):
         except Exception:
             pass
 
-    # per-shape parameter mapping + vertical origin --------------------------
+    # per-shape parameter mapping + vertical origin (from the window) --------
     shapes = [s for s in ("box", "cyl") if s in res["fams"]]
     fams = {}
     for sp in shapes:
-        fam_label, base_symbol = res["fams"][sp]
+        fam_label, base_symbol, param_map, anchor = res["fams"][sp]
         log("Family for {}: **{}**".format(
             "BOX chambers" if sp == "box" else "CYLINDRICAL chambers",
             fam_label))
-        keys = ["L", "W", "H"] if sp == "box" else ["DIA", "H"]
-        param_map = _map_params(doc, forms, log, base_symbol, fam_label,
-                                keys)
-        anchor = _resolve_anchor(doc, forms, log, base_symbol, fam_label,
-                                 param_map)
+        if param_map is not None:
+            log("Param map ({}): ".format(fam_label) + ", ".join(
+                "{} -> {}".format(k, param_map[k] or "(skip)")
+                for k in sorted(param_map)))
+        else:
+            log("No probeable instance parameters - automatic name "
+                "matching (L/W/H/DIA tried first).")
+        if anchor is None:
+            # window said Auto-detect: probe, dialog fallback when the
+            # probe cannot tell
+            anchor = _resolve_anchor(doc, forms, log, base_symbol,
+                                     fam_label, param_map)
+        else:
+            log("Vertical origin ({}): **{}**".format(fam_label, anchor))
         fams[sp] = {"label": fam_label, "symbol": base_symbol,
                     "param_map": param_map, "anchor": anchor}
 

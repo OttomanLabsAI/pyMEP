@@ -91,7 +91,27 @@
                         <TextBlock Text="Category" Style="{StaticResource FieldLabel}"/>
                         <ComboBox x:Name="CmbBoxCat" SelectionChanged="on_box_cat_changed"/>
                         <TextBlock Text="Family : Type" Style="{StaticResource FieldLabel}"/>
-                        <ComboBox x:Name="CmbBoxFam"/>
+                        <ComboBox x:Name="CmbBoxFam" SelectionChanged="on_box_fam_changed"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="86"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="L (length)" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox  Grid.Row="0" Grid.Column="1" x:Name="CmbBoxL"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="W (width)" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="CmbBoxW"/>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="H (depth)" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox  Grid.Row="2" Grid.Column="1" x:Name="CmbBoxH"/>
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Origin" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox  Grid.Row="3" Grid.Column="1" x:Name="CmbBoxOrigin"/>
+                        </Grid>
                     </StackPanel>
                 </GroupBox>
                 <GroupBox Header="Family for CYLINDRICAL chambers">
@@ -99,7 +119,24 @@
                         <TextBlock Text="Category" Style="{StaticResource FieldLabel}"/>
                         <ComboBox x:Name="CmbCylCat" SelectionChanged="on_cyl_cat_changed"/>
                         <TextBlock Text="Family : Type" Style="{StaticResource FieldLabel}"/>
-                        <ComboBox x:Name="CmbCylFam"/>
+                        <ComboBox x:Name="CmbCylFam" SelectionChanged="on_cyl_fam_changed"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="86"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="DIA" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox  Grid.Row="0" Grid.Column="1" x:Name="CmbCylDia"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="H (depth)" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="CmbCylH"/>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Origin" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox  Grid.Row="2" Grid.Column="1" x:Name="CmbCylOrigin"/>
+                        </Grid>
                     </StackPanel>
                 </GroupBox>
                 <Button x:Name="BtnLoadRfa" Content="Load a family (.rfa)..."
