@@ -1041,9 +1041,23 @@ function exportModel(){
     alert("Nothing to export - nothing is visible in the current view.");
     return;
   }
+  /* per-layer colours (the scene's own palette) so Revit-side filter
+     overrides can match the dashboard exactly */
+  const layerColors = {};
+  const layerSeen = new Set();
+  for (const r of s) layerSeen.add(r.layer);
+  for (const r of p) layerSeen.add(r.layer);
+  for (const lay of layerSeen){
+    try {
+      const c = new THREE.Color(baseColor(lay));
+      layerColors[lay] = [Math.round(c.r*255), Math.round(c.g*255),
+                          Math.round(c.b*255)];
+    } catch(e){}
+  }
   const payload = Object.assign(payloadHead("ol-utilities-model"), {
     workset_map: (window.worksetMapForExport ? window.worksetMapForExport()
                                              : {}),
+    layer_colors: layerColors,
     count: s.length + p.length,
     structures_count: s.length, pipes_count: p.length,
     structures: s, pipes: p

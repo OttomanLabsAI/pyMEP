@@ -60,7 +60,7 @@ if choice.startswith("Build"):
     except Exception:
         fallback_map = None
     try:
-        layers, worksets = setup_lib.read_model_export(
+        layers, worksets, layer_colors = setup_lib.read_model_export(
             cfg_path, fallback_workset_map=fallback_map)
     except ValueError as ex:
         forms.alert("{}".format(ex), exitscript=True)
@@ -111,7 +111,8 @@ if choice.startswith("Build"):
     output.print_md("#### Layer classifications")
     for lay, cls in pairs:
         output.print_md("- {}  ->  **{}**".format(lay, cls))
-    config = setup_lib.config_from_layers(pairs, worksets)
+    config = setup_lib.config_from_layers(pairs, worksets,
+                                          layer_colors=layer_colors)
     if not config.get("worksets"):
         forms.alert(
             "This export carries no workset map, and no saved layer -> "

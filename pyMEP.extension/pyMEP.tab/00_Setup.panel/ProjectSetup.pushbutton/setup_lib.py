@@ -11,6 +11,7 @@ the same model yields all 'Skipped (exists)' rows (name compares are
 case-insensitive).
 """
 
+import colorsys
 import json
 
 import clr
@@ -657,6 +658,35 @@ def classify_layer(layer):
     return DEFAULT_CLASSIFICATION
 
 
+# Categories the per-layer filters target: pipework plus the chamber
+# categories the placer can use.
+LAYER_FILTER_CATEGORIES = [
+    "OST_PipeCurves", "OST_PipeFitting", "OST_PipeAccessory",
+    "OST_FlexPipeCurves", "OST_PipeInsulations",
+    "OST_PlumbingFixtures", "OST_GenericModel",
+]
+
+
+def layer_color(name, layer_colors=None):
+    """[r, g, b] for a layer: the export's embedded colour when present
+    (the dashboard's own palette), else the SAME 31-multiplier hash ->
+    HSL(h, 62%, 62%) fallback the dashboard uses - so the colour is
+    consistent everywhere, for any layer name."""
+    if layer_colors:
+        c = layer_colors.get(name)
+        if c is not None and len(c) == 3:
+            try:
+                return [int(c[0]), int(c[1]), int(c[2])]
+            except Exception:
+                pass
+    h = 0
+    for ch in str(name or ""):
+        h = (h * 31 + ord(ch)) & 0xFFFFFFFF
+    r, g, b = colorsys.hls_to_rgb((h % 360) / 360.0, 0.62, 0.62)
+    return [int(round(r * 255)), int(round(g * 255)),
+            int(round(b * 255))]
+
+
 def read_model_export(path, fallback_workset_map=None):
     """-> (layers, worksets) out of a dashboard MODEL-*.json (or
     PIPES-*.json). Worksets come from the embedded workset_map, falling
@@ -701,13 +731,19 @@ def read_model_export(path, fallback_workset_map=None):
                 wseen.add(nm.lower())
                 worksets.append(nm)
         worksets.sort(key=lambda s: s.lower())
-    return layers, worksets
+    colors = data.get("layer_colors")
+    colors = colors if isinstance(colors, dict) else {}
+    return layers, worksets, colors
 
 
-def config_from_layers(layer_classifications, worksets):
+def config_from_layers(layer_classifications, worksets,
+                       layer_colors=None):
     """Build the Project Setup config from [(layer, classification),
     ...] pairs + a workset list: systems grouped per classification
-    (exact layer names), one isolation view template per workset."""
+    (exact layer names), one view filter per layer (System Type equals
+    the layer, coloured with the dashboard's palette), and Coarse view
+    templates - one isolation template per workset plus the full-model
+    one - all carrying the same filter colours."""
     groups = {}
     order = []
     for lay, cls in layer_classifications:
@@ -715,23 +751,39 @@ def config_from_layers(layer_classifications, worksets):
             groups[cls] = []
             order.append(cls)
         groups[cls].append({"name": lay})
+    all_layers = [lay for lay, _cls in layer_classifications]
+    filters = [
+        {"name": lay, "categories": list(LAYER_FILTER_CATEGORIES),
+         "rules": [{"parameter": "RBS_PIPING_SYSTEM_TYPE_PARAM",
+                    "rule": "equals", "value": lay}]}
+        for lay in all_layers
+    ]
+    tmpl_filters = [
+        {"filter": lay, "visible": True,
+         "projection_line_color": layer_color(lay, layer_colors),
+         "solid_fill_color": layer_color(lay, layer_colors),
+         "halftone": False}
+        for lay in all_layers
+    ]
     return {
         "worksets": list(worksets),
         "piping_systems": [
             {"group": cls, "classification": cls, "systems": groups[cls]}
             for cls in order
         ],
-        "filters": [],
+        "filters": filters,
         # one isolation template per workset (named exactly after it:
         # ONLY that workset on, every other user workset hidden), plus a
         # Full Model template with every workset visible
         "view_templates": [
             {"name": ws, "base_view_type": "FloorPlan",
-             "solo_workset": ws}
+             "detail_level": "Coarse", "solo_workset": ws,
+             "filters": tmpl_filters}
             for ws in worksets
         ] + [
             {"name": "Civil 3D XML Import", "base_view_type": "FloorPlan",
-             "all_worksets_visible": True}
+             "detail_level": "Coarse", "all_worksets_visible": True,
+             "filters": tmpl_filters}
         ],
     }
 
@@ -740,6 +792,7 @@ def config_from_model_export(path, classification="Sanitary",
                              fallback_workset_map=None):
     """One-classification-for-everything convenience wrapper around
     read_model_export + config_from_layers."""
-    layers, worksets = read_model_export(path, fallback_workset_map)
+    layers, worksets, colors = read_model_export(path,
+                                                 fallback_workset_map)
     return config_from_layers([(lay, classification) for lay in layers],
-                              worksets)
+                              worksets, layer_colors=colors)
