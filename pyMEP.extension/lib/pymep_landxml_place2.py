@@ -128,7 +128,8 @@ def model_survey_position(doc):
         return None
 
 
-def choose_survey_transform(transform_all, to_model, to_explicit, has_model):
+def choose_survey_transform(transform_all, to_model, to_explicit, has_model,
+                            prefer_model=None):
     """Try the candidate survey->internal transforms in order and return
     ``(pts, max_abs, mode, tried)`` for the first one that lands every
     coordinate inside Revit's workable range (~16 km from the origin).
@@ -144,11 +145,14 @@ def choose_survey_transform(transform_all, to_model, to_explicit, has_model):
     of the closest attempt is returned (caller raises via
     survey_transform_error); ``tried`` lists every (mode, max_abs) attempt.
     """
+    use_model_first = (USE_MODEL_GEOREFERENCE if prefer_model is None
+                       else bool(prefer_model))
     attempts = []
-    if has_model and USE_MODEL_GEOREFERENCE:
-        attempts.append(("model project position", to_model))
+    if has_model and use_model_first:
+        attempts.append(("model project position (Manage > Coordinates)",
+                         to_model))
     attempts.append(("explicit survey transform (Settings)", to_explicit))
-    if has_model and not USE_MODEL_GEOREFERENCE:
+    if has_model and not use_model_first:
         attempts.append((
             "model project position (auto fallback - the Settings E/N "
             "offset doesn't match this model)", to_model))
@@ -318,7 +322,8 @@ def place_landxml_pipes(doc, rows, network_workset_map,
                         off_e_m=None, off_n_m=None,
                         off_z_m=None, rot_deg=None,
                         network_filter=None, log=None,
-                        segment_name=None, network_system_map=None):
+                        segment_name=None, network_system_map=None,
+                        prefer_model=None):
     """Place pipes from resolved LandXML rows, mirroring the Dynamo node.
 
     rows: list of dicts (from pymep_landxml.placement_rows) - name,
@@ -414,7 +419,8 @@ def place_landxml_pipes(doc, rows, network_workset_map,
 
     pts, max_abs, mode, tried = choose_survey_transform(
         transform_all, to_internal_model, to_internal_explicit,
-        has_model=to_internal_model is not None)
+        has_model=to_internal_model is not None,
+        prefer_model=prefer_model)
 
     if max_abs > _LIMIT_FT:
         en_pairs = ([(r["sx"], r["sy"]) for r in work] +

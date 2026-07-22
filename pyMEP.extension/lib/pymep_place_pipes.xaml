@@ -96,6 +96,13 @@
                         <ComboBox x:Name="CmbLevel"/>
                     </StackPanel>
                 </GroupBox>
+                <GroupBox Header="Coordinates">
+                    <StackPanel>
+                        <ComboBox x:Name="CmbCoords"/>
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Which survey origin + rotation maps the export's coordinates into this model: the model's own Revit coordinates (Manage &gt; Coordinates - recommended when shared coordinates are established) or the E/N/Z/rotation offsets from pyMEP Settings. Whichever is picked, the other is still tried automatically if the pick lands out of range."/>
+                    </StackPanel>
+                </GroupBox>
                 <GroupBox Header="Options">
                     <StackPanel>
                         <CheckBox x:Name="ChkLayerSystems" IsChecked="True" Margin="0,4,0,2"

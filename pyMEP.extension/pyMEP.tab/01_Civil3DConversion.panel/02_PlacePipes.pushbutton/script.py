@@ -40,6 +40,7 @@ from pymep_dashboard_pipes import (
 )
 from pymep_landxml_place2 import (
     place_landxml_pipes, list_type_names, list_worksets, _el_name,
+    model_survey_position,
 )
 from pymep_pipesizes import list_pipe_segments, add_sizes_to_segment
 from pymep_revit import safe_name
@@ -63,6 +64,11 @@ saved_map = get_dashboard_layer_workset_map()
 worksets = list_worksets(doc)
 ACTIVE = "(active workset)"
 SEG_ROUTE = "(leave to the pipe type's routing preferences)"
+COORD_MODEL = "Model's Revit coordinates (Manage > Coordinates)"
+COORD_SETTINGS = "pyMEP Settings offsets (E/N/Z/rotation)"
+_mp = model_survey_position(doc)
+HAS_GEOREF = _mp is not None and (abs(_mp[0]) > 1e-6
+                                  or abs(_mp[1]) > 1e-6)
 
 log("### Place Pipes from dashboard export")
 
@@ -96,6 +102,10 @@ class PipesWindow(forms.WPFWindow):
         for w in worksets:
             self.CmbWorkset.Items.Add(w)
         self.CmbWorkset.SelectedIndex = 0
+        self.CmbCoords.Items.Clear()
+        self.CmbCoords.Items.Add(COORD_MODEL)
+        self.CmbCoords.Items.Add(COORD_SETTINGS)
+        self.CmbCoords.SelectedIndex = 0 if HAS_GEOREF else 1
         _fill_names(self.CmbPipeType, list_type_names(doc, PipeType),
                     default_pt)
         _fill_names(self.CmbSystemType,
@@ -203,6 +213,7 @@ class PipesWindow(forms.WPFWindow):
             "segment": "" if seg == SEG_ROUTE else seg,
             "level": str(self.CmbLevel.SelectedItem),
             "layer_systems": bool(self.ChkLayerSystems.IsChecked),
+            "prefer_model": str(self.CmbCoords.SelectedItem) == COORD_MODEL,
         }
         self.Close()
 
@@ -235,6 +246,8 @@ host_level_name = res["level"]
 log("Layers: " + ", ".join(
     "{} -> {}".format(l, layer_workset_map.get(l) or ACTIVE)
     for l in chosen_layers))
+log("Coordinates: **{}**".format(
+    COORD_MODEL if res["prefer_model"] else COORD_SETTINGS))
 log("Pipe type **{}**, fallback system **{}**, segment **{}**, level "
     "**{}**.".format(pipe_type_name, system_type_name,
                      segment_name or "(routing preferences)",
@@ -323,7 +336,8 @@ def _place(off_e=None, off_n=None, off_z=None, rot=None):
         off_e_m=off_e, off_n_m=off_n, off_z_m=off_z, rot_deg=rot,
         network_filter=set(chosen_layers), log=log,
         segment_name=segment_name or None,
-        network_system_map=network_system_map)
+        network_system_map=network_system_map,
+        prefer_model=res["prefer_model"])
 
 
 try:
