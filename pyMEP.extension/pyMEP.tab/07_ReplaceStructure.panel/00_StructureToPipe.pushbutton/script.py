@@ -24,7 +24,7 @@ from pyrevit import revit, forms, script
 from pymep_replace_structure import (
     read_cylinder, resolve_pipe_type, replace_with_pipe,
 )
-from pymep_revit import ft2mm
+from pymep_revit import ft2mm, safe_name
 from pymep_log import Logger
 
 import clr
@@ -49,7 +49,8 @@ for eid in uidoc.Selection.GetElementIds():
         continue
     info, reason = read_cylinder(el)
     if info is not None:
-        candidates.append((el, info))
+        # capture the name now - it is deleted during the replace
+        candidates.append((el, info, safe_name(el)))
     else:
         skipped.append(reason)
 
@@ -75,16 +76,15 @@ pipe_type = resolve_pipe_type(doc, pref)
 if pipe_type is None:
     forms.alert("This model has no pipe types to build with. Load or "
                 "create a pipe type first.", exitscript=True)
-from pymep_revit import safe_name
 log("Pipe type: **{}**".format(safe_name(pipe_type)))
 
 # ---------------------------------------------------------------------------
 # 3. Confirm
 # ---------------------------------------------------------------------------
 msg = "Replace {} cylinder(s) with pipes?\n\n".format(len(candidates))
-for el, info in candidates[:8]:
+for el, info, name in candidates[:8]:
     msg += "  {}: {:.0f} mm dia x {:.0f} mm long\n".format(
-        safe_name(el), ft2mm(info["dia_ft"]), ft2mm(info["height_ft"]))
+        name, ft2mm(info["dia_ft"]), ft2mm(info["height_ft"]))
 if len(candidates) > 8:
     msg += "  ... and {} more\n".format(len(candidates) - 8)
 msg += "\nEach original cylinder is deleted."
@@ -97,7 +97,7 @@ if forms.alert(msg, title="Structure to Pipe",
 # ---------------------------------------------------------------------------
 done = 0
 failed = 0
-for el, info in candidates:
+for el, info, name in candidates:
     try:
         replace_with_pipe(doc, el, pipe_type, log=log)
         done += 1
@@ -105,7 +105,7 @@ for el, info in candidates:
         failed += 1
         import traceback
         log(traceback.format_exc())
-        log("  ! {} not replaced: {}".format(safe_name(el), ex))
+        log("  ! {} not replaced: {}".format(name, ex))
 
 log("#### Summary")
 log("- Cylinders replaced with pipes: **{}**".format(done))
