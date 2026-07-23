@@ -75,11 +75,11 @@ if len(rows) < 2:
 chains, singles = group_collinear(rows)
 if not chains:
     forms.alert("None of the selected pipes line up into a run.\n\n"
-                "Merge joins pipes that head roughly the same way (up to "
-                "a ~45 deg turn, offset up to a pipe diameter; any gaps "
-                "along the line are fine). These run parallel and offset "
-                "from each other, or turn back on themselves.",
-                exitscript=True)
+                "Merge joins pipes whose ends line up end-to-end along a "
+                "run - the turn between them can be any angle, and gaps "
+                "along the line are fine. These run parallel and offset "
+                "to the side (more than a pipe diameter apart), so they "
+                "don't share a line.", exitscript=True)
 
 log("Found **{}** run(s) to merge; {} selected pipe(s) line up with "
     "nothing and will be left alone.".format(len(chains), len(singles)))

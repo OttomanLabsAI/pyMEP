@@ -72,35 +72,28 @@ class Grouping(unittest.TestCase):
         self.assertEqual(chains, [])
         self.assertEqual(len(singles), 2)
 
-    def test_dogleg_turn_still_merges(self):
-        # a run that doglegs ~30 deg at the coupling: the far end of pipe
-        # 2 swings well off pipe 1's infinite line, but the meeting end
-        # aligns - a hand-picked run must still collapse to one pipe
+    def test_turn_of_any_angle_still_merges(self):
+        # doglegs of increasing sharpness at a coupling all still merge -
+        # the meeting end aligns; angle is not consulted at all
         import math as _m
-        a = 30.0 * _m.pi / 180.0
-        rows = [row(1, (0, 0, 0), (10, 0, 0)),
-                row(2, (10.1, 0, 0),
-                     (10.1 + 10 * _m.cos(a), 10 * _m.sin(a), 0))]
-        chains, singles = group_collinear(rows)
-        self.assertEqual(len(chains), 1)
-        self.assertEqual(len(chains[0]), 2)
+        for deg in (30.0, 70.0, 110.0):
+            a = deg * _m.pi / 180.0
+            rows = [row(1, (0, 0, 0), (10, 0, 0)),
+                    row(2, (10.1, 0, 0),
+                         (10.1 + 10 * _m.cos(a), 10 * _m.sin(a), 0))]
+            chains, singles = group_collinear(rows)
+            self.assertEqual(len(chains), 1,
+                             "deg={} should merge".format(deg))
 
-    def test_right_angle_turn_does_not_merge(self):
-        # a ~70 deg turn is a real corner, not a run - stays apart
-        import math as _m
-        a = 70.0 * _m.pi / 180.0
-        rows = [row(1, (0, 0, 0), (10, 0, 0)),
-                row(2, (10.1, 0, 0),
-                     (10.1 + 10 * _m.cos(a), 10 * _m.sin(a), 0))]
-        chains, singles = group_collinear(rows)
-        self.assertEqual(chains, [])
-
-    def test_different_directions_do_not_merge(self):
+    def test_right_angle_meeting_merges_angle_ignored(self):
+        # two pipes meeting at a shared point but at a right angle: angle
+        # is IGNORED, they line up end-to-end, so they become one pipe
+        # spanning the two free ends (the corner is cut)
         rows = [row(1, (0, 0, 0), (10, 0, 0)),
                 row(2, (10, 0, 0), (10, 10, 0))]   # right angle
         chains, singles = group_collinear(rows)
-        self.assertEqual(chains, [])
-        self.assertEqual(len(singles), 2)
+        self.assertEqual(len(chains), 1)
+        self.assertEqual(len(chains[0]), 2)
 
     def test_two_runs_kept_separate(self):
         rows = [row(1, (0, 0, 0), (10, 0, 0)),

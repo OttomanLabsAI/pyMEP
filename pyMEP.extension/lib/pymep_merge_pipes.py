@@ -68,40 +68,32 @@ def _line_dist(point, origin, direction):
     return _len(_cross(w, direction))
 
 
-def group_collinear(rows, ang_tol_deg=45.0, off_tol_ft=0.13,
-                    off_scale=1.0):
-    """Group pipe rows into APPROXIMATELY collinear chains.
+def group_collinear(rows, off_tol_ft=0.13, off_scale=1.0):
+    """Group pipe rows into chains that line up end-to-end - ANGLE
+    IGNORED.
 
     rows: [{"id", "p0": (x,y,z), "p1": (x,y,z), "dia_ft", "len_ft"}].
-    Two pipes chain when:
+    Two pipes chain when they sit on a common line: the offset is
+    measured at the endpoint where they MEET (the nearer end of each to
+    the other's line), so however sharply the run turns from one pipe to
+    the next, they still join - the resulting pipe spans the run's two
+    extreme ends. The allowance is ``max(off_tol_ft, off_scale * bore)``
+    (~40 mm, or one pipe diameter, whichever is larger).
 
-      * their directions are within ``ang_tol_deg`` of each other
-        (default 45°, so even fairly sharp doglegs in a hand-picked run
-        still join into one pipe - the resulting pipe spans the run's two
-        extreme ends, cutting the corner);
-      * they are roughly coaxial - the offset is measured at the
-        endpoint where the two pipes MEET, not across the whole length,
-        so an angular turn at a coupling doesn't throw the far end off
-        the line and split the run. The allowance is
-        ``max(off_tol_ft, off_scale * bore)`` (~40 mm, or one pipe
-        diameter, whichever is larger).
-
-    Gaps ALONG the line (couplings, breaks) are ignored on purpose.
-    Genuinely parallel-but-offset or differently-aimed pipes still stay
-    apart because BOTH their ends sit off the other's line. Returns
+    Direction is NOT checked, so a run may turn any amount and still be
+    one chain. What still stays apart: pipes that run PARALLEL and OFFSET
+    to the side, or otherwise don't touch a common line - both their ends
+    sit off the other's line, beyond the offset allowance. Returns
     ``(chains, singles)``: chains of 2+ rows, and rows that pair with
     nothing (left untouched by the caller)."""
-    cos_tol = math.cos(math.radians(ang_tol_deg))
     n = len(rows)
     dirs = [_unit(_sub(r["p1"], r["p0"])) for r in rows]
 
     def coaxial(i, j):
-        if abs(_dot(dirs[i], dirs[j])) < cos_tol:
-            return False   # not parallel enough
         tol = max(off_tol_ft,
                   off_scale * max(rows[i]["dia_ft"], rows[j]["dia_ft"]))
-        # offset of j from i's line, taken at j's NEARER end (the meeting
-        # point of a kinked coupling aligns even when the far end drifts)
+        # offset of j from i's line, taken at j's NEARER end (where the
+        # two pipes meet - it aligns however the run turns there)
         oi = rows[i]["p0"]
         off_j = min(_line_dist(rows[j]["p0"], oi, dirs[i]),
                     _line_dist(rows[j]["p1"], oi, dirs[i]))
@@ -141,22 +133,25 @@ def group_collinear(rows, ang_tol_deg=45.0, off_tol_ft=0.13,
 
 
 def chain_extremes(chain):
-    """The chain's two outermost endpoints - the EXACT input tuples of
-    the endpoint pair with the greatest projection spread along the
-    run's axis (axis = the longest member's direction)."""
-    longest = max(chain, key=lambda r: r["len_ft"])
-    axis = _unit(_sub(longest["p1"], longest["p0"]))
-    o = longest["p0"]
-    best_lo = best_hi = None
-    lo = hi = 0.0
+    """The chain's two end points - the EXACT input tuples of the
+    endpoint pair that are FARTHEST apart. Distance-based (not projected
+    onto any axis), so a run that changes direction still yields the pipe
+    between its true ends. Returned lexicographically ordered so the
+    result is deterministic; a pipe is undirected, so the order is
+    cosmetic."""
+    pts = []
     for r in chain:
-        for p in (r["p0"], r["p1"]):
-            t = _dot(_sub(p, o), axis)
-            if best_lo is None or t < lo:
-                best_lo, lo = p, t
-            if best_hi is None or t > hi:
-                best_hi, hi = p, t
-    return best_lo, best_hi
+        pts.append(r["p0"])
+        pts.append(r["p1"])
+    best = None
+    for i in range(len(pts)):
+        for j in range(i + 1, len(pts)):
+            d = _sub(pts[i], pts[j])
+            dd = _dot(d, d)
+            if best is None or dd > best[0]:
+                best = (dd, pts[i], pts[j])
+    a, b = best[1], best[2]
+    return (a, b) if a <= b else (b, a)
 
 
 def chain_gaps(chain, min_gap_ft=0.35):
