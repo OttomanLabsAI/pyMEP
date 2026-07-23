@@ -68,18 +68,20 @@ def _line_dist(point, origin, direction):
     return _len(_cross(w, direction))
 
 
-def group_collinear(rows, ang_tol_deg=6.0, off_tol_ft=0.13,
+def group_collinear(rows, ang_tol_deg=45.0, off_tol_ft=0.13,
                     off_scale=1.0):
     """Group pipe rows into APPROXIMATELY collinear chains.
 
     rows: [{"id", "p0": (x,y,z), "p1": (x,y,z), "dia_ft", "len_ft"}].
     Two pipes chain when:
 
-      * their directions are parallel within ``ang_tol_deg`` (default 6°,
-        so a real run that kinks slightly at each coupling still joins);
+      * their directions are within ``ang_tol_deg`` of each other
+        (default 45°, so even fairly sharp doglegs in a hand-picked run
+        still join into one pipe - the resulting pipe spans the run's two
+        extreme ends, cutting the corner);
       * they are roughly coaxial - the offset is measured at the
         endpoint where the two pipes MEET, not across the whole length,
-        so an angular kink at a coupling doesn't throw the far end off
+        so an angular turn at a coupling doesn't throw the far end off
         the line and split the run. The allowance is
         ``max(off_tol_ft, off_scale * bore)`` (~40 mm, or one pipe
         diameter, whichever is larger).
