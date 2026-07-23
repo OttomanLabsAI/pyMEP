@@ -68,14 +68,25 @@ def _line_dist(point, origin, direction):
     return _len(_cross(w, direction))
 
 
-def group_collinear(rows, ang_tol_deg=0.5, off_tol_ft=0.02):
-    """Group pipe rows into collinear chains.
+def group_collinear(rows, ang_tol_deg=6.0, off_tol_ft=0.13,
+                    off_scale=1.0):
+    """Group pipe rows into APPROXIMATELY collinear chains.
 
     rows: [{"id", "p0": (x,y,z), "p1": (x,y,z), "dia_ft", "len_ft"}].
-    Two pipes chain when their directions are parallel within
-    ``ang_tol_deg`` AND both endpoints of one lie on the other's
-    infinite line within ``off_tol_ft`` (~6 mm default) - gaps along the
-    line (couplings, breaks) are irrelevant on purpose. Returns
+    Two pipes chain when:
+
+      * their directions are parallel within ``ang_tol_deg`` (default 6°,
+        so a real run that kinks slightly at each coupling still joins);
+      * they are roughly coaxial - the offset is measured at the
+        endpoint where the two pipes MEET, not across the whole length,
+        so an angular kink at a coupling doesn't throw the far end off
+        the line and split the run. The allowance is
+        ``max(off_tol_ft, off_scale * bore)`` (~40 mm, or one pipe
+        diameter, whichever is larger).
+
+    Gaps ALONG the line (couplings, breaks) are ignored on purpose.
+    Genuinely parallel-but-offset or differently-aimed pipes still stay
+    apart because BOTH their ends sit off the other's line. Returns
     ``(chains, singles)``: chains of 2+ rows, and rows that pair with
     nothing (left untouched by the caller)."""
     cos_tol = math.cos(math.radians(ang_tol_deg))
@@ -83,13 +94,21 @@ def group_collinear(rows, ang_tol_deg=0.5, off_tol_ft=0.02):
     dirs = [_unit(_sub(r["p1"], r["p0"])) for r in rows]
 
     def coaxial(i, j):
-        d = abs(_dot(dirs[i], dirs[j]))
-        if d < cos_tol:
-            return False
-        return (_line_dist(rows[j]["p0"], rows[i]["p0"], dirs[i])
-                <= off_tol_ft and
-                _line_dist(rows[j]["p1"], rows[i]["p0"], dirs[i])
-                <= off_tol_ft)
+        if abs(_dot(dirs[i], dirs[j])) < cos_tol:
+            return False   # not parallel enough
+        tol = max(off_tol_ft,
+                  off_scale * max(rows[i]["dia_ft"], rows[j]["dia_ft"]))
+        # offset of j from i's line, taken at j's NEARER end (the meeting
+        # point of a kinked coupling aligns even when the far end drifts)
+        oi = rows[i]["p0"]
+        off_j = min(_line_dist(rows[j]["p0"], oi, dirs[i]),
+                    _line_dist(rows[j]["p1"], oi, dirs[i]))
+        # symmetric: also i's nearer end vs j's line, so which pipe is
+        # taken as the axis never changes the verdict
+        oj = rows[j]["p0"]
+        off_i = min(_line_dist(rows[i]["p0"], oj, dirs[j]),
+                    _line_dist(rows[i]["p1"], oj, dirs[j]))
+        return min(off_j, off_i) <= tol
 
     parent = list(range(n))
 
