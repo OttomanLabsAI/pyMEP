@@ -110,10 +110,18 @@ def make_survey_fn(e0_m, n0_m, rot_deg, z0_m):
 
 
 def model_survey_position(doc):
-    """(e0_m, n0_m, rot_deg) of the model's internal origin in survey
-    coordinates, from ActiveProjectLocation.GetProjectPosition - the same
-    source pymep_dashboard uses. None when unavailable (no location, or
-    the call fails)."""
+    """(e0_m, n0_m, rot_deg) for make_survey_fn, from the model's own
+    georeference: the survey coordinates of the internal origin plus the
+    rotation that maps survey deltas onto the internal axes.
+
+    The rotation direction is MEASURED, never assumed: GetProjectPosition
+    is evaluated at the internal origin AND at a probe point on the
+    internal +X axis, which pins the internal->shared angle down
+    unambiguously. make_survey_fn rotates survey deltas INTO the internal
+    frame, so it needs the negation of that measured angle - feeding
+    +ProjectPosition.Angle straight in (what this returned before) spun
+    the site the wrong way round the internal origin. None when
+    unavailable (no location, or the call fails)."""
     try:
         from Autodesk.Revit.DB import XYZ as _XYZ
         loc = doc.ActiveProjectLocation
@@ -122,8 +130,16 @@ def model_survey_position(doc):
         pos = loc.GetProjectPosition(_XYZ.Zero)
         if pos is None:
             return None
+        th_fwd = pos.Angle  # documented internal->shared rotation
+        try:
+            px = loc.GetProjectPosition(_XYZ(1000.0, 0.0, 0.0))
+            if px is not None:
+                th_fwd = math.atan2(px.NorthSouth - pos.NorthSouth,
+                                    px.EastWest - pos.EastWest)
+        except Exception:
+            pass
         return (pos.EastWest * 0.3048, pos.NorthSouth * 0.3048,
-                math.degrees(pos.Angle))
+                -math.degrees(th_fwd))
     except Exception:
         return None
 
