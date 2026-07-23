@@ -37,7 +37,7 @@ pyMEP.extension/
     06_Annotate.panel/          # 4 annotation buttons
 ```
 
-7 panels, 23 buttons, every one with its own icon.
+7 panels, 24 buttons, every one with its own icon.
 
 ## Panels
 
@@ -150,8 +150,25 @@ in **mm**. Schema (`schema_version: "1.0"`):
 }
 ```
 
-The companion *Import Pipe Types* button (planned) will consume this
-file; the schema is designed for that round trip.
+The JSON exists for the one direction Revit itself cannot serve: a
+file from a NEWER Revit into an older one. For every other direction
+use **Import Pipe Types** below - it is direct and needs no JSON. A
+companion button that rebuilds types FROM this JSON (for the downgrade
+path) is planned; the schema is designed for that round trip.
+
+**Import Pipe Types** - the direct path: pick another Revit file and
+copy its pipe types straight into this model. The source .rvt is opened
+invisibly in the background (detached when workshared - the real file
+is never touched), the picked types (all by default) are copied across
+WITH their routing preferences, segments, schedules, materials and
+fitting families - the same mechanism as Transfer Project Standards,
+without having to open the file in your session - and the source is
+closed without saving. Name collisions keep THIS model's types (never
+overwritten, never forked into "name 2"); the summary lists what came
+in new vs. what was already here. Works for same-version files and
+older files (upgraded in memory on open). A file saved in a NEWER
+Revit cannot be opened by Revit at all - the button says so and points
+at the Export Pipe Types JSON for that direction.
 
 ### Civil 3D Conversion
 
