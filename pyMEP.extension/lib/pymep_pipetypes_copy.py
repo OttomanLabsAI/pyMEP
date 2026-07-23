@@ -11,9 +11,8 @@ materials, fitting families) exactly like Transfer Project Standards -
 and the source is closed without saving.
 
 What this CANNOT do: read a file saved in a NEWER Revit than the one
-running - Revit itself refuses to open those. That direction is what the
-Export Pipe Types JSON is for (export on the newer machine, rebuild from
-JSON on the older one).
+running - Revit itself refuses to open those, so that direction has no
+import path.
 
 Name collisions: types (of any kind) that already exist in the active
 model are kept - the copy uses ``DuplicateTypeAction.UseDestinationTypes``
@@ -56,6 +55,18 @@ def diff_names(before, after, requested):
 # ---------------------------------------------------------------------------
 # Revit API access
 # ---------------------------------------------------------------------------
+def list_pipe_types(doc):
+    """[(name, PipeType), ...] sorted by name."""
+    out = []
+    for pt in FilteredElementCollector(doc).OfClass(PipeType):
+        try:
+            out.append((safe_name(pt), pt))
+        except Exception:
+            continue
+    out.sort(key=lambda t: t[0].lower())
+    return out
+
+
 def open_source_document(app, path):
     """Open ``path`` invisibly in the background. Workshared files are
     detached (preserving worksets) so the central is never touched; the
