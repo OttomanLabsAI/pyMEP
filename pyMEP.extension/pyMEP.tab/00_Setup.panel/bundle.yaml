@@ -1,4 +1,5 @@
-title: pyMEP v1.35.0
+title: pyMEP v1.36.0
 layout:
   - SetupTools
   - ProjectSetup
+  - ExportPipeTypes
