@@ -187,7 +187,10 @@ def replace_with_pipe(doc, inst, pipe_type, log=None):
 
     p0, p1 = vertical_endpoints(info["x"], info["y"], info["base_z"],
                                 info["height_ft"])
+    # capture the name NOW - after doc.Delete + commit the instance is
+    # gone and reading its .Name throws "referenced object is not valid"
     old_id = inst.Id
+    old_name = safe_name(inst)
 
     t = Transaction(doc, "Replace structure with pipe")
     t.Start()
@@ -219,7 +222,7 @@ def replace_with_pipe(doc, inst, pipe_type, log=None):
         raise
 
     say("  {} (DIA {:.0f}, H {:.0f} mm) -> pipe {:.0f} mm x {:.0f} mm "
-        "long".format(safe_name(inst), ft2mm(info["dia_ft"]),
+        "long".format(old_name, ft2mm(info["dia_ft"]),
                       ft2mm(info["height_ft"]), ft2mm(info["dia_ft"]),
                       ft2mm(info["height_ft"])))
     return {"new_id": pipe.Id, "dia_ft": info["dia_ft"],
