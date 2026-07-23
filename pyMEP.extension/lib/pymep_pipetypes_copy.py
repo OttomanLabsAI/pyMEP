@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Copy pipe types directly from another .rvt into the active model.
+"""Copy MEP types directly from another .rvt into the active model.
 
 The direct path for same-version (or older-file-into-newer-Revit)
 transfers: the source model is opened INVISIBLY in the background
 (detached from central when workshared, so nothing can touch the real
-file), the picked ``PipeType`` elements are copied across with
-``ElementTransformUtils.CopyElements`` - which brings their routing
-preferences and every dependent element (pipe segments, schedules,
-materials, fitting families) exactly like Transfer Project Standards -
+file), the chosen types - across every importable category present
+(pipe types, piping system types, pipe segments, duct types, duct
+system types, cable tray types, conduit types) - are copied across with
+``ElementTransformUtils.CopyElements``, which brings their routing
+preferences and every dependent element (segments, schedules,
+materials, fitting families) exactly like Transfer Project Standards,
 and the source is closed without saving.
 
 What this CANNOT do: read a file saved in a NEWER Revit than the one
@@ -16,8 +18,8 @@ import path.
 
 Name collisions: types (of any kind) that already exist in the active
 model are kept - the copy uses ``DuplicateTypeAction.UseDestinationTypes``
-so nothing is silently renamed to ``name 2``. The report says which pipe
-types came in new and which were already present.
+so nothing is silently renamed to ``name 2``. The report says, per
+category, which types came in new and which were already present.
 
 IronPython 2.7 / Revit 2021-2026 safe.
 """
@@ -33,7 +35,6 @@ from Autodesk.Revit.DB import (
     DuplicateTypeAction, ModelPathUtils, OpenOptions,
     DetachFromCentralOption,
 )
-from Autodesk.Revit.DB.Plumbing import PipeType
 
 from pymep_revit import safe_name
 
@@ -55,16 +56,56 @@ def diff_names(before, after, requested):
 # ---------------------------------------------------------------------------
 # Revit API access
 # ---------------------------------------------------------------------------
-def list_pipe_types(doc):
-    """[(name, PipeType), ...] sorted by name."""
+def _type_classes():
+    """[(category label, API class)] for every importable MEP type
+    category this Revit exposes - resolved defensively so a build
+    without, say, cable trays just drops that category."""
     out = []
-    for pt in FilteredElementCollector(doc).OfClass(PipeType):
+
+    def add(label, module, cls_name):
         try:
-            out.append((safe_name(pt), pt))
+            mod = __import__(module, fromlist=[cls_name])
+            cls = getattr(mod, cls_name, None)
+            if cls is not None:
+                out.append((label, cls))
         except Exception:
-            continue
-    out.sort(key=lambda t: t[0].lower())
+            pass
+
+    add("Pipe Types", "Autodesk.Revit.DB.Plumbing", "PipeType")
+    add("Piping System Types", "Autodesk.Revit.DB.Plumbing",
+        "PipingSystemType")
+    add("Pipe Segments", "Autodesk.Revit.DB.Plumbing", "PipeSegment")
+    add("Duct Types", "Autodesk.Revit.DB.Mechanical", "DuctType")
+    add("Duct System Types", "Autodesk.Revit.DB.Mechanical",
+        "MechanicalSystemType")
+    add("Cable Tray Types", "Autodesk.Revit.DB.Electrical",
+        "CableTrayType")
+    add("Conduit Types", "Autodesk.Revit.DB.Electrical", "ConduitType")
     return out
+
+
+def list_types_by_category(doc):
+    """[(category label, name, element), ...] for every type in the
+    model across the importable categories, sorted category then name.
+    Categories with nothing in the model simply don't appear."""
+    out = []
+    for label, cls in _type_classes():
+        for el in FilteredElementCollector(doc).OfClass(cls):
+            try:
+                out.append((label, safe_name(el), el))
+            except Exception:
+                continue
+    out.sort(key=lambda t: (t[0].lower(), t[1].lower()))
+    return out
+
+
+def _names_by_label(doc):
+    """{category label: set of type names} - the before/after snapshots
+    the created/kept report is diffed from."""
+    snap = {}
+    for label, name, _el in list_types_by_category(doc):
+        snap.setdefault(label, set()).add(name)
+    return snap
 
 
 def open_source_document(app, path):
@@ -83,17 +124,6 @@ def open_source_document(app, path):
     return app.OpenDocumentFile(mp, opts)
 
 
-def existing_pipe_type_names(doc):
-    """set of the model's pipe type names."""
-    out = set()
-    for pt in FilteredElementCollector(doc).OfClass(PipeType):
-        try:
-            out.add(safe_name(pt))
-        except Exception:
-            continue
-    return out
-
-
 class _UseDestinationTypes(IDuplicateTypeNamesHandler):
     """Keep the active model's types on any name collision - imports
     must never fork 'name 2' duplicates of segments/schedules/fittings
@@ -103,22 +133,26 @@ class _UseDestinationTypes(IDuplicateTypeNamesHandler):
         return DuplicateTypeAction.UseDestinationTypes
 
 
-def copy_pipe_types(src_doc, dest_doc, pipe_types, log=None):
-    """Copy ``pipe_types`` (PipeType elements OF ``src_doc``) into
-    ``dest_doc`` with all their dependents, in one transaction.
-    Returns ``(created_names, existed_names)``."""
-    requested = []
-    ids = List[ElementId]()
-    for pt in pipe_types:
-        requested.append(safe_name(pt))
-        ids.Add(pt.Id)
+def copy_types(src_doc, dest_doc, picks, log=None):
+    """Copy the chosen types into ``dest_doc`` with all their dependents,
+    in one transaction.
 
-    before = existing_pipe_type_names(dest_doc)
+    ``picks``: [(category label, name, element OF src_doc), ...] - the
+    tuples ``list_types_by_category`` yields, filtered to the user's
+    selection. Returns ``{category label: (created_names, kept_names)}``.
+    Existing types are kept (UseDestinationTypes), never overwritten."""
+    ids = List[ElementId]()
+    requested = {}          # label -> [names]
+    for label, name, el in picks:
+        ids.Add(el.Id)
+        requested.setdefault(label, []).append(name)
+
+    before = _names_by_label(dest_doc)
 
     co = CopyPasteOptions()
     co.SetDuplicateTypeNamesHandler(_UseDestinationTypes())
 
-    t = Transaction(dest_doc, "Import pipe types from RVT")
+    t = Transaction(dest_doc, "Import MEP types from RVT")
     t.Start()
     try:
         ElementTransformUtils.CopyElements(
@@ -128,11 +162,16 @@ def copy_pipe_types(src_doc, dest_doc, pipe_types, log=None):
         t.RollBack()
         raise
 
-    after = existing_pipe_type_names(dest_doc)
-    created, existed = diff_names(before, after, requested)
-    if log is not None:
-        for n in created:
-            log("  + {}".format(n))
-        for n in existed:
-            log("  = {} (already in this model - kept)".format(n))
-    return created, existed
+    after = _names_by_label(dest_doc)
+    report = {}
+    for label, names in requested.items():
+        created, existed = diff_names(
+            before.get(label, set()), after.get(label, set()), names)
+        report[label] = (created, existed)
+        if log is not None:
+            log("**{}**".format(label))
+            for n in created:
+                log("  + {}".format(n))
+            for n in existed:
+                log("  = {} (already in this model - kept)".format(n))
+    return report

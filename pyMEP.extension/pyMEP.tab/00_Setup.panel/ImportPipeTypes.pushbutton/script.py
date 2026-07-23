@@ -1,20 +1,24 @@
 # -*- coding: utf-8 -*-
-"""Import Pipe Types - pick another Revit file and copy its pipe types
-straight into this model.
+"""Import MEP Types - pick another Revit file and copy its types
+straight into this model, choosing which ones from each category.
 
 The source .rvt is opened invisibly in the background (detached when
-workshared - the real file is never touched), the picked pipe types are
-copied across WITH their routing preferences, segments, schedules,
-materials and fitting families (same mechanism as Transfer Project
-Standards), and the source is closed without saving. Types already in
-this model are kept, never overwritten or duplicated as 'name 2'.
+workshared - the real file is never touched). Every importable type
+category present in the source is offered - pipe types, piping system
+types, pipe segments, duct types, duct system types, cable tray types,
+conduit types - grouped in the picker so you can take exactly the ones
+you want from each. Each type comes in WITH its dependents (routing
+preferences, segments, schedules, materials, fitting families - same
+mechanism as Transfer Project Standards); the source is closed without
+saving. Types already in this model are kept, never overwritten or
+duplicated as 'name 2'.
 
 Limit: Revit cannot open a file saved in a NEWER version than the one
 running - that direction has no import path. All copy logic lives in
 lib/pymep_pipetypes_copy.py; this file is UI + orchestration only.
 """
 
-__title__  = "Import\nPipe Types"
+__title__  = "Import\nMEP Types"
 __author__ = "Glent Group"
 
 import os
@@ -27,21 +31,21 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
 from pyrevit import revit, forms, script
 
 from pymep_pipetypes_copy import (
-    open_source_document, copy_pipe_types, list_pipe_types,
+    open_source_document, copy_types, list_types_by_category,
 )
 from pymep_log import Logger
 
 output = script.get_output()
-log = Logger(output, "ImportPipeTypes")
+log = Logger(output, "ImportMEPTypes")
 doc = revit.doc
 
-log("### Import Pipe Types from another Revit file")
+log("### Import MEP Types from another Revit file")
 
 # ---------------------------------------------------------------------------
 # 1. Pick the source .rvt
 # ---------------------------------------------------------------------------
 rvt_path = forms.pick_file(
-    file_ext="rvt", title="Pick the Revit file to import pipe types from")
+    file_ext="rvt", title="Pick the Revit file to import MEP types from")
 if not rvt_path:
     forms.alert("No file picked.", exitscript=True)
 
@@ -71,51 +75,67 @@ except Exception as ex:
         exitscript=True)
 
 # From here on the source doc MUST be closed, whatever happens.
+report = None
 try:
     # -----------------------------------------------------------------------
-    # 2. Pick the pipe types (default: all)
+    # 2. List types by category, let the user choose per category
     # -----------------------------------------------------------------------
-    src_types = list_pipe_types(src_doc)
+    src_types = list_types_by_category(src_doc)
     if not src_types:
-        forms.alert("'{}' has no pipe types.".format(
+        forms.alert("'{}' has no importable MEP types.".format(
             os.path.basename(rvt_path)), exitscript=True)
-    log("Found **{}** pipe type(s) in the source.".format(len(src_types)))
+
+    cats = []
+    for label, _nm, _el in src_types:
+        if label not in cats:
+            cats.append(label)
+    log("Found **{}** type(s) across {} categor{}: {}.".format(
+        len(src_types), len(cats), "y" if len(cats) == 1 else "ies",
+        ", ".join("{} ({})".format(
+            c, sum(1 for t in src_types if t[0] == c)) for c in cats)))
 
     choice = forms.alert(
-        "Import which pipe types from '{}'?\n\n"
-        "Each type comes in with its routing preferences, segments, "
-        "schedules, materials and fitting families. Types already in "
-        "this model are kept unchanged.".format(
-            os.path.basename(rvt_path)),
-        title="Import Pipe Types",
-        options=["Import all {}".format(len(src_types)),
-                 "Pick which types...", "Cancel"])
+        "Import types from '{}'.\n\n"
+        "Pick which ones you want from each category, or take the lot. "
+        "Every type comes in with its dependents; types already in this "
+        "model are kept unchanged.".format(os.path.basename(rvt_path)),
+        title="Import MEP Types",
+        options=["Choose per category...",
+                 "Import all {}".format(len(src_types)), "Cancel"])
     if not choice or choice == "Cancel":
         script.exit()
 
-    picked = [pt for _nm, pt in src_types]
-    if choice.startswith("Pick"):
+    picks = list(src_types)
+    if choice.startswith("Choose"):
         class TypeOption(object):
-            def __init__(self, nm, pt):
-                self.name = nm
-                self.pt = pt
+            def __init__(self, tup):
+                self.tup = tup
+                self.name = tup[1]
+        # grouped by category so the picker has a per-category switcher
+        groups = {}
+        for tup in src_types:
+            groups.setdefault(tup[0], []).append(TypeOption(tup))
+        for k in groups:
+            groups[k].sort(key=lambda o: o.name.lower())
         sel = forms.SelectFromList.show(
-            [TypeOption(nm, pt) for nm, pt in src_types],
-            title="Pick pipe types to import",
-            button_name="Import these",
+            groups,
+            title="Choose MEP types to import (switch category at the top)",
+            button_name="Import selected",
             multiselect=True,
-            name_attr="name")
+            name_attr="name",
+            group_selector_title="Category")
         if not sel:
-            forms.alert("No types picked - nothing to import.",
+            forms.alert("Nothing selected - nothing to import.",
                         exitscript=True)
-        picked = [o.pt for o in sel]
-    log("Importing **{}** pipe type(s) ...".format(len(picked)))
+        picks = [o.tup for o in sel]
+
+    log("Importing **{}** type(s) ...".format(len(picks)))
 
     # -----------------------------------------------------------------------
     # 3. Copy
     # -----------------------------------------------------------------------
     try:
-        created, existed = copy_pipe_types(src_doc, doc, picked, log=log)
+        report = copy_types(src_doc, doc, picks, log=log)
     except Exception as ex:
         import traceback
         log(traceback.format_exc())
@@ -131,15 +151,23 @@ finally:
 # ---------------------------------------------------------------------------
 # 4. Summary
 # ---------------------------------------------------------------------------
+total_new = sum(len(c) for c, _k in report.values()) if report else 0
+total_kept = sum(len(k) for _c, k in report.values()) if report else 0
 log("#### Summary")
-log("- New pipe types: **{}**".format(len(created)))
-log("- Already present (kept): **{}**".format(len(existed)))
+lines = []
+if report:
+    for label in sorted(report.keys()):
+        created, kept = report[label]
+        log("- {}: **{}** new, {} already present".format(
+            label, len(created), len(kept)))
+        lines.append("{}: {} new, {} kept".format(
+            label, len(created), len(kept)))
 
 forms.alert(
-    "Imported {} new pipe type(s) from {}.\n"
-    "Already present (kept): {}.\n\n"
-    "Routing preferences, segments, schedules, materials and fitting "
-    "families came along with them.".format(
-        len(created), os.path.basename(rvt_path), len(existed)),
-    title="Pipe types imported")
+    "Imported {} new type(s) from {} ({} already present, kept).\n\n{}\n\n"
+    "Dependents (routing preferences, segments, schedules, materials, "
+    "fitting families) came along with them.".format(
+        total_new, os.path.basename(rvt_path), total_kept,
+        "\n".join(lines) or "(nothing)"),
+    title="MEP types imported")
 log.close()

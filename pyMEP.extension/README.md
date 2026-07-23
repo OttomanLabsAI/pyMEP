@@ -30,14 +30,14 @@ pyMEP.extension/
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
     01_Civil3DConversion.panel/ # Create LandXML Dashboard, Place Boxes/Cylinders/Pipes, Create Pipe Sizes
-    02_Modelling.panel/         # Encasement, Gully to MH
+    02_Modelling.panel/         # Encasement, Gully to MH, Merge Pipes
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
     06_Annotate.panel/          # 4 annotation buttons
 ```
 
-7 panels, 23 buttons, every one with its own icon.
+7 panels, 24 buttons, every one with its own icon.
 
 ## Panels
 
@@ -85,18 +85,23 @@ layer, worksets from its workset map, one isolation template per
 workset plus the full-model *Civil 3D XML Import* template). Run it
 twice and everything reports Skipped.
 
-**Import Pipe Types** - pick another Revit file and
-copy its pipe types straight into this model. The source .rvt is opened
-invisibly in the background (detached when workshared - the real file
-is never touched), the picked types (all by default) are copied across
-WITH their routing preferences, segments, schedules, materials and
-fitting families - the same mechanism as Transfer Project Standards,
-without having to open the file in your session - and the source is
-closed without saving. Name collisions keep THIS model's types (never
-overwritten, never forked into "name 2"); the summary lists what came
-in new vs. what was already here. Works for same-version files and
-older files (upgraded in memory on open). A file saved in a NEWER
-Revit cannot be opened by Revit at all - the button says so.
+**Import MEP Types** - pick another Revit file and
+copy its types straight into this model, choosing which ones from each
+category. Every importable category present in the source is offered -
+pipe types, piping system types, pipe segments, duct types, duct system
+types, cable tray types, conduit types - grouped in the picker (switch
+category at the top) so you take exactly the ones you want from each, or
+"Import all". The source .rvt is opened invisibly in the background
+(detached when workshared - the real file is never touched), the chosen
+types are copied across WITH their dependents (routing preferences,
+segments, schedules, materials, fitting families) - the same mechanism
+as Transfer Project Standards, without having to open the file in your
+session - and the source is closed without saving. Name collisions keep
+THIS model's types (never overwritten, never forked into "name 2"); the
+summary reports, per category, what came in new vs. what was already
+here. Works for same-version files and older files (upgraded in memory
+on open). A file saved in a NEWER Revit cannot be opened by Revit at
+all - the button says so.
 
 ### Civil 3D Conversion
 
@@ -187,6 +192,20 @@ Duct type and MEP system type come from `Settings > Ducts`.
 downpipe + bend + falling run. Modes are inferred from the selection
 (gully+MH, many gullies + one MH, gully only, MH to picked point). Numeric
 prompts (downpipe length, invert offset, slope) are remembered between runs.
+
+**Merge Pipes** - selection-driven: collapses straight runs of pipe into
+single pipes. Select the pipes that make up a run (the couplings between
+them can be left unselected) and click; every set of collinear pipes -
+same line, any gaps allowed - is replaced by ONE pipe spanning the run's
+two extreme endpoints at their EXACT XYZ (nothing re-projected or
+rounded). The originals and the couplings that sat entirely inside the
+run are deleted; fittings where the run meets the rest of the model
+(elbows, tees) are kept and reconnected to the new pipe's matching end.
+The new pipe inherits the run's longest segment - pipe type, system
+type, level, workset, Mark, comments - and the run's diameter (the
+largest when a run mixes sizes, reported). Runs with a gap larger than a
+coupling are flagged in the confirm dialog; selected pipes that line up
+with nothing are left untouched.
 
 ### Parameters
 
