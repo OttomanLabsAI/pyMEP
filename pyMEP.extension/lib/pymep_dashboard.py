@@ -1006,6 +1006,7 @@ def run_place(shape=None):
             self.CmbCoords.Items.Add(COORD_SETTINGS)
             self.CmbCoords.SelectedIndex = 0 if has_georef else 1
             self._fill_categories()
+            self._restore_defaults()
             self.StatusText.Text = "Pick a dashboard MODEL or STRUCTS " \
                                    "export to begin."
 
@@ -1138,6 +1139,61 @@ def run_place(shape=None):
             v = combo.SelectedItem
             return ORIGIN_VALUES.get(str(v)) if v is not None else None
 
+        # ---- remembered defaults (last successful Place) ----
+        def _combo_map(self):
+            return {
+                "box_cat": self.CmbBoxCat, "box_fam": self.CmbBoxFam,
+                "box_l": self.CmbBoxL, "box_w": self.CmbBoxW,
+                "box_h": self.CmbBoxH, "box_origin": self.CmbBoxOrigin,
+                "cyl_cat": self.CmbCylCat, "cyl_fam": self.CmbCylFam,
+                "cyl_dia": self.CmbCylDia, "cyl_h": self.CmbCylH,
+                "cyl_origin": self.CmbCylOrigin,
+                "coords": self.CmbCoords,
+            }
+
+        def _restore_defaults(self):
+            try:
+                from pymep_config import load_settings
+                d = load_settings().get("place_structs_defaults") or {}
+            except Exception:
+                d = {}
+            if not isinstance(d, dict) or not d:
+                return
+
+            def sel(combo, val):
+                if not val:
+                    return
+                for i in range(combo.Items.Count):
+                    if str(combo.Items[i]) == val:
+                        combo.SelectedIndex = i
+                        return
+            # categories first (they cascade-fill the family combos),
+            # then families (they cascade-probe the params), then the
+            # param/origin overrides on top
+            for key in ("box_cat", "cyl_cat", "box_fam", "cyl_fam",
+                        "box_l", "box_w", "box_h", "box_origin",
+                        "cyl_dia", "cyl_h", "cyl_origin", "coords"):
+                sel(self._combo_map()[key], d.get(key))
+            try:
+                if d.get("assign_sys") is not None:
+                    self.ChkSystemType.IsChecked = bool(d.get("assign_sys"))
+            except Exception:
+                pass
+
+        def _save_defaults(self):
+            try:
+                from pymep_config import load_settings, save_settings
+                s = load_settings()
+                d = {}
+                for key, combo in self._combo_map().items():
+                    v = combo.SelectedItem
+                    d[key] = str(v) if v is not None else ""
+                d["assign_sys"] = bool(self.ChkSystemType.IsChecked)
+                s["place_structs_defaults"] = d
+                save_settings(s)
+            except Exception:
+                pass
+
         def on_load_rfa(self, sender, args):
             rfa = forms.pick_file(file_ext="rfa",
                                   title="Pick the chamber family (.rfa)")
@@ -1213,6 +1269,7 @@ def run_place(shape=None):
                 "prefer_model":
                     str(self.CmbCoords.SelectedItem) == COORD_MODEL,
             }
+            self._save_defaults()
             self.Close()
 
         def on_cancel(self, sender, args):
