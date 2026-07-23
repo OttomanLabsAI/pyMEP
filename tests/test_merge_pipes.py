@@ -72,12 +72,12 @@ class Grouping(unittest.TestCase):
         self.assertEqual(chains, [])
         self.assertEqual(len(singles), 2)
 
-    def test_slight_kink_at_coupling_still_merges(self):
-        # a real run that bends ~3 deg at the coupling: the far end of
-        # pipe 2 drifts off pipe 1's infinite line, but the meeting end
-        # aligns - it must still be ONE run (approximate lining)
+    def test_dogleg_turn_still_merges(self):
+        # a run that doglegs ~30 deg at the coupling: the far end of pipe
+        # 2 swings well off pipe 1's infinite line, but the meeting end
+        # aligns - a hand-picked run must still collapse to one pipe
         import math as _m
-        a = 3.0 * _m.pi / 180.0
+        a = 30.0 * _m.pi / 180.0
         rows = [row(1, (0, 0, 0), (10, 0, 0)),
                 row(2, (10.1, 0, 0),
                      (10.1 + 10 * _m.cos(a), 10 * _m.sin(a), 0))]
@@ -85,10 +85,10 @@ class Grouping(unittest.TestCase):
         self.assertEqual(len(chains), 1)
         self.assertEqual(len(chains[0]), 2)
 
-    def test_sharper_bend_does_not_merge(self):
-        # a 20 deg turn is a real bend, not a run - stays apart
+    def test_right_angle_turn_does_not_merge(self):
+        # a ~70 deg turn is a real corner, not a run - stays apart
         import math as _m
-        a = 20.0 * _m.pi / 180.0
+        a = 70.0 * _m.pi / 180.0
         rows = [row(1, (0, 0, 0), (10, 0, 0)),
                 row(2, (10.1, 0, 0),
                      (10.1 + 10 * _m.cos(a), 10 * _m.sin(a), 0))]
