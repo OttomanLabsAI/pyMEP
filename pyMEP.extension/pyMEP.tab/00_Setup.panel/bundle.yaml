@@ -1,6 +1,5 @@
-title: pyMEP v1.37.0
+title: pyMEP v1.38.0
 layout:
   - SetupTools
   - ProjectSetup
-  - ExportPipeTypes
   - ImportPipeTypes

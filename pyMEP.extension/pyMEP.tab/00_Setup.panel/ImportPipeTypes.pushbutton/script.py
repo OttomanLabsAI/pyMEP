@@ -10,8 +10,7 @@ Standards), and the source is closed without saving. Types already in
 this model are kept, never overwritten or duplicated as 'name 2'.
 
 Limit: Revit cannot open a file saved in a NEWER version than the one
-running. For that direction use Export Pipe Types on the newer machine
-and rebuild from its JSON here. All copy logic lives in
+running - that direction has no import path. All copy logic lives in
 lib/pymep_pipetypes_copy.py; this file is UI + orchestration only.
 """
 
@@ -27,8 +26,9 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
 
 from pyrevit import revit, forms, script
 
-from pymep_pipetypes_copy import open_source_document, copy_pipe_types
-from pymep_pipetypes_export import list_pipe_types
+from pymep_pipetypes_copy import (
+    open_source_document, copy_pipe_types, list_pipe_types,
+)
 from pymep_log import Logger
 
 output = script.get_output()
@@ -64,10 +64,10 @@ except Exception as ex:
     log.close()
     forms.alert(
         "Revit could not open that file:\n\n{}\n\n"
-        "If it was saved in a NEWER Revit than this one, no direct "
-        "import is possible - Revit cannot read files from later "
-        "versions. Instead run Export Pipe Types on the newer machine "
-        "and use its JSON here.".format(ex),
+        "If it was saved in a NEWER Revit than this one, no import is "
+        "possible - Revit cannot read files from later versions. Open "
+        "this model in that Revit version (or recreate the types "
+        "there) instead.".format(ex),
         exitscript=True)
 
 # From here on the source doc MUST be closed, whatever happens.

@@ -37,7 +37,7 @@ pyMEP.extension/
     06_Annotate.panel/          # 4 annotation buttons
 ```
 
-7 panels, 24 buttons, every one with its own icon.
+7 panels, 23 buttons, every one with its own icon.
 
 ## Panels
 
@@ -85,78 +85,7 @@ layer, worksets from its workset map, one isolation template per
 workset plus the full-model *Civil 3D XML Import* template). Run it
 twice and everything reports Skipped.
 
-**Export Pipe Types** - dumps the model's pipe type definitions to a
-versioned JSON (`<model>_pipetypes.json` by default) for rebuilding
-them in another model or an OLDER Revit, where no clipboard / Transfer
-Project Standards path exists. Pick the types (all by default), pick
-the output file, done; optionally the referenced fitting families are
-also saved as `.rfa` into a `<export>_fittings/` folder next to the
-JSON (with a printed warning: RFAs are version-locked to the exporting
-Revit - reference or same-version/upward reuse only, unlike the JSON).
-A summary of types / rules / segments / fittings and any warnings
-prints to the output window; a single unresolvable rule becomes a
-warning entry, never a crash.
-
-Everything in the JSON is referenced by stable NAME (family, type,
-segment, schedule, material) - **no ElementIds** - and every length is
-in **mm**. Schema (`schema_version: "1.0"`):
-
-- `header` - schema version, source model title, Revit version + build,
-  ISO 8601 timestamp, units.
-- `pipe_types[]` - name, non-empty identity parameters (description /
-  type comments / keynote), `preferred_junction_type` (Tee/Tap), and
-  `routing_preferences`: rule lists per group (Segments, Elbows,
-  Junctions, Crosses, Transitions, Unions, Flanges, Caps,
-  MechanicalJoints; empty groups omitted). Each rule: description, its
-  part (`segment` by name, or `fitting` by family/type/category, or
-  `unresolved`), and size criteria - the "all sizes" case is an
-  explicit `covers_all_sizes: true`, never a sentinel number.
-- `segments[]` - deduplicated: name, roughness (mm), schedule type +
-  material names, and the full size catalogue (nominal / inner / outer
-  in mm, `used_in_size_lists`, `used_in_sizing`).
-- `fittings[]` - deduplicated identities with a `rule_count` each.
-- `warnings[]` - everything skipped or unresolvable during the export.
-
-```json
-{
-  "header": {"schema_version": "1.0", "source_model": "HEL18",
-             "revit_version": "2024", "units": "mm",
-             "exported": "2026-07-23T10:00:00"},
-  "pipe_types": [{
-    "name": "Storm Water",
-    "preferred_junction_type": "Tee",
-    "routing_preferences": {
-      "Segments": [{"description": "",
-                    "part": {"kind": "segment",
-                             "segment": "PE 100 - SDR 17"},
-                    "criteria": [{"type": "size",
-                                  "covers_all_sizes": false,
-                                  "min_mm": 50.0, "max_mm": 315.0}]}],
-      "Elbows": [{"description": "",
-                  "part": {"kind": "fitting", "family": "Bend PE",
-                           "type": "Standard",
-                           "category": "Pipe Fittings"},
-                  "criteria": [{"type": "size",
-                                "covers_all_sizes": true}]}]}}],
-  "segments": [{"name": "PE 100 - SDR 17", "roughness_mm": 0.0015,
-                "schedule_type": "SDR 17", "material": "Polyethylene",
-                "sizes": [{"nominal_mm": 110.0, "inner_mm": 96.8,
-                           "outer_mm": 110.0,
-                           "used_in_size_lists": true,
-                           "used_in_sizing": true}]}],
-  "fittings": [{"family": "Bend PE", "type": "Standard",
-                "category": "Pipe Fittings", "rule_count": 1}],
-  "warnings": []
-}
-```
-
-The JSON exists for the one direction Revit itself cannot serve: a
-file from a NEWER Revit into an older one. For every other direction
-use **Import Pipe Types** below - it is direct and needs no JSON. A
-companion button that rebuilds types FROM this JSON (for the downgrade
-path) is planned; the schema is designed for that round trip.
-
-**Import Pipe Types** - the direct path: pick another Revit file and
+**Import Pipe Types** - pick another Revit file and
 copy its pipe types straight into this model. The source .rvt is opened
 invisibly in the background (detached when workshared - the real file
 is never touched), the picked types (all by default) are copied across
@@ -167,8 +96,7 @@ closed without saving. Name collisions keep THIS model's types (never
 overwritten, never forked into "name 2"); the summary lists what came
 in new vs. what was already here. Works for same-version files and
 older files (upgraded in memory on open). A file saved in a NEWER
-Revit cannot be opened by Revit at all - the button says so and points
-at the Export Pipe Types JSON for that direction.
+Revit cannot be opened by Revit at all - the button says so.
 
 ### Civil 3D Conversion
 
