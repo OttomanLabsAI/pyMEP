@@ -35,9 +35,10 @@ pyMEP.extension/
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
     06_Annotate.panel/          # 4 annotation buttons
+    07_ReplaceStructure.panel/  # Structure to Pipe
 ```
 
-7 panels, 24 buttons, every one with its own icon.
+8 panels, 25 buttons, every one with its own icon.
 
 ## Panels
 
@@ -195,8 +196,10 @@ prompts (downpipe length, invert offset, slope) are remembered between runs.
 
 **Merge Pipes** - selection-driven: collapses straight runs of pipe into
 single pipes. Select the pipes that make up a run (the couplings between
-them can be left unselected) and click; every set of collinear pipes -
-same line, any gaps allowed - is replaced by ONE pipe spanning the run's
+them can be left unselected) and click; every set of APPROXIMATELY
+collinear pipes - up to a ~6 deg kink at each coupling and an offset of
+up to one pipe diameter, any gaps along the line allowed - is replaced
+by ONE pipe spanning the run's
 two extreme endpoints at their EXACT XYZ (nothing re-projected or
 rounded). The originals and the couplings that sat entirely inside the
 run are deleted; fittings where the run meets the rest of the model
@@ -288,6 +291,18 @@ pre-selection in the active plan view:
   `MEP_pipe_dia_slope_label` on the selected pipes (or all pipes), for
   tag/schedule-driven labelling. Requires that instance text parameter on the
   Pipes category.
+
+### Replace Structure
+
+**Structure to Pipe** - selection-driven one-off: replaces a cylinder
+structure (a Generic Cylinder Plumbing Fixture carrying `DIA` + `H`, the
+placeholder used for vertical risers) with a real vertical Revit pipe of
+the same diameter and length. Each pipe stands on the cylinder's base at
+its EXACT XY (base Z from the instance bounding box, so the family's
+vertical origin doesn't matter), runs one `H` up, and takes the
+cylinder's System Type, Mark and Comments; the pipe type is the Settings
+default (else the first in the model). The original cylinders are
+deleted. Select one or more and confirm.
 
 ## Settings keys
 
