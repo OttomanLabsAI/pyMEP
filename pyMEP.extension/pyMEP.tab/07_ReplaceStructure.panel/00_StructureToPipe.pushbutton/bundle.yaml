@@ -1,0 +1,2 @@
+title: "Structure\nto Pipe"
+tooltip: "Replace a cylinder structure (a Generic Cylinder Plumbing Fixture carrying DIA + H) with a real vertical Revit pipe of the same diameter and length, standing on the cylinder's base at its exact XY, taking its System Type, Mark and Comments - then delete the original. Select one or more such cylinders and run it. A one-off conversion for models where vertical risers were placed as placeholder cylinders."
