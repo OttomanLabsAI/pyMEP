@@ -196,10 +196,10 @@ prompts (downpipe length, invert offset, slope) are remembered between runs.
 
 **Merge Pipes** - selection-driven: collapses straight runs of pipe into
 single pipes. Select the pipes that make up a run (the couplings between
-them can be left unselected) and click; every set of roughly co-directional
-pipes - up to a ~45 deg turn between them and an offset of up to one pipe
-diameter, any gaps along the line allowed - is replaced by ONE pipe
-spanning the run's
+them can be left unselected) and click; every set of pipes that line up
+end-to-end - the turn between them can be any angle, offset to the side
+up to one pipe diameter, any gaps along the line allowed - is replaced
+by ONE pipe spanning the run's
 two extreme endpoints at their EXACT XYZ (nothing re-projected or
 rounded). The originals and the couplings that sat entirely inside the
 run are deleted; fittings where the run meets the rest of the model
