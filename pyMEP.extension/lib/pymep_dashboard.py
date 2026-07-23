@@ -452,8 +452,6 @@ def solve_points(doc, rows, log=None, force_offset=None,
     cy = sum(r["y"] for r in rows) / len(rows)
     _say(log, "Export centroid: E **{:.1f}**  N **{:.1f}**".format(cx, cy))
 
-    loc = doc.ActiveProjectLocation
-
     def transform_all(fn):
         out = []
         m_abs = 0.0
@@ -480,10 +478,18 @@ def solve_points(doc, rows, log=None, force_offset=None,
     candidates = [("Settings offset", s_off)]
     pp = None
     try:
-        pos = loc.GetProjectPosition(XYZ.Zero)
-        pp = (pos.EastWest * 0.3048, pos.NorthSouth * 0.3048,
-              pos.Elevation * 0.3048, math.degrees(pos.Angle))
-        candidates.append(("model project position", pp))
+        # E/N and rotation from model_survey_position - it MEASURES the
+        # shared->internal rotation direction with a probe point instead of
+        # trusting ProjectPosition.Angle's sign (which rotated the site the
+        # wrong way round the origin). Z stays the Settings offset: the pipe
+        # placer keeps Settings off_z on its model transform too, so
+        # structures and pipes always share one vertical datum whichever
+        # coordinate source is picked.
+        from pymep_landxml_place2 import model_survey_position
+        mp = model_survey_position(doc)
+        if mp is not None:
+            pp = (mp[0], mp[1], s_off[2], mp[2])
+            candidates.append(("model project position", pp))
     except Exception:
         pass
 
