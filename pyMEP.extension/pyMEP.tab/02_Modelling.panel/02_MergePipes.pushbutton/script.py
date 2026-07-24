@@ -84,34 +84,18 @@ if not chains:
 log("Found **{}** run(s) to merge; {} selected pipe(s) line up with "
     "nothing and will be left alone.".format(len(chains), len(singles)))
 
-# report any large gaps so an accidental bridge across a real break is a
-# conscious choice
-gap_warn = []
+# report any large gaps to the output window (no confirm popup - the
+# merge runs straight away)
 for ci, chain in enumerate(chains):
+    dias = sorted(set(round(ft2mm(r["dia_ft"]), 0) for r in chain))
+    log("Run {}: {} pipes -> 1  ({} mm)".format(
+        ci + 1, len(chain),
+        "/".join("{:.0f}".format(d) for d in dias)))
     gaps = chain_gaps(chain)
     if gaps:
         big = max(g[0] for g in gaps)
-        gap_warn.append("Run {}: {} pipe(s), largest gap along it "
-                        "**{:.0f} mm**".format(
-                            ci + 1, len(chain), ft2mm(big)))
-for w in gap_warn:
-    log(w)
-
-msg = "Merge {} run(s) into {} single pipe(s)?\n\n".format(
-    len(chains), len(chains))
-for ci, chain in enumerate(chains):
-    dias = sorted(set(round(ft2mm(r["dia_ft"]), 0) for r in chain))
-    msg += "Run {}: {} pipes -> 1  ({})\n".format(
-        ci + 1, len(chain),
-        "/".join("{:.0f}".format(d) for d in dias) + " mm")
-if gap_warn:
-    msg += ("\nSome runs have gaps larger than a coupling - check they "
-            "are meant to be one pipe.\n")
-msg += "\nThe original pipes and their internal couplings are deleted."
-
-if forms.alert(msg, title="Merge Pipes",
-               options=["Merge", "Cancel"]) != "Merge":
-    forms.alert("Cancelled - nothing changed.", exitscript=True)
+        log("  (largest gap along it **{:.0f} mm** - check it is meant "
+            "to be one pipe)".format(ft2mm(big)))
 
 # ---------------------------------------------------------------------------
 # 3. Merge each chain (each in its own transaction)
