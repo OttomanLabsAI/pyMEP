@@ -26,7 +26,8 @@ from pyrevit import revit, forms, script
 
 from pymep_connect_fixtures import (
     fixture_outlet_info, main_pipe_info, branch_points,
-    connect_fixture_to_main,
+    connect_fixture_to_main, main_gradient, regrade_main,
+    plan_dist_to_segment,
 )
 from pymep_gully_connect import _snap_dia_ft
 from pymep_config import load_settings, save_settings
@@ -96,21 +97,44 @@ XAML_PATH = os.path.join(
     "pymep_connect_fixtures.xaml")
 
 
+_cur_grad = main_gradient(a, b)
+
+
 class ConnectWindow(forms.WPFWindow):
 
     def __init__(self):
         forms.WPFWindow.__init__(self, XAML_PATH)
         self.result = None
-        self.TxtInfo.Text = ("{} fixture(s) -> main '{}' ({:.0f} mm)"
-                             .format(len(fixtures), safe_name(main),
-                                     ft2mm(main_dia_ft)))
+        self.TxtInfo.Text = ("{} fixture(s) -> main '{}' ({:.0f} mm), "
+                             "tee junctions".format(
+                                 len(fixtures), safe_name(main),
+                                 ft2mm(main_dia_ft)))
         self.TxtDia.Text = "{:.0f}".format(float(def_dia))
         self.TxtSlope.Text = "{:g}".format(float(def_slope))
         self.TxtInvert.Text = "{:.3f}".format(def_invert)
+        if _cur_grad is not None:
+            self.TxtMainSlope.Text = "{:.0f}".format(_cur_grad)
+            self.TxtMainHint.Text = (
+                "The main currently falls at about 1:{:.0f}. Tick to "
+                "re-grade it at the ratio above BEFORE the branches are "
+                "drawn - its low end stays put, the high end moves."
+                .format(_cur_grad))
+        else:
+            self.TxtMainSlope.Text = "{:g}".format(float(def_slope))
+            self.TxtMainHint.Text = (
+                "The main is currently LEVEL. Tick to re-grade it at the "
+                "ratio above before the branches are drawn - its low end "
+                "stays put, the high end moves.")
 
     def on_auto(self, sender, args):
         try:
             self.TxtInvert.IsEnabled = not self.ChkAuto.IsChecked
+        except Exception:
+            pass
+
+    def on_regrade(self, sender, args):
+        try:
+            self.TxtMainSlope.IsEnabled = bool(self.ChkRegrade.IsChecked)
         except Exception:
             pass
 
@@ -124,6 +148,16 @@ class ConnectWindow(forms.WPFWindow):
             self.StatusText.Text = ("Diameter and slope must be positive "
                                     "numbers.")
             return
+        main_slope = None
+        if self.ChkRegrade.IsChecked:
+            try:
+                main_slope = float(self.TxtMainSlope.Text)
+                if main_slope <= 0:
+                    raise ValueError()
+            except Exception:
+                self.StatusText.Text = ("The main's slope must be a "
+                                        "positive number (the n of 1:n).")
+                return
         inv = None
         if not self.ChkAuto.IsChecked:
             try:
@@ -133,7 +167,8 @@ class ConnectWindow(forms.WPFWindow):
                                         "metres, or tick 'keep it where it "
                                         "currently is'.")
                 return
-        self.result = {"dia_mm": dia, "slope": slope, "invert_m": inv}
+        self.result = {"dia_mm": dia, "slope": slope, "invert_m": inv,
+                       "main_slope": main_slope}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -163,19 +198,51 @@ log("Branch dia **{:.0f} mm**, slope **1:{:g}**, upstream invert: {}"
             else "**{:.3f} m** (fixed)".format(res["invert_m"])))
 
 # ---------------------------------------------------------------------------
-# 3. Build each branch (each in its own transaction)
+# 3. Re-grade the main first, if asked - branches then meet the NEW fall
 # ---------------------------------------------------------------------------
+if res["main_slope"] is not None:
+    try:
+        regrade_main(doc, main, res["main_slope"], log=log)
+    except Exception as ex:
+        log("! Couldn't re-grade the main ({}) - branches will meet it "
+            "as it lies.".format(ex))
+
+# ---------------------------------------------------------------------------
+# 4. Build each branch (each in its own transaction). Every tee SPLITS
+#    the main, so track the growing list of segments and tie each
+#    fixture into the piece that spans its position.
+# ---------------------------------------------------------------------------
+main_segs = [main]
 done = 0
 failed = 0
-fitting_misses = 0
+fitting_notes = 0
+
+
+def _nearest_seg(outlet_xyz):
+    best, bestd = main_segs[0], None
+    for seg in main_segs:
+        try:
+            sa, sb, _t, _s, _l, _d = main_pipe_info(seg)
+        except Exception:
+            continue
+        d = plan_dist_to_segment(outlet_xyz, sa, sb)
+        if bestd is None or d < bestd:
+            best, bestd = seg, d
+    return best
+
+
 for fx in fixtures:
     log("**{}**:".format(safe_name(fx)))
     try:
-        r = connect_fixture_to_main(doc, fx, main, res["slope"],
+        o_xyz, _od = fixture_outlet_info(fx)
+        seg = _nearest_seg(o_xyz)
+        r = connect_fixture_to_main(doc, fx, seg, res["slope"],
                                     res["dia_mm"],
                                     invert_m=res["invert_m"], log=log)
         done += 1
-        fitting_misses += r["fitting_misses"]
+        fitting_notes += r["fitting_misses"]
+        if r.get("new_main_segment") is not None:
+            main_segs.append(r["new_main_segment"])
     except Exception as ex:
         failed += 1
         import traceback
@@ -183,10 +250,11 @@ for fx in fixtures:
         log("  ! not connected: {}".format(ex))
 
 log("#### Summary")
-log("- Fixtures connected: **{}**".format(done))
-if fitting_misses:
-    log("- Fitting(s) that could not be placed: **{}** (pipes are in - "
-        "see the notes above)".format(fitting_misses))
+log("- Fixtures connected: **{}** (tee junctions; the main is now {} "
+    "segment(s))".format(done, len(main_segs)))
+if fitting_notes:
+    log("- Fitting notes: **{}** (see above - a takeoff fallback or a "
+        "join to finish by hand)".format(fitting_notes))
 if failed:
     log("- Failed (nothing created for them): **{}**".format(failed))
 log.close()

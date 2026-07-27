@@ -213,17 +213,23 @@ with nothing are left untouched.
 **Connect Fixtures** - selection-driven: pick ONE pipe (the main run)
 and any number of plumbing fixtures; each fixture gets a vertical
 downpipe from its outlet connector, an elbow, a sloped branch falling
-at 1:n toward the main, and a takeoff fitting where it meets it. One
-proper dialog drives it: branch diameter in mm (default: the fixture
-outlet size, snapped to the main type's routing sizes), the slope ratio
-`1 : n`, and the upstream invert - by default it stays where the model
-currently puts it (each branch meets the main's centreline as it lies
-and the elbow level derives back up the slope; the dialog shows the
-first fixture's resulting invert), or untick and type an absolute level
-to fix the elbow invert for every fixture instead. Branches take the
-main's pipe type, system type and level; diameter and slope are
-remembered between runs. A fitting that can't be placed never fails the
-branch - the pipes stay and the miss is reported.
+at 1:n toward the main, and a TEE JUNCTION where it meets it - the
+main is split at the branch point and the two halves + branch joined
+with a tee (a takeoff only as a reported fallback). Successive tees
+keep splitting the main; each fixture ties into whichever piece spans
+its position. One proper dialog drives it: branch diameter in mm
+(default: the fixture outlet size, snapped to the main type's routing
+sizes), the branch slope ratio `1 : n`, optionally re-grading the MAIN
+at its own `1 : n` before anything is drawn (its low end stays put,
+the field is prefilled with the main's current gradient), and the
+upstream invert - by default it stays where the model currently puts
+it (each branch meets the main's centreline as it lies and the elbow
+level derives back up the slope; the dialog shows the first fixture's
+resulting invert), or untick and type an absolute level to fix the
+elbow invert for every fixture instead. Branches take the main's pipe
+type, system type and level; diameter and slope are remembered between
+runs. A fitting that can't be placed never fails the branch - the
+pipes stay and the miss is reported.
 
 ### Parameters
 

@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 """Connect plumbing fixtures into a main pipe: a vertical downpipe from
 each fixture's outlet connector, an elbow, a sloped branch falling at
-1:n toward the main, and a takeoff fitting where it meets it.
+1:n toward the main, and a TEE JUNCTION where it meets it - the main is
+split at the branch point and the two halves + branch joined with a tee
+(takeoff only as a reported fallback). The main itself can be re-graded
+at its own 1:n first, keeping its low end where it is.
 
 Geometry per fixture (plan-projected onto the main's centreline):
 
-    fixture outlet -> downpipe -> elbow -> sloped branch (1:n) -> takeoff
-                                                                  on main
+    fixture outlet -> downpipe -> elbow -> sloped branch (1:n) -> tee
+                                                                  in main
 
 Upstream invert: by default it stays WHERE THE MODEL CURRENTLY PUTS IT -
 the branch end meets the main's centreline as it lies today and the
@@ -32,7 +35,7 @@ clr.AddReference("RevitAPI")
 import math
 
 from Autodesk.Revit.DB import (
-    XYZ, Transaction, BuiltInParameter, ElementId,
+    XYZ, Transaction, BuiltInParameter, ElementId, Line,
 )
 from Autodesk.Revit.DB.Plumbing import Pipe
 
@@ -43,6 +46,44 @@ from pymep_gully_connect import (
 
 
 MIN_LEN_FT = mm2ft(50.0)
+
+
+def main_gradient(a, b):
+    """The main's current gradient as the n of 1:n (plan run per unit of
+    fall), or None when it is level (or vertical). Pure."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    run = math.sqrt(dx * dx + dy * dy)
+    fall = abs(b[2] - a[2])
+    if run < 1e-9 or fall < 1e-9:
+        return None
+    return run / fall
+
+
+def regrade_main_ends(a, b, slope_n):
+    """Re-grade the main at 1:slope_n keeping its LOW end where it is:
+    the higher end's Z becomes low_z + plan_run / n (ends level -> the
+    second end is treated as the fixed low one). Returns (a2, b2). Pure."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    run = math.sqrt(dx * dx + dy * dy)
+    fall = (run / slope_n) if (slope_n and slope_n > 0) else 0.0
+    if a[2] < b[2]:
+        return a, (b[0], b[1], a[2] + fall)
+    return (a[0], a[1], b[2] + fall), b
+
+
+def plan_dist_to_segment(p, a, b):
+    """Plan (XY) distance from point ``p`` to the segment a-b. Pure -
+    used to pick WHICH main segment a fixture ties into once tees have
+    split the original main."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    dd = dx * dx + dy * dy
+    if dd < 1e-12:
+        t = 0.0
+    else:
+        t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / dd
+        t = max(0.0, min(1.0, t))
+    mx, my = a[0] + t * dx, a[1] + t * dy
+    return math.sqrt((p[0] - mx) ** 2 + (p[1] - my) ** 2)
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +194,62 @@ def fixture_outlet_info(fixture):
     return (o.X, o.Y, o.Z), dia_mm
 
 
+def regrade_main(doc, main, slope_n, log=None):
+    """Re-grade the main pipe at 1:slope_n, keeping its low end where it
+    is, in ONE transaction. Returns the new (a, b)."""
+    a, b, _t, _s, _l, _d = main_pipe_info(main)
+    a2, b2 = regrade_main_ends(a, b, slope_n)
+    t = Transaction(doc, "Re-grade main pipe")
+    t.Start()
+    try:
+        main.Location.Curve = Line.CreateBound(XYZ(*a2), XYZ(*b2))
+        t.Commit()
+    except Exception:
+        t.RollBack()
+        raise
+    if log is not None:
+        log("Main re-graded at **1:{:g}** (low end fixed): high end now "
+            "Z {:.3f} m.".format(
+                slope_n, ft2mm(max(a2[2], b2[2])) / 1000.0))
+    return a2, b2
+
+
+def _tee_into_main(doc, c_end, main_seg, end_xyz, fit_notes):
+    """Split ``main_seg`` at the branch point and join the two halves +
+    the branch with a TEE fitting. Returns the new second half (so the
+    caller can keep tracking every piece of the main), or None when no
+    split happened. Failures degrade: tee -> takeoff -> note."""
+    other = None
+    try:
+        from Autodesk.Revit.DB.Plumbing import PlumbingUtils
+        new_id = PlumbingUtils.BreakCurve(doc, main_seg.Id, end_xyz)
+        other = doc.GetElement(new_id)
+    except Exception as ex:
+        fit_notes.append("couldn't split the main at the branch point "
+                         "({}) - trying a takeoff instead".format(ex))
+    if other is not None:
+        c1 = _conn_near(main_seg, end_xyz)
+        c2 = _conn_near(other, end_xyz)
+        if c1 is not None and c2 is not None:
+            try:
+                doc.Create.NewTeeFitting(c1, c2, c_end)
+                return other
+            except Exception as ex:
+                fit_notes.append("tee junction not placed ({}) - trying "
+                                 "a takeoff instead".format(ex))
+        else:
+            fit_notes.append("split the main but couldn't find its "
+                             "connectors - trying a takeoff instead")
+    try:
+        doc.Create.NewTakeoffFitting(c_end, main_seg)
+        fit_notes.append("connected with a TAKEOFF, not a tee")
+    except Exception as ex:
+        fit_notes.append("takeoff fallback also failed ({}) - the branch "
+                         "ends on the main's centreline, join it "
+                         "manually".format(ex))
+    return other
+
+
 def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
                             invert_m=None, log=None):
     """Build one fixture's branch, in ONE transaction. Returns a summary
@@ -236,16 +333,13 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
         except Exception:
             pass
 
-        # the takeoff joins the branch end into the main with a fitting
+        # a TEE joins the branch into the main: split the main at the
+        # branch point, tee the two halves + the branch together
+        new_seg = None
         end_pipe = sloped if sloped is not None else down
         c_end = _conn_near(end_pipe, end)
         if c_end is not None:
-            try:
-                doc.Create.NewTakeoffFitting(c_end, main)
-            except Exception as ex:
-                fit_notes.append("takeoff into the main not placed ({}) - "
-                                 "the branch still ends on the main's "
-                                 "centreline".format(ex))
+            new_seg = _tee_into_main(doc, c_end, main, end, fit_notes)
         t.Commit()
     except Exception:
         t.RollBack()
@@ -255,4 +349,5 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
         say("  ! {}".format(n))
     return {"down": down, "sloped": sloped,
             "upstream_invert_m": pts["upstream_invert_m"],
-            "fitting_misses": len(fit_notes)}
+            "fitting_misses": len(fit_notes),
+            "new_main_segment": new_seg}
