@@ -30,7 +30,7 @@ pyMEP.extension/
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
     01_Civil3DConversion.panel/ # Create LandXML Dashboard, Place Boxes/Cylinders/Pipes, Create Pipe Sizes
-    02_Modelling.panel/         # Encasement, Gully to MH, Merge Pipes
+    02_Modelling.panel/         # Encasement, Gully to MH, Merge Pipes, Connect Fixtures
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
@@ -38,7 +38,7 @@ pyMEP.extension/
     07_ReplaceStructure.panel/  # Structure to Pipe
 ```
 
-8 panels, 25 buttons, every one with its own icon.
+8 panels, 26 buttons, every one with its own icon.
 
 ## Panels
 
@@ -209,6 +209,21 @@ type, level, workset, Mark, comments - and the run's diameter (the
 largest when a run mixes sizes, reported). Runs with a gap larger than a
 coupling are flagged in the confirm dialog; selected pipes that line up
 with nothing are left untouched.
+
+**Connect Fixtures** - selection-driven: pick ONE pipe (the main run)
+and any number of plumbing fixtures; each fixture gets a vertical
+downpipe from its outlet connector, an elbow, a sloped branch falling
+at 1:n toward the main, and a takeoff fitting where it meets it. One
+proper dialog drives it: branch diameter in mm (default: the fixture
+outlet size, snapped to the main type's routing sizes), the slope ratio
+`1 : n`, and the upstream invert - by default it stays where the model
+currently puts it (each branch meets the main's centreline as it lies
+and the elbow level derives back up the slope; the dialog shows the
+first fixture's resulting invert), or untick and type an absolute level
+to fix the elbow invert for every fixture instead. Branches take the
+main's pipe type, system type and level; diameter and slope are
+remembered between runs. A fitting that can't be placed never fails the
+branch - the pipes stay and the miss is reported.
 
 ### Parameters
 
