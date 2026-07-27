@@ -1,7 +1,7 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Connect Fixtures to Main"
-        Width="520" Height="470" MinWidth="480" MinHeight="440"
+        Width="520" Height="560" MinWidth="480" MinHeight="530"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False"
         Background="White">
@@ -89,6 +89,30 @@
                                Style="{StaticResource Hint}"
                                Text="The sloped branch falls 1 unit per this many units of run, from the fixture toward the main."/>
                 </Grid>
+            </GroupBox>
+
+            <GroupBox Header="Main pipe">
+                <StackPanel>
+                    <CheckBox x:Name="ChkRegrade" IsChecked="False"
+                              Content="Re-grade the main at this slope (its low end stays put)"
+                              Margin="0,2,0,0"
+                              Checked="on_regrade" Unchecked="on_regrade"/>
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Ratio  1 :"/>
+                        <TextBox x:Name="TxtMainSlope" Grid.Column="1"
+                                 IsEnabled="False"/>
+                    </Grid>
+                    <TextBlock x:Name="TxtMainHint"
+                               Style="{StaticResource Hint}"
+                               Text="&#8212;"/>
+                </StackPanel>
             </GroupBox>
 
             <GroupBox Header="Upstream invert">

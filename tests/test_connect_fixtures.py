@@ -37,6 +37,9 @@ def extract(name):
 
 
 branch_points = extract("branch_points")
+main_gradient = extract("main_gradient")
+regrade_main_ends = extract("regrade_main_ends")
+plan_dist_to_segment = extract("plan_dist_to_segment")
 
 FT = 304.8 / 1000.0   # m per ft
 
@@ -101,6 +104,49 @@ class FixedInvert(unittest.TestCase):
         out = branch_points((30.0, 40.0, 20.0), (0.0, 0.0, 10.0),
                             (100.0, 0.0, 8.0), 100.0, 0.5, invert_m=2.0)
         self.assertEqual(out["end"][:2], (30.0, 0.0))
+
+
+class MainGradient(unittest.TestCase):
+
+    def test_reads_current_fall(self):
+        # 100 plan run, 2 fall -> 1:50
+        self.assertAlmostEqual(
+            main_gradient((0, 0, 10.0), (100, 0, 8.0)), 50.0, places=9)
+
+    def test_level_main_is_none(self):
+        self.assertIsNone(main_gradient((0, 0, 10.0), (100, 0, 10.0)))
+
+
+class RegradeMain(unittest.TestCase):
+
+    def test_low_end_stays_high_end_derives(self):
+        # b is the low end: it must not move; a rises to low + run/n
+        a2, b2 = regrade_main_ends((0, 0, 10.0), (100, 0, 8.0), 200.0)
+        self.assertEqual(b2, (100, 0, 8.0))
+        self.assertEqual(a2[:2], (0, 0))
+        self.assertAlmostEqual(a2[2], 8.0 + 100.0 / 200.0, places=9)
+
+    def test_level_main_second_end_treated_as_low(self):
+        a2, b2 = regrade_main_ends((0, 0, 10.0), (100, 0, 10.0), 100.0)
+        self.assertEqual(b2, (100, 0, 10.0))
+        self.assertAlmostEqual(a2[2], 11.0, places=9)
+
+    def test_other_end_low(self):
+        a2, b2 = regrade_main_ends((0, 0, 5.0), (100, 0, 9.0), 100.0)
+        self.assertEqual(a2, (0, 0, 5.0))
+        self.assertAlmostEqual(b2[2], 6.0, places=9)
+
+
+class NearestSegment(unittest.TestCase):
+
+    def test_plan_distance_clamps_and_measures(self):
+        self.assertAlmostEqual(
+            plan_dist_to_segment((50, 7, 99), (0, 0, 0), (100, 0, 5)),
+            7.0, places=9)
+        # beyond the end: distance to the endpoint
+        self.assertAlmostEqual(
+            plan_dist_to_segment((103, 4, 0), (0, 0, 0), (100, 0, 0)),
+            5.0, places=9)
 
 
 if __name__ == "__main__":
