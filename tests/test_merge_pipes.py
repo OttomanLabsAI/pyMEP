@@ -41,11 +41,12 @@ def load(names):
 
 
 NS = load(["group_collinear", "chain_extremes", "chain_gaps",
-           "classify_fittings"])
+           "classify_fittings", "workset_decision"])
 group_collinear = NS["group_collinear"]
 chain_extremes = NS["chain_extremes"]
 chain_gaps = NS["chain_gaps"]
 classify_fittings = NS["classify_fittings"]
+workset_decision = NS["workset_decision"]
 
 
 def row(rid, p0, p1, dia=0.5):
@@ -178,6 +179,20 @@ class Fittings(unittest.TestCase):
         internal, boundary = classify_fittings(links, [1, 2])
         self.assertEqual(internal, [])
         self.assertEqual(boundary, [])
+
+
+class WorksetDecision(unittest.TestCase):
+
+    def test_shared_workset_is_kept(self):
+        self.assertEqual(workset_decision([7, 7, 7]), (7, False))
+
+    def test_mixed_worksets_fall_to_active_and_flag(self):
+        self.assertEqual(workset_decision([7, 8, 7]), (None, True))
+
+    def test_no_workset_info_not_flagged(self):
+        # not workshared / unreadable: nothing to keep, nothing to warn
+        self.assertEqual(workset_decision([]), (None, False))
+        self.assertEqual(workset_decision([None, None]), (None, False))
 
 
 if __name__ == "__main__":

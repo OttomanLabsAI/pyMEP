@@ -205,8 +205,10 @@ rounded). The originals and the couplings that sat entirely inside the
 run are deleted; fittings where the run meets the rest of the model
 (elbows, tees) are kept and reconnected to the new pipe's matching end.
 The new pipe inherits the run's longest segment - pipe type, system
-type, level, workset, Mark, comments - and the run's diameter (the
-largest when a run mixes sizes, reported). Runs with a gap larger than a
+type, level, Mark, comments - and the run's diameter (the largest when
+a run mixes sizes, reported). The workset is kept when every merged
+pipe shares one; when they differ the new pipe lands on the ACTIVE
+workset and the report says so. Runs with a gap larger than a
 coupling are flagged in the confirm dialog; selected pipes that line up
 with nothing are left untouched.
 

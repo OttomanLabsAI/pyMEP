@@ -103,6 +103,7 @@ for ci, chain in enumerate(chains):
 merged = 0
 new_pipes = 0
 deleted_couplings = 0
+ws_mixed_runs = 0
 failed = 0
 for ci, chain in enumerate(chains):
     log("Run {}:".format(ci + 1))
@@ -111,6 +112,8 @@ for ci, chain in enumerate(chains):
         merged += res["pipes"]
         new_pipes += 1
         deleted_couplings += res["internal"]
+        if res.get("ws_mixed"):
+            ws_mixed_runs += 1
     except Exception as ex:
         failed += 1
         import traceback
@@ -121,6 +124,10 @@ log("#### Summary")
 log("- Runs merged: **{}**".format(new_pipes))
 log("- Pipes removed: **{}** (plus {} coupling fitting(s))".format(
     merged, deleted_couplings))
+if ws_mixed_runs:
+    log("- Runs whose pipes were on DIFFERENT worksets: **{}** - their "
+        "new pipes are on the ACTIVE workset (see above)".format(
+            ws_mixed_runs))
 if failed:
     log("- Runs that failed: **{}** (left untouched)".format(failed))
 
