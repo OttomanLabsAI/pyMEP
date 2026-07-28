@@ -11,9 +11,11 @@ INSIDE the chain (the couplings between consecutive segments). Fittings
 that connect the run to the outside (elbows, tees) are kept and
 reconnected to the new pipe, whose end lands on the same coordinates.
 
-The new pipe takes its type, system type, level, workset, Mark and
-comments from the chain's LONGEST segment; the diameter is the chain's
-(largest, when mixed - reported, never silent).
+The new pipe takes its type, system type, level, Mark and comments from
+the chain's LONGEST segment; the diameter is the chain's (largest, when
+mixed - reported, never silent). The workset is KEPT when every merged
+pipe shares one; when they differ the new pipe lands on the ACTIVE
+workset and the user is told.
 
 Pure geometry/decision functions at the top (unit-tested under CPython
 by ``tests/test_merge_pipes.py`` - keep them stdlib-only); Revit API
@@ -179,6 +181,20 @@ def chain_gaps(chain, min_gap_ft=0.35):
     return gaps
 
 
+def workset_decision(ws_ids):
+    """Which workset the merged pipe gets: ``(workset_id, mixed)``.
+    Every merged pipe on the SAME workset -> keep it (that id, False).
+    Different worksets -> (None, True): the new pipe lands on the ACTIVE
+    workset and the caller must tell the user. No workset info at all
+    (not workshared) -> (None, False). Pure."""
+    ids = [w for w in ws_ids if w is not None]
+    if not ids:
+        return None, False
+    if len(set(ids)) == 1:
+        return ids[0], False
+    return None, True
+
+
 def classify_fittings(fitting_links, chain_ids):
     """Which fittings die with the chain: ``fitting_links`` maps
     fitting id -> list of connected pipe ids; a fitting is INTERNAL
@@ -332,6 +348,17 @@ def merge_chain(doc, pipes_by_id, chain, log=None):
             "Chain donor pipe '{}' has no level/system type - cannot "
             "rebuild the run.".format(safe_name(donor)))
 
+    # workset: keep it when every merged pipe shares one; mixed -> the
+    # new pipe lands on the ACTIVE workset (and the user is told)
+    ws_ids = []
+    try:
+        if doc.IsWorkshared:
+            for rid in chain_ids:
+                ws_ids.append(pipes_by_id[rid].WorksetId.IntegerValue)
+    except Exception:
+        ws_ids = []
+    ws_choice, ws_mixed = workset_decision(ws_ids)
+
     t = Transaction(doc, "Merge pipe run")
     t.Start()
     try:
@@ -354,11 +381,18 @@ def merge_chain(doc, pipes_by_id, chain, log=None):
         if dp is not None and not dp.IsReadOnly:
             dp.Set(dia)
         for bip_name in ("ALL_MODEL_MARK",
-                         "ALL_MODEL_INSTANCE_COMMENTS",
-                         "ELEM_PARTITION_PARAM"):
+                         "ALL_MODEL_INSTANCE_COMMENTS"):
             bip = getattr(BuiltInParameter, bip_name, None)
             if bip is not None:
                 _copy_param(donor, new_pipe, bip)
+        if ws_choice is not None:
+            try:
+                wp = new_pipe.get_Parameter(
+                    BuiltInParameter.ELEM_PARTITION_PARAM)
+                if wp is not None and not wp.IsReadOnly:
+                    wp.Set(ws_choice)
+            except Exception:
+                pass
 
         # reconnect the run's boundary fittings: their orphaned
         # connector sits exactly on the new pipe's endpoint
@@ -390,6 +424,17 @@ def merge_chain(doc, pipes_by_id, chain, log=None):
     say("  merged {} pipes -> 1 ({:.0f} mm), deleted {} coupling(s), "
         "reconnected {} end(s)".format(
             len(chain_ids), ft2mm(dia), len(internal), reconnected))
+    if ws_mixed:
+        act = ""
+        try:
+            wt = doc.GetWorksetTable()
+            act = wt.GetWorkset(wt.GetActiveWorksetId()).Name
+        except Exception:
+            pass
+        say("  ! the merged pipes were on DIFFERENT worksets - the new "
+            "pipe is on the ACTIVE workset{}".format(
+                " '{}'".format(act) if act else ""))
     return {"pipes": len(chain_ids), "internal": len(internal),
             "reconnected": reconnected, "dia_ft": dia,
-            "new_id": new_pipe.Id, "e0": e0, "e1": e1}
+            "new_id": new_pipe.Id, "e0": e0, "e1": e1,
+            "ws_mixed": ws_mixed}
