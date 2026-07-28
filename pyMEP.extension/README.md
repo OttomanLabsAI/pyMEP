@@ -29,7 +29,7 @@ pyMEP.extension/
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
-    01_Civil3DConversion.panel/ # Civil 3D Export Dashboard (split), Place Structures/Pipes, Create Pipe Sizes
+    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, Create Pipe Sizes
     02_Modelling.panel/         # Encasement, Gully to MH, Merge Pipes, Connect Fixtures
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
@@ -90,13 +90,13 @@ twice and everything reports Skipped.
 files its workflows depend on live together in one managed folder
 (`exports/<model>/project_files/` with a small registry), copied in and
 addressed by role. First resident: the project's Civil 3D LandXML - the
-Civil 3D Export Dashboard opens it by default. Set/replace (file
+Civil 3D LandXML Dashboard opens it by default. Set/replace (file
 picker; the original stays put), open the file, open the folder, or
 remove; other roles slot in as workflows grow.
 
 ### Civil 3D Conversion
 
-**Civil 3D Export Dashboard** (split button) - opens the utilities 3D
+**Civil 3D LandXML Dashboard** (split button) - opens the utilities 3D
 dashboard in the default browser. The MAIN click opens it **with this
 project's stored data file** (Setup > Project Files): a launch copy of
 the viewer is written with the file injected, so the browser goes

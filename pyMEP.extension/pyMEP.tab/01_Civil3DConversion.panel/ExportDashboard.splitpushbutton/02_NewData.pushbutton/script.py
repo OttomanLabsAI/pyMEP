@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Civil 3D Export Dashboard - open it EMPTY for new data.
+"""Civil 3D LandXML Dashboard - open it EMPTY for new data.
 
 Launches the dashboard with its landing page: browse (or drag & drop) a
 fresh Civil 3D LandXML export. Store that file in Setup > Project Files
@@ -39,7 +39,7 @@ if not path:
         "pyMEP_settings.json).".format(DASHBOARD_DIR),
         exitscript=True)
 
-log("### Civil 3D Export Dashboard - new data")
+log("### Civil 3D LandXML Dashboard - new data")
 log("Opening **{}** empty - browse or drop the LandXML in the "
     "browser.".format(os.path.basename(path)))
 launch_html(path)
