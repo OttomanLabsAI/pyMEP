@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Launch the Civil 3D Export Dashboard - plain, or preloaded with the
+"""Launch the Civil 3D LandXML Dashboard - plain, or preloaded with the
 project's stored data file.
 
 Preloading works by writing a LAUNCH COPY of the viewer HTML with a

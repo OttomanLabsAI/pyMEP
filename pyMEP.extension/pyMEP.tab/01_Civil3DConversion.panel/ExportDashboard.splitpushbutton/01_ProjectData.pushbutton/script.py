@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Civil 3D Export Dashboard - open it WITH this project's stored data.
+"""Civil 3D LandXML Dashboard - open it WITH this project's stored data.
 
 Reads the dashboard data file stored by Setup > Project Files
 (the project's Civil 3D LandXML), writes a launch copy of the viewer
@@ -39,7 +39,7 @@ if not viewer:
         "pyMEP_settings.json).".format(DASHBOARD_DIR),
         exitscript=True)
 
-log("### Civil 3D Export Dashboard - project data")
+log("### Civil 3D LandXML Dashboard - project data")
 
 base = os.path.join(get_export_folder(doc), "project_files")
 data = pf.slot_file(base, "dashboard_data")

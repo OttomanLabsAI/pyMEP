@@ -60,7 +60,7 @@
                     </ListView.View>
                 </ListView>
                 <TextBlock Style="{StaticResource Hint}"
-                           Text="Files are COPIED into this project's own folder (the original stays put) and the pyMEP buttons pick them up from there - the Civil 3D Export Dashboard opens the stored dashboard data by default."/>
+                           Text="Files are COPIED into this project's own folder (the original stays put) and the pyMEP buttons pick them up from there - the Civil 3D LandXML Dashboard opens the stored dashboard data by default."/>
                 <TextBlock x:Name="StatusText" Foreground="#B00020"
                            TextWrapping="Wrap" Text="" Margin="0,6,0,0"/>
             </StackPanel>
