@@ -1,0 +1,140 @@
+# -*- coding: utf-8 -*-
+"""Per-project file store - the files a model's workflows depend on,
+kept together in one managed folder with a small registry.
+
+Layout (inside the model's export folder, so it follows the project):
+
+    <exports>/<model>/project_files/
+        project_files.json      <- the registry: slot -> stored filename
+        <the stored files themselves>
+
+Files are COPIED in (the original stays where it was), stored under
+their own filename, and addressed by SLOT - a named role the buttons
+look up. Slots defined today:
+
+    dashboard_data   the Civil 3D LandXML the Export Dashboard opens by
+                     default (the dashboard's own MODEL-*.json exports
+                     can be stored here too for safekeeping, but the
+                     dashboard preloads LandXML)
+
+This module is deliberately REVIT-FREE (os/json/shutil only) so it runs
+and unit-tests under CPython as-is; the Project Files button resolves
+the base folder from the document and calls in. IronPython 2.7 safe.
+"""
+
+import datetime
+import json
+import os
+import shutil
+
+
+REGISTRY = "project_files.json"
+
+# (slot key, label shown in the window) - extend as workflows grow
+SLOTS = [
+    ("dashboard_data", "Dashboard data (Civil 3D LandXML)"),
+]
+
+
+def slot_label(slot):
+    for k, lbl in SLOTS:
+        if k == slot:
+            return lbl
+    return slot
+
+
+def ensure_dir(base):
+    if not os.path.isdir(base):
+        os.makedirs(base)
+    return base
+
+
+def _registry_path(base):
+    return os.path.join(base, REGISTRY)
+
+
+def load_registry(base):
+    """The registry dict ({"slots": {slot: {"file": name, "added":
+    iso}}}); missing/corrupt -> a fresh empty one (never raises)."""
+    try:
+        with open(_registry_path(base), "r") as f:
+            reg = json.load(f)
+        if isinstance(reg, dict) and isinstance(reg.get("slots"), dict):
+            return reg
+    except Exception:
+        pass
+    return {"slots": {}}
+
+
+def save_registry(base, reg):
+    ensure_dir(base)
+    with open(_registry_path(base), "w") as f:
+        json.dump(reg, f, indent=2, sort_keys=True)
+
+
+def store_file(base, slot, src_path):
+    """Copy ``src_path`` into the store and point ``slot`` at it.
+    Replaces the slot's previous file (the previous copy is deleted when
+    no other slot still references it). Returns the stored path."""
+    if not os.path.isfile(src_path):
+        raise ValueError("Not a file: {}".format(src_path))
+    ensure_dir(base)
+    name = os.path.basename(src_path)
+    dest = os.path.join(base, name)
+    reg = load_registry(base)
+    old = reg["slots"].get(slot, {}).get("file")
+    if os.path.abspath(src_path) != os.path.abspath(dest):
+        shutil.copy2(src_path, dest)
+    reg["slots"][slot] = {"file": name,
+                          "added": datetime.datetime.now().isoformat()}
+    save_registry(base, reg)
+    if old and old != name:
+        _delete_if_unreferenced(base, reg, old)
+    return dest
+
+
+def slot_file(base, slot):
+    """The stored file's absolute path, or None (unset, or the file has
+    gone missing on disk)."""
+    reg = load_registry(base)
+    name = reg["slots"].get(slot, {}).get("file")
+    if not name:
+        return None
+    path = os.path.join(base, name)
+    return path if os.path.isfile(path) else None
+
+
+def remove_slot(base, slot):
+    """Unset the slot and delete its stored copy (when nothing else
+    references it). Returns True when something was removed."""
+    reg = load_registry(base)
+    entry = reg["slots"].pop(slot, None)
+    if entry is None:
+        return False
+    save_registry(base, reg)
+    name = entry.get("file")
+    if name:
+        _delete_if_unreferenced(base, reg, name)
+    return True
+
+
+def _delete_if_unreferenced(base, reg, name):
+    for e in reg["slots"].values():
+        if e.get("file") == name:
+            return
+    try:
+        os.remove(os.path.join(base, name))
+    except Exception:
+        pass
+
+
+def list_entries(base):
+    """One row per defined slot: [(slot, label, filename or None,
+    exists_on_disk), ...] - what the window shows."""
+    reg = load_registry(base)
+    out = []
+    for slot, lbl in SLOTS:
+        name = reg["slots"].get(slot, {}).get("file")
+        exists = bool(name) and os.path.isfile(os.path.join(base, name))
+        out.append((slot, lbl, name, exists))
+    return out

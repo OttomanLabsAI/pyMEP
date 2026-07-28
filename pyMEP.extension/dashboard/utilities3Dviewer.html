@@ -1670,6 +1670,27 @@ applyTheme(); update(); tick();
     e.preventDefault(); drop.style.borderColor = "";
     handle(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
   });
+  /* launched from pyMEP with the project's stored data file: the
+     launcher injects window.__OL_PRELOAD__ = {name, text} into a launch
+     copy - same pipeline as a browsed/dropped file, no clicks needed */
+  var pre = window.__OL_PRELOAD__;
+  if (pre && pre.text){
+    statusEl.style.color = "";
+    statusEl.textContent = "Loading project file " + (pre.name || "") + " …";
+    setTimeout(function(){
+      var unitEl = document.querySelector('input[name="lxDiaUnit"]:checked');
+      var diaUnit = unitEl ? unitEl.value : "mm";
+      var nullEl = document.getElementById("lxHideNull");
+      var hideNull = nullEl ? nullEl.checked : true;
+      var data;
+      try { data = window.buildData(String(pre.text),
+                                    pre.name || "project.xml",
+                                    diaUnit, hideNull); }
+      catch (e){ fail(e.message || String(e)); return; }
+      statusEl.textContent = "Building 3D view …";
+      setTimeout(function(){ boot(data); }, 30);
+    }, 30);
+  }
 })();
 </script>
 </body>

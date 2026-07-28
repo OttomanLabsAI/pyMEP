@@ -1,0 +1,2 @@
+title: "Open\nProject Data"
+tooltip: "Open the Civil 3D Export Dashboard preloaded with this project's stored data file (Setup > Project Files) - straight into the 3D view, no browsing. Opens empty with a pointer when nothing is stored yet."

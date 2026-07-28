@@ -1,0 +1,2 @@
+title: "Project\nFiles"
+tooltip: "The file-management window for THIS project: the files its workflows depend on live together in one managed folder (exports/<model>/project_files), copied in and addressed by role. First resident: the Civil 3D LandXML that the Civil 3D Export Dashboard opens by default. Set/replace, open, or remove each file; the other pyMEP buttons pick them up automatically."
