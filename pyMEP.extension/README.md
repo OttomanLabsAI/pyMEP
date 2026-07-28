@@ -29,7 +29,7 @@ pyMEP.extension/
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
-    01_Civil3DConversion.panel/ # Create LandXML Dashboard, Place Boxes/Cylinders/Pipes, Create Pipe Sizes
+    01_Civil3DConversion.panel/ # Civil 3D Export Dashboard (split), Place Structures/Pipes, Create Pipe Sizes
     02_Modelling.panel/         # Encasement, Gully to MH, Merge Pipes, Connect Fixtures
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
@@ -38,7 +38,7 @@ pyMEP.extension/
     07_ReplaceStructure.panel/  # Structure to Pipe
 ```
 
-8 panels, 26 buttons, every one with its own icon.
+8 panels, 27 buttons, every one with its own icon.
 
 ## Panels
 
@@ -86,28 +86,23 @@ layer, worksets from its workset map, one isolation template per
 workset plus the full-model *Civil 3D XML Import* template). Run it
 twice and everything reports Skipped.
 
-**Import MEP Types** - pick another Revit file and
-copy its types straight into this model, choosing which ones from each
-category. Every importable category present in the source is offered -
-pipe types, piping system types, pipe segments, duct types, duct system
-types, cable tray types, conduit types - grouped in the picker (switch
-category at the top) so you take exactly the ones you want from each, or
-"Import all". The source .rvt is opened invisibly in the background
-(detached when workshared - the real file is never touched), the chosen
-types are copied across WITH their dependents (routing preferences,
-segments, schedules, materials, fitting families) - the same mechanism
-as Transfer Project Standards, without having to open the file in your
-session - and the source is closed without saving. Name collisions keep
-THIS model's types (never overwritten, never forked into "name 2"); the
-summary reports, per category, what came in new vs. what was already
-here. Works for same-version files and older files (upgraded in memory
-on open). A file saved in a NEWER Revit cannot be opened by Revit at
-all - the button says so.
+**Project Files** - the file-management window for THIS project: the
+files its workflows depend on live together in one managed folder
+(`exports/<model>/project_files/` with a small registry), copied in and
+addressed by role. First resident: the project's Civil 3D LandXML - the
+Civil 3D Export Dashboard opens it by default. Set/replace (file
+picker; the original stays put), open the file, open the folder, or
+remove; other roles slot in as workflows grow.
 
 ### Civil 3D Conversion
 
-**Create LandXML Dashboard** - opens the utilities 3D dashboard in the default
-browser. It starts EMPTY with a Browse button (or drag & drop) asking for a
+**Civil 3D Export Dashboard** (split button) - opens the utilities 3D
+dashboard in the default browser. The MAIN click opens it **with this
+project's stored data file** (Setup > Project Files): a launch copy of
+the viewer is written with the file injected, so the browser goes
+straight into the 3D view with no browsing (empty, with a pointer, when
+nothing is stored yet). The dropdown's **New Data** opens it EMPTY with
+a Browse button (or drag & drop) asking for a fresh
 Civil 3D LandXML pipe-network export; the file is parsed right in the
 browser (same rules as `pymep_landxml.py`: Center = "northing easting",
 inverts by flowDir) and the buried-utilities networks are rendered in 3D.

@@ -1,0 +1,8 @@
+title: "Civil 3D Export\nDashboard"
+tooltip: >-
+  Opens the utilities 3D dashboard in your default browser. The main
+  click opens it WITH this project's stored data file (set it in
+  Setup > Project Files) - straight into the 3D view, no browsing; the
+  dropdown's "New Data" opens it empty for a fresh LandXML. The
+  dashboard's Export model button writes the MODEL-*.json the Place
+  Structures / Place Pipes buttons consume.
