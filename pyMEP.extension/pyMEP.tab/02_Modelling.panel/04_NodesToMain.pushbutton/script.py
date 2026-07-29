@@ -31,7 +31,8 @@ from pymep_connect_fixtures import (
     main_gradient, regrade_main, list_pipe_type_options,
     list_system_type_options, set_pipe_dia,
 )
-from pymep_config import load_settings, save_settings
+from pymep_config import load_settings, save_settings, get_export_folder
+from pymep_nodes_track import make_record, add_branch
 from pymep_revit import safe_name, ft2mm
 from pymep_log import Logger
 
@@ -468,6 +469,9 @@ try:
         except Exception as ex:
             log("! Couldn't re-grade the main ({}) - branches meet it "
                 "as it lies.".format(ex))
+    # the line the tracker uses to find the main's pieces later - taken
+    # AFTER any resize/re-grade so it matches what gets built against
+    a, b, _t0, _s0, _l0, _d0 = main_pipe_info(main)
 
     for node in todo:
         log("**{}** (id {}):".format(safe_name(node), node.Id))
@@ -498,6 +502,19 @@ try:
             fitting_notes += r["fitting_misses"]
             if r.get("new_main_segment") is not None:
                 main_segs.append(r["new_main_segment"])
+            # track it so Update Nodes can adapt when the node moves
+            try:
+                base = os.path.join(get_export_folder(doc),
+                                    "project_files")
+                add_branch(base, make_record(
+                    node, r, slope, dia_mm, win.result["invert_m"],
+                    win.result["pipe_type"][0]
+                    if win.result["pipe_type"] else "",
+                    win.result["sys_type"][0]
+                    if win.result["sys_type"] else "",
+                    (a, b), label))
+            except Exception as ex:
+                log("  (branch not tracked: {})".format(ex))
         except Exception as ex:
             failed += 1
             import traceback

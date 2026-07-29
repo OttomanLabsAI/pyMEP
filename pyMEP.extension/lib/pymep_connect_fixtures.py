@@ -418,9 +418,10 @@ def regrade_main(doc, main, slope_n, keep="low", log=None):
 
 def _tee_into_main(doc, c_end, main_seg, end_xyz, fit_notes):
     """Split ``main_seg`` at the branch point and join the two halves +
-    the branch with a TEE fitting. Returns the new second half (so the
-    caller can keep tracking every piece of the main), or None when no
-    split happened. Failures degrade: tee -> takeoff -> note."""
+    the branch with a TEE fitting. Returns ``(other, tee)`` - the new
+    second half (so the caller can keep tracking every piece of the
+    main) and the tee instance; either may be None. Failures degrade:
+    tee -> takeoff -> note."""
     other = None
     try:
         from Autodesk.Revit.DB.Plumbing import PlumbingUtils
@@ -434,8 +435,8 @@ def _tee_into_main(doc, c_end, main_seg, end_xyz, fit_notes):
         c2 = _conn_near(other, end_xyz)
         if c1 is not None and c2 is not None:
             try:
-                doc.Create.NewTeeFitting(c1, c2, c_end)
-                return other
+                tee = doc.Create.NewTeeFitting(c1, c2, c_end)
+                return other, tee
             except Exception as ex:
                 fit_notes.append("tee junction not placed ({}) - trying "
                                  "a takeoff instead".format(ex))
@@ -449,7 +450,7 @@ def _tee_into_main(doc, c_end, main_seg, end_xyz, fit_notes):
         fit_notes.append("takeoff fallback also failed ({}) - the branch "
                          "ends on the main's centreline, join it "
                          "manually".format(ex))
-    return other
+    return other, None
 
 
 def list_pipe_type_options(doc):
@@ -567,12 +568,13 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
                 _set_dia(p, dia_ft)
         doc.Regenerate()
 
+        elbow = None
         if down is not None and sloped is not None:
             c1 = _conn_near(down, bend)
             c2 = _conn_near(sloped, bend)
             if c1 is not None and c2 is not None:
                 try:
-                    doc.Create.NewElbowFitting(c1, c2)
+                    elbow = doc.Create.NewElbowFitting(c1, c2)
                 except Exception as ex:
                     fit_notes.append("elbow not placed ({})".format(ex))
 
@@ -594,10 +596,12 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
         # a TEE joins the branch into the main: split the main at the
         # branch point, tee the two halves + the branch together
         new_seg = None
+        tee = None
         end_pipe = sloped if sloped is not None else down
         c_end = _conn_near(end_pipe, end)
         if c_end is not None:
-            new_seg = _tee_into_main(doc, c_end, main, end, fit_notes)
+            new_seg, tee = _tee_into_main(doc, c_end, main, end,
+                                          fit_notes)
         t.Commit()
     except Exception:
         t.RollBack()
@@ -605,7 +609,8 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
 
     for n in fit_notes:
         say("  ! {}".format(n))
-    return {"down": down, "sloped": sloped,
+    return {"down": down, "sloped": sloped, "elbow": elbow, "tee": tee,
+            "end": pts["end"],
             "upstream_invert_m": pts["upstream_invert_m"],
             "fitting_misses": len(fit_notes),
             "new_main_segment": new_seg}
