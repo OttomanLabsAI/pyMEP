@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """Drainage Networks - a 3D dashboard over the model's node families and
-the branch pipework Nodes to Main built from them, with EDITS flowing
+the branch pipework Inflow Drop Pipe to Collector built from them, with EDITS flowing
 back into Revit.
 
 The scan takes every placed family instance whose FAMILY name contains
 a filter word (default "node") and groups the instances by their TYPE
 name - 'STORMWATER - IN - N1' reads as system STORMWATER, flow IN,
 network N1. Each group joins up with the branch tracker's registry
-(node_branches.json): the branches Nodes to Main built for those nodes,
+(node_branches.json): the branches Inflow Drop Pipe to Collector built for those nodes,
 and the main runs they tee into, come out as live geometry. The whole
 picture is written as one JSON and preloaded into the drainage 3D
 viewer - so RUNNING NODES TO MAIN POPULATES THE DASHBOARD (it is

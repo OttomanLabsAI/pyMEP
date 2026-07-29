@@ -2,7 +2,7 @@
 """Update Nodes - adapt the tracked node branches to where the nodes are
 NOW.
 
-Every branch Nodes to Main builds is tracked in the project's file
+Every branch Inflow Drop Pipe to Collector builds is tracked in the project's file
 store. Hit this after moving (or deleting) nodes:
 
   - unmoved nodes with an intact branch are left alone;
@@ -46,11 +46,11 @@ except Exception as ex:
                 exitscript=True)
 
 if res.get("none"):
-    log("No tracked branches yet - run **Nodes to Main** first; every "
+    log("No tracked branches yet - run **Inflow Drop Pipe to Collector** first; every "
         "branch it builds is tracked automatically.")
     log.close()
     forms.alert("No tracked branches for this project yet.\n\nRun "
-                "Nodes to Main first - every branch it builds is "
+                "Inflow Drop Pipe to Collector first - every branch it builds is "
                 "tracked automatically.", exitscript=True)
 
 log("#### Summary")

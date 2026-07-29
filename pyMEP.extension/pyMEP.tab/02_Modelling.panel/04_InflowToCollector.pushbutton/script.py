@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Nodes to Main - select a main pipe, pick a node FAMILY TYPE and a
+"""Inflow Drop Pipe to Collector - select a main pipe, pick a node FAMILY TYPE and a
 gradient, and every placed, still-unconnected node of that type gets
 piped into the main.
 
@@ -12,7 +12,7 @@ level; each tee splits the main and later nodes tie into whichever
 piece spans their position.
 """
 
-__title__  = "Nodes\nto Main"
+__title__  = "Inflow Drop Pipe\nto Collector"
 __author__ = "Glent Group"
 
 import os
@@ -47,7 +47,7 @@ log = Logger(output, "NodesToMain")
 doc = revit.doc
 uidoc = revit.uidoc
 
-log("### Nodes to Main")
+log("### Inflow Drop Pipe to Collector")
 
 # ---------------------------------------------------------------------------
 # 1. The main pipe: pre-selected, else pick it in the view
@@ -457,7 +457,7 @@ fitting_notes = 0
 
 net_name = row["type"]          # the type name IS the network name
 
-tg = TransactionGroup(doc, "Nodes to Main")
+tg = TransactionGroup(doc, "Inflow Drop Pipe to Collector")
 tg.Start()
 try:
     # the network parameter rides on everything this run creates
