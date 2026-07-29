@@ -28,7 +28,8 @@ from pymep_connect_fixtures import (
     plan_dist_to_segment, outlet_is_connected, node_type_rows,
     node_categories, node_families, node_types_in, search_node_rows,
     node_dia_mm, node_dia_param_options, CONNECTOR_DIA, DIA_PARAM_NAMES,
-    main_gradient, regrade_main,
+    main_gradient, regrade_main, list_pipe_type_options,
+    list_system_type_options, set_pipe_dia,
 )
 from pymep_config import load_settings, save_settings
 from pymep_revit import safe_name, ft2mm
@@ -107,6 +108,9 @@ def _type_label(r):
 
 
 _cur_grad = main_gradient(a, b)
+SAME_AS_MAIN = "(same as the main)"
+_pt_opts = list_pipe_type_options(doc)
+_st_opts = list_system_type_options(doc)
 
 
 class NodesWindow(forms.WPFWindow):
@@ -117,6 +121,21 @@ class NodesWindow(forms.WPFWindow):
         self._shown = []          # the rows currently in CmbType
         self._dia_opts = []       # (mode, name) per CmbDiaParam entry
         self._loading = True
+        for combo, opts, key in ((self.CmbPipeType, _pt_opts,
+                                  "nodes_pipe_type"),
+                                 (self.CmbSysType, _st_opts,
+                                  "nodes_sys_type")):
+            combo.Items.Clear()
+            combo.Items.Add(SAME_AS_MAIN)
+            for nm, _eid in opts:
+                combo.Items.Add(nm)
+            combo.SelectedIndex = 0
+            want = settings.get(key)
+            for i, (nm, _eid) in enumerate(opts):
+                if nm == want:
+                    combo.SelectedIndex = i + 1
+                    break
+        self.TxtMainDia.Text = "{:.0f}".format(ft2mm(main_dia_ft))
         self.TxtInfo.Text = "Main: '{}' ({:.0f} mm), tee junctions".format(
             safe_name(main), ft2mm(main_dia_ft))
         self.TxtSlope.Text = "{:g}".format(
@@ -228,6 +247,12 @@ class NodesWindow(forms.WPFWindow):
             return
         self._fill_dia_params()
 
+    def on_auto(self, sender, args):
+        try:
+            self.TxtInvert.IsEnabled = not self.ChkAuto.IsChecked
+        except Exception:
+            pass
+
     def on_regrade(self, sender, args):
         try:
             on = bool(self.ChkRegrade.IsChecked)
@@ -298,8 +323,49 @@ class NodesWindow(forms.WPFWindow):
         dia_mode, dia_param = ("auto", None)
         if 0 <= di < len(self._dia_opts):
             dia_mode, dia_param = self._dia_opts[di]
+        fixed_dia = None
+        txt = self.TxtFixedDia.Text.strip()
+        if txt:
+            try:
+                fixed_dia = float(txt)
+                if fixed_dia <= 0:
+                    raise ValueError()
+            except Exception:
+                self.StatusText.Text = ("Fixed dia must be a positive "
+                                        "number of mm (or left empty).")
+                return
+        main_dia = None
+        txt = self.TxtMainDia.Text.strip()
+        if txt:
+            try:
+                main_dia = float(txt)
+                if main_dia <= 0:
+                    raise ValueError()
+            except Exception:
+                self.StatusText.Text = ("The main's diameter must be a "
+                                        "positive number of mm.")
+                return
+            if abs(main_dia - ft2mm(main_dia_ft)) < 0.5:
+                main_dia = None          # unchanged - leave the main be
+        invert_m = None
+        if not self.ChkAuto.IsChecked:
+            try:
+                invert_m = float(self.TxtInvert.Text)
+            except Exception:
+                self.StatusText.Text = ("Type the upstream invert level "
+                                        "in metres, or tick 'keep it "
+                                        "where it currently is'.")
+                return
+        pt_i = self.CmbPipeType.SelectedIndex
+        st_i = self.CmbSysType.SelectedIndex
         self.result = {"row": self._shown[i], "slope": slope,
                        "dia_mode": dia_mode, "dia_param": dia_param,
+                       "fixed_dia": fixed_dia, "main_dia": main_dia,
+                       "invert_m": invert_m,
+                       "pipe_type": (None if pt_i <= 0
+                                     else _pt_opts[pt_i - 1]),
+                       "sys_type": (None if st_i <= 0
+                                    else _st_opts[st_i - 1]),
                        "main_slope": main_slope,
                        "main_keep": "high" if self.RadMainUpper.IsChecked
                        else "low"}
@@ -327,16 +393,31 @@ settings["nodes_slope"] = slope
 settings["nodes_dia_param"] = (CONNECTOR_DIA if dia_mode == "conn"
                                else (dia_param or ""))
 settings["nodes_main_keep"] = win.result["main_keep"]
+settings["nodes_pipe_type"] = (win.result["pipe_type"][0]
+                               if win.result["pipe_type"] else "")
+settings["nodes_sys_type"] = (win.result["sys_type"][0]
+                              if win.result["sys_type"] else "")
 try:
     save_settings(settings)
 except Exception:
     pass
 
+pt_id = win.result["pipe_type"][1] if win.result["pipe_type"] else None
+st_id = win.result["sys_type"][1] if win.result["sys_type"] else None
 log("Type **{}**: {} placed, **{}** unconnected to pipe up; gradient "
     "**1:{:g}**; dia from **{}**.".format(
         label, len(insts), len(todo), slope,
-        CONNECTOR_DIA if dia_mode == "conn"
-        else (dia_param or "auto (connector, then DIA)")))
+        "fixed {:.0f} mm".format(win.result["fixed_dia"])
+        if win.result["fixed_dia"]
+        else (CONNECTOR_DIA if dia_mode == "conn"
+              else (dia_param or "auto (connector, then DIA)"))))
+log("Branch pipe type: **{}**; system: **{}**; upstream invert: {}."
+    .format(win.result["pipe_type"][0] if win.result["pipe_type"]
+            else "same as the main",
+            win.result["sys_type"][0] if win.result["sys_type"]
+            else "same as the main",
+            "keep as lies" if win.result["invert_m"] is None
+            else "**{:.3f} m** (fixed)".format(win.result["invert_m"])))
 if not todo:
     log("Every node of that type is already connected - nothing to do.")
     log.close()
@@ -374,6 +455,12 @@ fitting_notes = 0
 tg = TransactionGroup(doc, "Nodes to Main")
 tg.Start()
 try:
+    if win.result["main_dia"] is not None:
+        try:
+            set_pipe_dia(doc, main, win.result["main_dia"], log=log)
+        except Exception as ex:
+            log("! Couldn't resize the main ({}) - keeping its current "
+                "size.".format(ex))
     if win.result["main_slope"] is not None:
         try:
             regrade_main(doc, main, win.result["main_slope"],
@@ -390,7 +477,9 @@ try:
                 failed += 1
                 log("  ! no outlet point - skipped")
                 continue
-            if dia_mode == "conn":
+            if win.result["fixed_dia"]:
+                node_dia = win.result["fixed_dia"]
+            elif dia_mode == "conn":
                 node_dia = conn_dia
             elif dia_mode == "param":
                 node_dia = node_dia_mm(node, dia_param)
@@ -402,7 +491,9 @@ try:
                     dia_param or "connector/DIA"))
             seg = _nearest_seg(o_xyz)
             r = connect_fixture_to_main(doc, node, seg, slope, dia_mm,
-                                        invert_m=None, log=log)
+                                        invert_m=win.result["invert_m"],
+                                        log=log, pipe_type_id=pt_id,
+                                        system_type_id=st_id)
             done += 1
             fitting_notes += r["fitting_misses"]
             if r.get("new_main_segment") is not None:
