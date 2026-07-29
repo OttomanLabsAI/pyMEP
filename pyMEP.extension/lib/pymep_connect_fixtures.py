@@ -60,16 +60,23 @@ def main_gradient(a, b):
     return run / fall
 
 
-def regrade_main_ends(a, b, slope_n):
-    """Re-grade the main at 1:slope_n keeping its LOW end where it is:
-    the higher end's Z becomes low_z + plan_run / n (ends level -> the
-    second end is treated as the fixed low one). Returns (a2, b2). Pure."""
+def regrade_main_ends(a, b, slope_n, keep="low"):
+    """Re-grade the main at 1:slope_n, pinning ONE end's level:
+    ``keep`` = "low" keeps the LOWER end where it is and the higher end
+    becomes low_z + plan_run / n; "high" keeps the UPPER end and the
+    lower becomes high_z - plan_run / n. Ends level -> the second end is
+    treated as the low one. Returns (a2, b2), the pinned end the exact
+    input tuple. Pure."""
+    if not slope_n or slope_n <= 0:
+        return a, b
     dx, dy = b[0] - a[0], b[1] - a[1]
     run = math.sqrt(dx * dx + dy * dy)
-    fall = (run / slope_n) if (slope_n and slope_n > 0) else 0.0
-    if a[2] < b[2]:
-        return a, (b[0], b[1], a[2] + fall)
-    return (a[0], a[1], b[2] + fall), b
+    fall = run / slope_n
+    a_low = a[2] < b[2]
+    pin_a = (a_low and keep == "low") or ((not a_low) and keep == "high")
+    if pin_a:
+        return a, (b[0], b[1], a[2] + (fall if keep == "low" else -fall))
+    return (a[0], a[1], b[2] + (fall if keep == "low" else -fall)), b
 
 
 def plan_dist_to_segment(p, a, b):
@@ -228,26 +235,73 @@ def list_node_types(doc):
 
 DIA_PARAM_NAMES = ["DIA", "Diameter", "Nominal Diameter", "dia", "D"]
 
+# the picker's sentinel for 'take the size off the outlet connector'
+CONNECTOR_DIA = "(outlet connector size)"
 
-def node_dia_mm(inst):
-    """The node's own pipe size in mm: its outlet connector first, then a
-    DIA-style instance/type parameter (families without connectors -
-    Generic Model chambers and the like - carry their bore there), else
-    None for the caller's fallback."""
+
+def node_dia_mm(inst, param_name=None):
+    """The node's own pipe size in mm.
+
+    ``param_name`` set: read THAT parameter (instance first, then type) -
+    the dialog asks which family parameter carries the diameter. None:
+    the automatic chain - outlet connector, then the usual DIA-style
+    names. Returns None when nothing readable/positive is found."""
+    if param_name:
+        for el in (inst, getattr(inst, "Symbol", None)):
+            if el is None:
+                continue
+            try:
+                p = el.LookupParameter(param_name)
+                if p is not None and p.HasValue \
+                        and str(p.StorageType) == "Double":
+                    v = ft2mm(p.AsDouble())
+                    if v > 0:
+                        return v
+            except Exception:
+                pass
+        return None
     _o, dia = fixture_outlet_info(inst)
     if dia:
         return dia
     for nm in DIA_PARAM_NAMES:
-        try:
-            p = inst.LookupParameter(nm)
-            if p is not None and p.HasValue \
-                    and str(p.StorageType) == "Double":
-                v = ft2mm(p.AsDouble())
-                if v > 0:
-                    return v
-        except Exception:
-            pass
+        v = node_dia_mm(inst, nm)
+        if v:
+            return v
     return None
+
+
+def node_dia_param_options(inst):
+    """The numeric (length-like) parameters a node offers for its
+    diameter: [(name, sample_mm or None), ...] - instance parameters
+    first, then its type's, deduped, sorted. The dialog shows these with
+    the sample value so the right one is obvious."""
+    out = []
+    seen = set()
+
+    def scan(el):
+        if el is None:
+            return
+        try:
+            params = el.Parameters
+        except Exception:
+            return
+        for p in params:
+            try:
+                if str(p.StorageType) != "Double":
+                    continue
+                nm = p.Definition.Name
+                if nm in seen:
+                    continue
+                seen.add(nm)
+                v = ft2mm(p.AsDouble()) if p.HasValue else None
+                out.append((nm, v))
+            except Exception:
+                continue
+
+    scan(inst)
+    scan(getattr(inst, "Symbol", None))
+    out.sort(key=lambda t: t[0].lower())
+    return out
 
 
 def _has_point(inst):
@@ -339,11 +393,12 @@ def outlet_is_connected(fixture):
     return False
 
 
-def regrade_main(doc, main, slope_n, log=None):
-    """Re-grade the main pipe at 1:slope_n, keeping its low end where it
-    is, in ONE transaction. Returns the new (a, b)."""
+def regrade_main(doc, main, slope_n, keep="low", log=None):
+    """Re-grade the main pipe at 1:slope_n, keeping its ``keep``
+    ("low"/"high") end where it is, in ONE transaction. Returns the new
+    (a, b)."""
     a, b, _t, _s, _l, _d = main_pipe_info(main)
-    a2, b2 = regrade_main_ends(a, b, slope_n)
+    a2, b2 = regrade_main_ends(a, b, slope_n, keep)
     t = Transaction(doc, "Re-grade main pipe")
     t.Start()
     try:
@@ -353,9 +408,11 @@ def regrade_main(doc, main, slope_n, log=None):
         t.RollBack()
         raise
     if log is not None:
-        log("Main re-graded at **1:{:g}** (low end fixed): high end now "
-            "Z {:.3f} m.".format(
-                slope_n, ft2mm(max(a2[2], b2[2])) / 1000.0))
+        moved = a2 if a2 != a else b2
+        log("Main re-graded at **1:{:g}** ({} end kept): the moved end "
+            "is now Z {:.3f} m.".format(
+                slope_n, "LOWER" if keep == "low" else "UPPER",
+                ft2mm(moved[2]) / 1000.0))
     return a2, b2
 
 

@@ -136,6 +136,21 @@ class RegradeMain(unittest.TestCase):
         self.assertEqual(a2, (0, 0, 5.0))
         self.assertAlmostEqual(b2[2], 6.0, places=9)
 
+    def test_keep_high_pins_upper_end(self):
+        # keep the UPPER end (b at z=10): the lower end derives DOWN the
+        # slope from it
+        a2, b2 = regrade_main_ends((0, 0, 8.0), (100, 0, 10.0), 200.0,
+                                   keep="high")
+        self.assertEqual(b2, (100, 0, 10.0))
+        self.assertEqual(a2[:2], (0, 0))
+        self.assertAlmostEqual(a2[2], 10.0 - 0.5, places=9)
+
+    def test_keep_high_other_orientation(self):
+        a2, b2 = regrade_main_ends((0, 0, 9.0), (100, 0, 5.0), 100.0,
+                                   keep="high")
+        self.assertEqual(a2, (0, 0, 9.0))
+        self.assertAlmostEqual(b2[2], 8.0, places=9)
+
 
 node_categories = extract("node_categories")
 node_families = extract("node_families")

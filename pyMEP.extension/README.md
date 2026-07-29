@@ -241,8 +241,12 @@ offered, all categories - a pipe connector is not required, families
 without one such as Generic Model chambers use their location/bounding-
 box bottom as the outlet and their DIA parameter as the size - types
 listed with placed/unconnected counts), or
-type in the SEARCH box to match across all three at once - and a
-gradient. Every still-unconnected node of that type gets a
+type in the SEARCH box to match across all three at once - a 'Dia from'
+picker choosing WHICH family parameter carries the pipe diameter (the
+type's numeric parameters with sample values, or the outlet connector),
+a branch gradient, and optionally re-grading the MAIN at its own 1:n
+first, keeping the UPPER or LOWER end where it is. Everything models in
+ONE go - a single undo step. Every still-unconnected node of that type gets a
 drop pipe from its outlet - diameter taken from THE NODE's own connector,
 snapped to the main type's routing sizes - a bend, a run falling at 1:n
 to meet the main as it lies, and a TEE JUNCTION into the main (segment
