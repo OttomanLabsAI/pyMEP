@@ -47,9 +47,90 @@ uidoc = revit.uidoc
 log("### Merge Pipes")
 
 # ---------------------------------------------------------------------------
+# The settings window: slope 1:n + which end's level stays as is. Modal
+# after a pre-selection; MODELESS and parked just under the ribbon while
+# pick mode runs, so the settings sit next to Finish / Cancel.
+# ---------------------------------------------------------------------------
+settings = load_settings()
+XAML_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
+    "pymep_merge_pipes.xaml")
+
+
+class MergeWindow(forms.WPFWindow):
+
+    def __init__(self, info_text, modeless=False):
+        forms.WPFWindow.__init__(self, XAML_PATH)
+        self.result = None
+        self.TxtInfo.Text = info_text
+        self.ChkSlope.IsChecked = bool(settings.get("merge_slope_on", True))
+        self.TxtSlope.Text = "{:g}".format(
+            float(settings.get("merge_slope", 150.0)))
+        if settings.get("merge_keep_end", "bottom") == "top":
+            self.RadTop.IsChecked = True
+        else:
+            self.RadBottom.IsChecked = True
+        self.on_slope(None, None)
+        if modeless:
+            # park it top-centre, under the ribbon, above Revit; the
+            # options bar's Finish/Cancel drive the flow, so the
+            # window's own buttons go away
+            try:
+                from System.Windows import (WindowStartupLocation,
+                                            Visibility, SystemParameters)
+                self.WindowStartupLocation = WindowStartupLocation.Manual
+                self.Left = (SystemParameters.PrimaryScreenWidth
+                             - self.Width) / 2.0
+                self.Top = 150.0
+                self.Topmost = True
+                self.BtnMerge.Visibility = Visibility.Collapsed
+                self.BtnCancel.Visibility = Visibility.Collapsed
+            except Exception:
+                pass
+
+    def read_values(self):
+        """The dialog's current values, or None when the slope text is
+        not a positive number."""
+        slope = None
+        if self.ChkSlope.IsChecked:
+            try:
+                slope = float(self.TxtSlope.Text)
+                if slope <= 0:
+                    raise ValueError()
+            except Exception:
+                return None
+        return {"slope": slope,
+                "keep": "top" if self.RadTop.IsChecked else "bottom"}
+
+    def on_slope(self, sender, args):
+        try:
+            on = bool(self.ChkSlope.IsChecked)
+            self.TxtSlope.IsEnabled = on
+            self.RadTop.IsEnabled = on
+            self.RadBottom.IsEnabled = on
+        except Exception:
+            pass
+
+    def on_merge(self, sender, args):
+        v = self.read_values()
+        if v is None:
+            self.StatusText.Text = ("The slope must be a positive "
+                                    "number (the n of 1:n).")
+            return
+        self.result = v
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.Close()
+
+
+opts = None
+
+# ---------------------------------------------------------------------------
 # 1. Gather the pipes: a pre-selection works as before; nothing selected
-#    drops into PICK mode - choose pipes in the view, then Finish on the
-#    options bar under the ribbon
+#    drops into PICK mode - the settings float under the ribbon while you
+#    choose pipes, then Finish on the options bar
 # ---------------------------------------------------------------------------
 pipes = []
 for eid in uidoc.Selection.GetElementIds():
@@ -58,8 +139,9 @@ for eid in uidoc.Selection.GetElementIds():
         pipes.append(el)
 
 if len(pipes) < 2:
-    log("No pipes pre-selected - pick the pipes to merge in the view, "
-        "then **Finish** on the options bar under the ribbon.")
+    log("No pipes pre-selected - pick the pipes to merge in the view "
+        "(the settings sit under the ribbon), then **Finish** on the "
+        "options bar.")
     clr.AddReference("RevitAPIUI")
     from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 
@@ -70,17 +152,29 @@ if len(pipes) < 2:
         def AllowReference(self, r, p):
             return False
 
+    pick_win = MergeWindow("Pick the pipes in the view, set the slope "
+                           "here, then Finish on the options bar.",
+                           modeless=True)
+    pick_win.Show()
     try:
         refs = uidoc.Selection.PickObjects(
             ObjectType.Element, _PipesOnly(),
             "Pick the pipes to merge, then Finish")
     except Exception:            # Esc / Cancel on the options bar
         refs = None
-    if refs:
-        for r in refs:
-            el = doc.GetElement(r.ElementId)
-            if isinstance(el, Pipe):
-                pipes.append(el)
+    opts = pick_win.read_values()    # whatever was set while picking
+    try:
+        pick_win.Close()
+    except Exception:
+        pass
+    if refs is None:
+        log("Pick cancelled - nothing changed.")
+        log.close()
+        script.exit()
+    for r in refs:
+        el = doc.GetElement(r.ElementId)
+        if isinstance(el, Pipe):
+            pipes.append(el)
 
 if len(pipes) < 2:
     forms.alert("At least two pipes are needed to merge.\n\n"
@@ -125,67 +219,19 @@ for ci, chain in enumerate(chains):
             "to be one pipe)".format(ft2mm(big)))
 
 # ---------------------------------------------------------------------------
-# 2b. The settings dialog: slope 1:n + which end's level stays as is
+# 2b. The settings: already collected under the ribbon in pick mode;
+#     the modal dialog runs for a pre-selection (or when the pick-mode
+#     slope text wasn't a valid number)
 # ---------------------------------------------------------------------------
-settings = load_settings()
-XAML_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
-    "pymep_merge_pipes.xaml")
-
-
-class MergeWindow(forms.WPFWindow):
-
-    def __init__(self):
-        forms.WPFWindow.__init__(self, XAML_PATH)
-        self.result = None
-        self.TxtInfo.Text = "{} run(s) from {} selected pipe(s)".format(
-            len(chains), len(rows))
-        self.ChkSlope.IsChecked = bool(settings.get("merge_slope_on", True))
-        self.TxtSlope.Text = "{:g}".format(
-            float(settings.get("merge_slope", 150.0)))
-        if settings.get("merge_keep_end", "bottom") == "top":
-            self.RadTop.IsChecked = True
-        else:
-            self.RadBottom.IsChecked = True
-        self.on_slope(None, None)
-
-    def on_slope(self, sender, args):
-        try:
-            on = bool(self.ChkSlope.IsChecked)
-            self.TxtSlope.IsEnabled = on
-            self.RadTop.IsEnabled = on
-            self.RadBottom.IsEnabled = on
-        except Exception:
-            pass
-
-    def on_merge(self, sender, args):
-        slope = None
-        if self.ChkSlope.IsChecked:
-            try:
-                slope = float(self.TxtSlope.Text)
-                if slope <= 0:
-                    raise ValueError()
-            except Exception:
-                self.StatusText.Text = ("The slope must be a positive "
-                                        "number (the n of 1:n).")
-                return
-        self.result = {"slope": slope,
-                       "keep": "top" if self.RadTop.IsChecked
-                       else "bottom"}
-        self.Close()
-
-    def on_cancel(self, sender, args):
-        self.result = None
-        self.Close()
-
-
-win = MergeWindow()
-win.ShowDialog()
-if win.result is None:
-    log("Cancelled - nothing changed.")
-    log.close()
-    script.exit()
-opts = win.result
+if opts is None:
+    win = MergeWindow("{} run(s) from {} selected pipe(s)".format(
+        len(chains), len(rows)))
+    win.ShowDialog()
+    if win.result is None:
+        log("Cancelled - nothing changed.")
+        log.close()
+        script.exit()
+    opts = win.result
 
 settings["merge_slope_on"] = opts["slope"] is not None
 if opts["slope"] is not None:
