@@ -1,0 +1,350 @@
+# -*- coding: utf-8 -*-
+"""Track the branches Nodes to Main builds, so moving a node and hitting
+UPDATE adapts the pipework.
+
+Every built branch is recorded in the project's file store
+(<exports>/<model>/project_files/node_branches.json): the node's
+UniqueId, the created pipes/fittings' UniqueIds, the settings used
+(gradient, diameter, invert, pipe/system type names) and the main's
+line. Update Nodes walks the records:
+
+  - node unmoved and branch intact  -> left alone;
+  - node MOVED                      -> the old branch (drop, sloped run,
+    elbow, tee) is deleted, the main is HEALED (the tee's two open ends
+    stretched back into one pipe), and the branch is REBUILT with the
+    stored settings against the main as it now lies;
+  - node DELETED                    -> the branch is removed and the
+    main healed; the record is dropped.
+
+Pure record/registry + geometry helpers at the top (unit-tested under
+CPython by ``tests/test_nodes_track.py`` - stdlib only); Revit API
+access below. IronPython 2.7 / Revit 2021-2026 safe.
+"""
+
+import clr
+clr.AddReference("RevitAPI")
+
+import json
+import math
+import os
+
+from Autodesk.Revit.DB import (
+    XYZ, Transaction, TransactionGroup, Line, FilteredElementCollector,
+)
+from Autodesk.Revit.DB.Plumbing import Pipe
+
+from pymep_revit import safe_name, mm2ft, ft2mm
+from pymep_connect_fixtures import (
+    fixture_outlet_info, main_pipe_info, connect_fixture_to_main,
+    plan_dist_to_segment,
+)
+
+
+REGISTRY = "node_branches.json"
+
+MOVE_TOL_FT = mm2ft(5.0)     # closer than this = "didn't move"
+LINE_TOL_FT = mm2ft(75.0)    # a pipe this close to the stored main line
+                             # counts as a piece of the main
+HEAL_TOL_FT = mm2ft(500.0)   # open ends this close to the old tee heal
+
+
+# ---------------------------------------------------------------------------
+# pure: registry + geometry decisions (stdlib only)
+# ---------------------------------------------------------------------------
+def load_branches(base):
+    """{"branches": [...]} - missing/corrupt -> fresh empty."""
+    try:
+        with open(os.path.join(base, REGISTRY), "r") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get("branches"),
+                                                 list):
+            return data
+    except Exception:
+        pass
+    return {"branches": []}
+
+
+def save_branches(base, data):
+    if not os.path.isdir(base):
+        os.makedirs(base)
+    with open(os.path.join(base, REGISTRY), "w") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+
+
+def add_branch(base, record):
+    data = load_branches(base)
+    # one record per node: a rebuild replaces the node's old record
+    data["branches"] = [r for r in data["branches"]
+                        if r.get("node_uid") != record.get("node_uid")]
+    data["branches"].append(record)
+    save_branches(base, data)
+    return len(data["branches"])
+
+
+def outlet_moved(stored_xyz, current_xyz, tol_ft):
+    """True when the outlet strayed farther than ``tol_ft``."""
+    dx = current_xyz[0] - stored_xyz[0]
+    dy = current_xyz[1] - stored_xyz[1]
+    dz = current_xyz[2] - stored_xyz[2]
+    return math.sqrt(dx * dx + dy * dy + dz * dz) > tol_ft
+
+
+def on_main_line(p0, p1, line_a, line_b, tol_ft):
+    """True when BOTH endpoints of a pipe sit within ``tol_ft`` of the
+    stored main line (3D distance to the infinite line) - how the
+    update finds the main's current pieces after tees split it."""
+    ax, ay, az = line_a
+    dx = line_b[0] - ax
+    dy = line_b[1] - ay
+    dz = line_b[2] - az
+    dd = dx * dx + dy * dy + dz * dz
+    if dd < 1e-12:
+        return False
+
+    def dist(p):
+        wx, wy, wz = p[0] - ax, p[1] - ay, p[2] - az
+        cx = wy * dz - wz * dy
+        cy = wz * dx - wx * dz
+        cz = wx * dy - wy * dx
+        return math.sqrt((cx * cx + cy * cy + cz * cz) / dd)
+
+    return dist(p0) <= tol_ft and dist(p1) <= tol_ft
+
+
+# ---------------------------------------------------------------------------
+# Revit API access
+# ---------------------------------------------------------------------------
+def make_record(node, result, slope, dia_mm, invert_m, pt_name, st_name,
+                main_line, label):
+    """The registry record for one built branch."""
+    def uid(el):
+        try:
+            return el.UniqueId if el is not None else None
+        except Exception:
+            return None
+
+    o, _d = fixture_outlet_info(node)
+    return {"node_uid": uid(node), "node_label": label,
+            "outlet": list(o) if o else None,
+            "down_uid": uid(result.get("down")),
+            "sloped_uid": uid(result.get("sloped")),
+            "elbow_uid": uid(result.get("elbow")),
+            "tee_uid": uid(result.get("tee")),
+            "end": list(result.get("end") or ()) or None,
+            "slope": slope, "dia_mm": dia_mm, "invert_m": invert_m,
+            "pipe_type": pt_name or "", "sys_type": st_name or "",
+            "main_line": [list(main_line[0]), list(main_line[1])]}
+
+
+def _by_uid(doc, uid):
+    if not uid:
+        return None
+    try:
+        return doc.GetElement(uid)
+    except Exception:
+        return None
+
+
+def _resolve_named(doc, cls, name):
+    if not name:
+        return None
+    for t in FilteredElementCollector(doc).OfClass(cls):
+        try:
+            if safe_name(t) == name:
+                return t.Id
+        except Exception:
+            continue
+    return None
+
+
+def _main_pieces(doc, line_a, line_b):
+    """Every pipe currently lying ON the stored main line."""
+    out = []
+    for p in FilteredElementCollector(doc).OfClass(Pipe):
+        try:
+            crv = p.Location.Curve
+            a = crv.GetEndPoint(0)
+            b = crv.GetEndPoint(1)
+        except Exception:
+            continue
+        if on_main_line((a.X, a.Y, a.Z), (b.X, b.Y, b.Z),
+                        line_a, line_b, LINE_TOL_FT):
+            out.append(p)
+    return out
+
+
+def _delete_branch(doc, rec, log=None):
+    """Delete the branch's elements (tee, elbow, pipes) in one
+    transaction. Returns the tee's location for the heal (or the stored
+    branch end)."""
+    tee = _by_uid(doc, rec.get("tee_uid"))
+    tee_pt = None
+    try:
+        if tee is not None and tee.Location is not None:
+            lp = tee.Location.Point
+            tee_pt = (lp.X, lp.Y, lp.Z)
+    except Exception:
+        pass
+    if tee_pt is None and rec.get("end"):
+        tee_pt = tuple(rec["end"])
+    t = Transaction(doc, "Remove node branch")
+    t.Start()
+    try:
+        for key in ("tee_uid", "elbow_uid", "sloped_uid", "down_uid"):
+            el = _by_uid(doc, rec.get(key))
+            if el is not None:
+                try:
+                    doc.Delete(el.Id)
+                except Exception:
+                    pass
+        t.Commit()
+    except Exception:
+        t.RollBack()
+        raise
+    return tee_pt
+
+
+def _heal_main(doc, tee_pt, line_a, line_b, log=None):
+    """After the tee is gone, two main pieces end open at its point:
+    stretch one over the other and delete the second, restoring one
+    pipe. Skipped (with a note) when the open ends can't be found."""
+    if tee_pt is None:
+        return False
+    tp = XYZ(tee_pt[0], tee_pt[1], tee_pt[2])
+    cands = []
+    for p in _main_pieces(doc, line_a, line_b):
+        try:
+            for c in p.ConnectorManager.Connectors:
+                if not c.IsConnected \
+                        and c.Origin.DistanceTo(tp) <= HEAL_TOL_FT:
+                    cands.append((p, c))
+                    break
+        except Exception:
+            continue
+    if len(cands) != 2 or cands[0][0].Id == cands[1][0].Id:
+        if log is not None:
+            log("  ! couldn't heal the main at the old tee ({} open "
+                "end(s) found) - join it by hand if needed".format(
+                    len(cands)))
+        return False
+    (pa, _ca), (pb, _cb) = cands
+    ca_crv = pa.Location.Curve
+    cb_crv = pb.Location.Curve
+    # keep pa: run it from ITS far end to pb's far end
+    a0, a1 = ca_crv.GetEndPoint(0), ca_crv.GetEndPoint(1)
+    b0, b1 = cb_crv.GetEndPoint(0), cb_crv.GetEndPoint(1)
+    far_a = a0 if a0.DistanceTo(tp) > a1.DistanceTo(tp) else a1
+    far_b = b0 if b0.DistanceTo(tp) > b1.DistanceTo(tp) else b1
+    t = Transaction(doc, "Heal main pipe")
+    t.Start()
+    try:
+        doc.Delete(pb.Id)
+        pa.Location.Curve = Line.CreateBound(far_a, far_b)
+        t.Commit()
+    except Exception:
+        t.RollBack()
+        raise
+    if log is not None:
+        log("  main healed across the old tee point")
+    return True
+
+
+def update_branches(doc, base, log=None):
+    """The UPDATE pass over every tracked branch. Returns a summary
+    dict; the registry is rewritten with the surviving/refreshed
+    records."""
+    def say(m):
+        if log is not None:
+            log(m)
+
+    from Autodesk.Revit.DB.Plumbing import PipeType, PipingSystemType
+
+    data = load_branches(base)
+    if not data["branches"]:
+        return {"unchanged": 0, "rebuilt": 0, "removed": 0, "failed": 0,
+                "none": True}
+
+    unchanged = rebuilt = removed = failed = 0
+    kept = []
+
+    tg = TransactionGroup(doc, "Update Nodes")
+    tg.Start()
+    try:
+        for rec in data["branches"]:
+            label = rec.get("node_label") or rec.get("node_uid") or "?"
+            node = _by_uid(doc, rec.get("node_uid"))
+            line_a, line_b = [tuple(x) for x in rec["main_line"]]
+
+            if node is None:
+                say("**{}**: node deleted - removing its branch".format(
+                    label))
+                try:
+                    tee_pt = _delete_branch(doc, rec, log=log)
+                    _heal_main(doc, tee_pt, line_a, line_b, log=log)
+                    removed += 1
+                except Exception as ex:
+                    say("  ! couldn't remove the branch: {}".format(ex))
+                    failed += 1
+                    kept.append(rec)
+                continue
+
+            o, _d = fixture_outlet_info(node)
+            if o is None:
+                say("**{}**: node has no outlet any more - left "
+                    "alone".format(label))
+                kept.append(rec)
+                continue
+
+            branch_alive = all(
+                _by_uid(doc, rec.get(k)) is not None
+                for k in ("down_uid", "sloped_uid")
+                if rec.get(k))
+            if rec.get("outlet") and branch_alive and \
+                    not outlet_moved(tuple(rec["outlet"]), o, MOVE_TOL_FT):
+                unchanged += 1
+                kept.append(rec)
+                continue
+
+            say("**{}**: node moved - rebuilding its branch".format(label))
+            try:
+                tee_pt = _delete_branch(doc, rec, log=log)
+                _heal_main(doc, tee_pt, line_a, line_b, log=log)
+                pieces = _main_pieces(doc, line_a, line_b)
+                if not pieces:
+                    say("  ! no pipe found on the stored main line - "
+                        "record dropped")
+                    failed += 1
+                    continue
+                best, bestd = pieces[0], None
+                for p in pieces:
+                    pa, pb, _t2, _s2, _l2, _d2 = main_pipe_info(p)
+                    d = plan_dist_to_segment(o, pa, pb)
+                    if bestd is None or d < bestd:
+                        best, bestd = p, d
+                pt_id = _resolve_named(doc, PipeType, rec.get("pipe_type"))
+                st_id = _resolve_named(doc, PipingSystemType,
+                                       rec.get("sys_type"))
+                r = connect_fixture_to_main(
+                    doc, node, best, rec["slope"], rec["dia_mm"],
+                    invert_m=rec.get("invert_m"), log=log,
+                    pipe_type_id=pt_id, system_type_id=st_id)
+                kept.append(make_record(
+                    node, r, rec["slope"], rec["dia_mm"],
+                    rec.get("invert_m"), rec.get("pipe_type"),
+                    rec.get("sys_type"), (line_a, line_b), label))
+                rebuilt += 1
+            except Exception as ex:
+                say("  ! rebuild failed: {}".format(ex))
+                failed += 1
+        tg.Assimilate()
+    except Exception:
+        try:
+            tg.RollBack()
+        except Exception:
+            pass
+        raise
+
+    data["branches"] = kept
+    save_branches(base, data)
+    return {"unchanged": unchanged, "rebuilt": rebuilt,
+            "removed": removed, "failed": failed, "none": False}

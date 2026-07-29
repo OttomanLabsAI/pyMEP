@@ -30,15 +30,15 @@ pyMEP.extension/
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, Create Pipe Sizes
-    02_Modelling.panel/         # Encasement, Gully to MH, Merge Pipes, Connect Fixtures, Nodes to Main
+    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools, Structure to Pipe
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
     06_Annotate.panel/          # 4 annotation buttons
-    07_ReplaceStructure.panel/  # Structure to Pipe
+    08_Electrical.panel/        # Encasement
 ```
 
-8 panels, 28 buttons, every one with its own icon.
+8 panels, 29 buttons, every one with its own icon.
 
 ## Panels
 
@@ -162,27 +162,7 @@ distinct circular diameters and adds the missing ones to the pipe
 Segment configured in Settings > Pipes (Place Pipes already does this
 automatically; keep for adding sizes without placing pipes).
 
-### Modelling
-
-**Encasement** - the old Initialize / Build Ducts / Build Connections trio in
-one button:
-
-1. *With a selection* (pipes/conduits + fittings): prompts for concrete cover,
-   exports the pipework CSVs, runs the offline analysis (`conduit_analysis/`)
-   through the configured external Python, and opens the 3D / plan HTML views
-   for review. Then one confirm - "Build ducts + connections now?" - places the
-   rectangular ducts from the fresh `duct_centrelines_<TS>.csv` and inserts the
-   elbow fittings from `plan_bend_outlines_<TS>.csv` (exact same-run timestamp,
-   not just "newest file").
-2. *With nothing selected*: offers to rebuild ducts + connections from the
-   latest analysis CSVs (post-review / repair path).
-
-If the model already contains ducts or elbows with `C#-O#` style Marks from a
-previous run, the button warns and offers to delete them first, so re-runs no
-longer cross-connect old and new geometry. The report window stays open
-whenever anything failed.
-
-Duct type and MEP system type come from `Settings > Ducts`.
+### Drainage
 
 **Gully to MH** - selection-driven: connects gully outlets to a manhole with
 downpipe + bend + falling run. Modes are inferred from the selection
@@ -256,7 +236,27 @@ snapped to the main type's routing sizes - a bend, a run falling at 1:n
 to meet the main as it lies, and a TEE JUNCTION into the main (segment
 tracking across the splits, same engine as Connect Fixtures).
 Already-connected nodes are left alone; family type and gradient are
-remembered between runs.
+remembered between runs. Every branch it builds is TRACKED in the
+project's file store (node, pipes, fittings, settings, the main's
+line).
+
+**Update Nodes** - adapts the tracked branches to where the nodes are
+NOW: unmoved nodes are left alone; moved nodes get their old branch
+deleted, the main healed across the old tee (the two open halves
+stretched back into one pipe), and the branch rebuilt with the same
+settings against the main as it now lies; deleted nodes get their
+branch removed. One undo step.
+
+**Structure to Pipe** - selection-driven one-off: replaces a cylinder
+structure (a Generic Cylinder Plumbing Fixture carrying `DIA` + `H`, the
+placeholder used for vertical risers) with a real vertical Revit pipe of
+the same diameter and length. Each pipe stands on the cylinder's base at
+its EXACT XY (base Z from the instance bounding box, so the family's
+vertical origin doesn't matter), runs one `H` up, and takes the
+cylinder's System Type, Mark and Comments; the pipe type is the Settings
+default (else the first in the model). The original cylinders are
+deleted. Select one or more and confirm.
+
 
 ### Parameters
 
@@ -340,17 +340,27 @@ pre-selection in the active plan view:
   tag/schedule-driven labelling. Requires that instance text parameter on the
   Pipes category.
 
-### Replace Structure
+### Electrical
 
-**Structure to Pipe** - selection-driven one-off: replaces a cylinder
-structure (a Generic Cylinder Plumbing Fixture carrying `DIA` + `H`, the
-placeholder used for vertical risers) with a real vertical Revit pipe of
-the same diameter and length. Each pipe stands on the cylinder's base at
-its EXACT XY (base Z from the instance bounding box, so the family's
-vertical origin doesn't matter), runs one `H` up, and takes the
-cylinder's System Type, Mark and Comments; the pipe type is the Settings
-default (else the first in the model). The original cylinders are
-deleted. Select one or more and confirm.
+**Encasement** - the old Initialize / Build Ducts / Build Connections trio in
+one button:
+
+1. *With a selection* (pipes/conduits + fittings): prompts for concrete cover,
+   exports the pipework CSVs, runs the offline analysis (`conduit_analysis/`)
+   through the configured external Python, and opens the 3D / plan HTML views
+   for review. Then one confirm - "Build ducts + connections now?" - places the
+   rectangular ducts from the fresh `duct_centrelines_<TS>.csv` and inserts the
+   elbow fittings from `plan_bend_outlines_<TS>.csv` (exact same-run timestamp,
+   not just "newest file").
+2. *With nothing selected*: offers to rebuild ducts + connections from the
+   latest analysis CSVs (post-review / repair path).
+
+If the model already contains ducts or elbows with `C#-O#` style Marks from a
+previous run, the button warns and offers to delete them first, so re-runs no
+longer cross-connect old and new geometry. The report window stays open
+whenever anything failed.
+
+Duct type and MEP system type come from `Settings > Ducts`.
 
 ## Settings keys
 
