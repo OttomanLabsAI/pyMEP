@@ -196,13 +196,21 @@ def fixture_outlet_info(fixture):
 
 
 def list_node_types(doc):
-    """The placed family types that carry a pipe connector - the NODES a
-    main can be piped up from. Returns [(label, [instances]), ...]
-    sorted by label, label = 'Family : Type'."""
+    """Every placed, point-placed family type in the model - the NODES a
+    main can be piped up from, ACROSS ALL CATEGORIES.
+
+    A pipe connector is not required: families without one (Generic
+    Model chambers, cylinders placed by Place Structures, ...) still
+    work - the outlet falls back to the instance's location/bounding-box
+    bottom and the diameter to the dialog's fallback. Only families with
+    no usable origin at all (curve-based instances) are skipped.
+
+    Returns [(label, [instances]), ...] sorted by label, label =
+    'Family : Type'."""
     groups = {}
     for inst in FilteredElementCollector(doc).OfClass(FamilyInstance):
         try:
-            if not get_connectors(inst):
+            if not get_connectors(inst) and not _has_point(inst):
                 continue
             sym = inst.Symbol
             key = sym.Id.IntegerValue
@@ -216,6 +224,44 @@ def list_node_types(doc):
         except Exception:
             continue
     return sorted(groups.values(), key=lambda t: t[0].lower())
+
+
+DIA_PARAM_NAMES = ["DIA", "Diameter", "Nominal Diameter", "dia", "D"]
+
+
+def node_dia_mm(inst):
+    """The node's own pipe size in mm: its outlet connector first, then a
+    DIA-style instance/type parameter (families without connectors -
+    Generic Model chambers and the like - carry their bore there), else
+    None for the caller's fallback."""
+    _o, dia = fixture_outlet_info(inst)
+    if dia:
+        return dia
+    for nm in DIA_PARAM_NAMES:
+        try:
+            p = inst.LookupParameter(nm)
+            if p is not None and p.HasValue \
+                    and str(p.StorageType) == "Double":
+                v = ft2mm(p.AsDouble())
+                if v > 0:
+                    return v
+        except Exception:
+            pass
+    return None
+
+
+def _has_point(inst):
+    """True when the instance has a location point (or a bounding box) -
+    i.e. an origin a drop pipe can start from."""
+    try:
+        if inst.Location.Point is not None:
+            return True
+    except Exception:
+        pass
+    try:
+        return inst.get_BoundingBox(None) is not None
+    except Exception:
+        return False
 
 
 def node_type_rows(doc):

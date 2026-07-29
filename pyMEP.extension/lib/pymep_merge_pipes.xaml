@@ -48,7 +48,9 @@
             </StackPanel>
         </Border>
 
-        <StackPanel Grid.Row="1" Margin="14,12,14,0">
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="14,12,14,12">
             <GroupBox Header="Slope">
                 <StackPanel>
                     <CheckBox x:Name="ChkSlope" IsChecked="True"
@@ -84,6 +86,7 @@
             <TextBlock x:Name="StatusText" Foreground="#B00020"
                        TextWrapping="Wrap" Text=""/>
         </StackPanel>
+        </ScrollViewer>
 
         <Border Grid.Row="2" Background="#F4F4F4" Padding="14,10">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

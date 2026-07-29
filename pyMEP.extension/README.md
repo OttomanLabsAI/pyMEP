@@ -236,8 +236,11 @@ pipes stay and the miss is reported.
 
 **Nodes to Main** - the family-type-driven sibling of Connect Fixtures:
 select (or pick) ONE main pipe, then choose the node family -
-CATEGORY, then FAMILY, then TYPE (every placed family with a pipe
-connector is offered, types listed with placed/unconnected counts), or
+CATEGORY, then FAMILY, then TYPE (EVERY placed point-placed family is
+offered, all categories - a pipe connector is not required, families
+without one such as Generic Model chambers use their location/bounding-
+box bottom as the outlet and their DIA parameter as the size - types
+listed with placed/unconnected counts), or
 type in the SEARCH box to match across all three at once - and a
 gradient. Every still-unconnected node of that type gets a
 drop pipe from its outlet - diameter taken from THE NODE's own connector,

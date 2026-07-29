@@ -27,6 +27,7 @@ from pymep_connect_fixtures import (
     fixture_outlet_info, main_pipe_info, connect_fixture_to_main,
     plan_dist_to_segment, outlet_is_connected, node_type_rows,
     node_categories, node_families, node_types_in, search_node_rows,
+    node_dia_mm,
 )
 from pymep_config import load_settings, save_settings
 from pymep_revit import safe_name, ft2mm
@@ -267,14 +268,15 @@ fitting_notes = 0
 for node in todo:
     log("**{}** (id {}):".format(safe_name(node), node.Id))
     try:
-        o_xyz, node_dia = fixture_outlet_info(node)
+        o_xyz, _c_dia = fixture_outlet_info(node)
         if o_xyz is None:
             failed += 1
-            log("  ! no outlet connector - skipped")
+            log("  ! no outlet point - skipped")
             continue
+        node_dia = node_dia_mm(node)
         dia_mm = node_dia or 100.0
         if not node_dia:
-            log("  ! connector has no size - using 100 mm")
+            log("  ! no connector size or DIA parameter - using 100 mm")
         seg = _nearest_seg(o_xyz)
         r = connect_fixture_to_main(doc, node, seg, slope, dia_mm,
                                     invert_m=None, log=log)
