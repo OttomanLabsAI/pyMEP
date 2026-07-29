@@ -14,7 +14,7 @@ in the viewer (sizes, gradients, worksets, main end inverts) download
 as pymep_network_edits.json; Apply Edits adapts the model to them.
 """
 
-__title__  = "Networks"
+__title__  = "Drainage"
 __author__ = "Glent Group"
 
 import os
