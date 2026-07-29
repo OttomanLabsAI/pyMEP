@@ -235,9 +235,11 @@ runs. A fitting that can't be placed never fails the branch - the
 pipes stay and the miss is reported.
 
 **Nodes to Main** - the family-type-driven sibling of Connect Fixtures:
-select (or pick) ONE main pipe, then choose a node FAMILY TYPE (every
-placed family with a pipe connector is offered, with placed/unconnected
-counts) and a gradient. Every still-unconnected node of that type gets a
+select (or pick) ONE main pipe, then choose the node family -
+CATEGORY, then FAMILY, then TYPE (every placed family with a pipe
+connector is offered, types listed with placed/unconnected counts), or
+type in the SEARCH box to match across all three at once - and a
+gradient. Every still-unconnected node of that type gets a
 drop pipe from its outlet - diameter taken from THE NODE's own connector,
 snapped to the main type's routing sizes - a bend, a run falling at 1:n
 to meet the main as it lies, and a TEE JUNCTION into the main (segment
