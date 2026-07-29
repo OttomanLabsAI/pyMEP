@@ -55,8 +55,9 @@ def load(names):
 
 NS = load(["parse_network", "line_key", "run_extremes", "new_main_ends",
            "project_z", "parse_edits", "find_edits_file", "mark_applied",
-           "networks_settings"])
+           "networks_settings", "edits_stamp"])
 networks_settings = NS["networks_settings"]
+edits_stamp = NS["edits_stamp"]
 parse_network = NS["parse_network"]
 line_key = NS["line_key"]
 run_extremes = NS["run_extremes"]
@@ -203,6 +204,18 @@ class EditsPlumbing(unittest.TestCase):
         self.assertTrue(new.endswith(".applied.json"))
         self.assertFalse(os.path.exists(p))
         self.assertIsNone(find_edits_file(self.base))
+
+    def test_edits_stamp_prefers_saved(self):
+        p = self._touch("pymep_network_edits.json")
+        self.assertEqual(edits_stamp({"saved": "2026-07-29T10:00:00Z"},
+                                     p), "2026-07-29T10:00:00Z")
+        # no saved key -> the file's mtime identifies the save
+        s = edits_stamp({}, p)
+        self.assertTrue(s.startswith("mtime:"))
+        self.assertEqual(s, edits_stamp({"saved": ""}, p))
+        # missing file AND no stamp -> empty (never blocks the apply)
+        self.assertEqual(edits_stamp({}, os.path.join(self.base,
+                                                      "gone.json")), "")
 
 
 if __name__ == "__main__":

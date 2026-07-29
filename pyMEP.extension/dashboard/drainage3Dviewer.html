@@ -60,6 +60,9 @@ input:focus,select:focus{ border-color:var(--ink); outline:none; }
 .settings-bar button[disabled]{ opacity:.35; pointer-events:none; }
 .th-dot{ width:.66rem; height:.66rem; border:1px solid currentColor; border-radius:50%;
   background:linear-gradient(90deg, currentColor 0 50%, transparent 50% 100%); }
+#saveNote{ border-bottom:1px solid var(--hair); padding:.4rem .7rem;
+  font-family:var(--font-serif); font-style:italic; font-size:.72rem;
+  color:var(--ink-60); }
 .stats{ display:grid; grid-template-columns:1fr 1fr 1fr; border-bottom:1px solid var(--hair); }
 .stat{ padding:.5rem .55rem .55rem; border-left:1px solid var(--hair); }
 .stat:first-child{ border-left:0; }
@@ -150,11 +153,12 @@ input:focus,select:focus{ border-color:var(--ink); outline:none; }
       <div class="code" id="srcCode">pyMEP · node families · 3D</div>
     </div>
     <div class="settings-bar">
-      <button id="saveBtn" disabled title="Download every pending change as pymep_network_edits.json - then hit 'Apply Dashboard Edits' in pyMEP to adapt the model">Save changes for Revit</button>
+      <button id="saveBtn" disabled title="Write every pending change into the pymep_network_edits.json file - pick where it lives once (Chrome/Edge keep writing to the same file), then hit 'Apply Edits' in pyMEP to adapt the model. Browsers without that support download a copy instead.">Save changes for Revit</button>
       <button id="themeToggle" aria-pressed="false" title="Toggle light / dark">
         <span class="th-dot" aria-hidden="true"></span><span id="themeLabel">Dark</span>
       </button>
     </div>
+    <div id="saveNote" hidden></div>
     <div class="stats">
       <div class="stat"><div class="k">Networks</div><div class="v" id="stN">–</div></div>
       <div class="stat"><div class="k">Nodes</div><div class="v" id="stD">–</div></div>
@@ -190,9 +194,10 @@ input:focus,select:focus{ border-color:var(--ink); outline:none; }
       <div class="eSec"><h3>Workset</h3>
         <div class="fRow"><label for="eWs">Workset</label><select id="eWs"></select></div>
       </div>
-      <div class="eNote">Preview redraws this network here; Save changes for Revit
-        downloads every pending edit - apply it with pyMEP &gt; Drainage &gt;
-        Apply Dashboard Edits.</div>
+      <div class="eNote">Preview redraws this network here. Save changes for
+        Revit writes every pending edit into one pymep_network_edits.json
+        (picked once, then kept up to date on every change) - apply it with
+        pyMEP &gt; Networks &gt; Apply Edits.</div>
       <div class="eBtns">
         <button class="solid" id="ePrev">Preview</button>
         <button class="ghost" id="eRevert">Revert</button>
@@ -634,26 +639,33 @@ function boot(DATA){
   }
   document.getElementById("ePrev").onclick=function(){
     if (st.sel===null) return;
-    stashAll(); rebuildNet(st.sel); updateList(); updateSave();
+    stashAll(); rebuildNet(st.sel); updateList(); updateSave(); autoSave();
   };
   document.getElementById("eRevert").onclick=function(){
     if (st.sel===null) return;
     delete pending[st.sel]; rebuildNet(st.sel);
-    openEdit(st.sel); updateSave();
+    openEdit(st.sel); updateSave(); autoSave();
   };
   [eBDia,eBSlope,eBPt,eBSt,eWs,eMDia,eMSlope,eMKeep,eMIEnd,eMInv].forEach(function(el){
-    el.addEventListener("change",function(){ stashAll(); updateList(); updateSave(); });
+    el.addEventListener("change",function(){
+      stashAll(); updateList(); updateSave(); autoSave();
+    });
   });
 
-  /* ---------- save ---------- */
+  /* ---------- save: keep ONE edits file documented ----------
+     With the File System Access API (Chrome/Edge) the first Save asks
+     where pymep_network_edits.json lives; from then on EVERY change is
+     written into that same file automatically, so Apply Edits in pyMEP
+     is a genuine one-click update. Elsewhere, Save downloads a copy
+     (Apply Edits reads the newest from Downloads). */
   var saveBtn=document.getElementById("saveBtn");
+  var saveNote=document.getElementById("saveNote");
   function updateSave(){
     var any=false, k;
     for (k in pending) if (hasEdits(pending[k])) any=true;
     saveBtn.disabled=!any;
   }
-  saveBtn.onclick=function(){
-    stashAll();
+  function buildPayload(){
     var edits=[];
     DATA.networks.forEach(function(nw){
       var p=pendingFor(nw.name);
@@ -676,16 +688,117 @@ function boot(DATA){
       if (mains.length) e.mains=mains;
       edits.push(e);
     });
-    if (!edits.length) return;
-    var payload={kind:"pymep-drainage-edits",version:1,
-                 model:DATA.model||"",edits:edits};
-    var blob=new Blob([JSON.stringify(payload,null,1)],{type:"application/json"});
+    return {kind:"pymep-drainage-edits",version:1,
+            model:DATA.model||"",saved:new Date().toISOString(),
+            edits:edits};
+  }
+  function note(msg){
+    saveNote.hidden=!msg;
+    saveNote.textContent=msg||"";
+  }
+  var fsHandle=null;
+  function idb(mode, fn){
+    return new Promise(function(res){
+      try {
+        var rq=indexedDB.open("ol-drain-fs",1);
+        rq.onupgradeneeded=function(){ rq.result.createObjectStore("kv"); };
+        rq.onerror=function(){ res(null); };
+        rq.onsuccess=function(){
+          try {
+            var tx=rq.result.transaction("kv",mode);
+            fn(tx.objectStore("kv"),res);
+            tx.onerror=function(){ res(null); };
+          } catch(e){ res(null); }
+        };
+      } catch(e){ res(null); }
+    });
+  }
+  function idbGetHandle(){
+    return idb("readonly",function(store,res){
+      var g=store.get("editsFile");
+      g.onsuccess=function(){ res(g.result||null); };
+      g.onerror=function(){ res(null); };
+    });
+  }
+  function idbSetHandle(h){
+    return idb("readwrite",function(store,res){
+      store.put(h,"editsFile");
+      res(true);
+    });
+  }
+  async function ensureHandle(interactive){
+    if (fsHandle) return fsHandle;
+    try {
+      var stored=await idbGetHandle();
+      if (stored&&stored.queryPermission){
+        var p=await stored.queryPermission({mode:"readwrite"});
+        if (p!=="granted"&&interactive)
+          p=await stored.requestPermission({mode:"readwrite"});
+        if (p==="granted"){ fsHandle=stored; return fsHandle; }
+      }
+    } catch(e){}
+    if (!interactive||!window.showSaveFilePicker) return null;
+    var h=await window.showSaveFilePicker({
+      suggestedName:"pymep_network_edits.json",
+      types:[{description:"pyMEP network edits",
+              accept:{"application/json":[".json"]}}]});
+    fsHandle=h;
+    try { idbSetHandle(h); } catch(e){}
+    return h;
+  }
+  async function writeViaHandle(payload, interactive){
+    var h=await ensureHandle(interactive);
+    if (!h) return false;
+    var w=await h.createWritable();
+    await w.write(JSON.stringify(payload,null,1));
+    await w.close();
+    return true;
+  }
+  function downloadPayload(payload){
+    var blob=new Blob([JSON.stringify(payload,null,1)],
+                      {type:"application/json"});
     var a=document.createElement("a");
     a.href=URL.createObjectURL(blob);
     a.download="pymep_network_edits.json";
     document.body.appendChild(a); a.click();
     setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },800);
+  }
+  function clock(){ return new Date().toTimeString().slice(0,8); }
+  saveBtn.onclick=function(){
+    stashAll();
+    var payload=buildPayload();
+    if (!payload.edits.length) return;
+    writeViaHandle(payload,true).then(function(ok){
+      if (ok){
+        note("Edits written to your pymep_network_edits.json at "+clock()+
+             " - every further change keeps it up to date. Hit Apply "+
+             "Edits in pyMEP.");
+      } else {
+        downloadPayload(payload);
+        note("Edits downloaded at "+clock()+" - Apply Edits in pyMEP "+
+             "reads the newest copy from Downloads.");
+      }
+      updateList(); updateSave();
+    }).catch(function(){
+      downloadPayload(payload);
+      note("Edits downloaded at "+clock()+" - Apply Edits in pyMEP "+
+           "reads the newest copy from Downloads.");
+    });
   };
+  /* silently document every change once the edits file was chosen -
+     reverting to no pending edits blanks it, so a stale file can never
+     apply by accident */
+  var autoT=0;
+  function autoSave(){
+    clearTimeout(autoT);
+    autoT=setTimeout(function(){
+      var payload=buildPayload();
+      writeViaHandle(payload,false).then(function(ok){
+        if (ok) note("Changes auto-saved to your edits file at "+clock()+
+                     ".");
+      }).catch(function(){});
+    },700);
+  }
 
   /* ---------- network list ---------- */
   var swEls=new Map(), rowEls=new Map();

@@ -3,13 +3,17 @@
 changes.
 
 Picks the NEWEST pymep_network_edits*.json out of the Network Settings
-edits folder (default: Downloads - where the dashboard's 'Save changes
-for Revit' button downloads to), then per edited network: resizes /
+edits folder (default: Downloads), then per edited network: resizes /
 re-grades its mains, sets an end invert where one was typed, moves
 worksets, and rebuilds the tracked branches against the main as it now
 lies - the same delete-heal-rebuild machinery Update Nodes uses, all in
-ONE undo step. The applied file is renamed *.applied.json so it can't
-run twice.
+ONE undo step.
+
+The dashboard keeps ONE edits file documented (every change rewrites
+it), so this button is the whole update: each save carries a timestamp,
+the last applied one is remembered, and the same save never applies
+twice - while the file itself stays in place for the dashboard to keep
+writing to.
 """
 
 __title__  = "Apply Edits"
@@ -24,9 +28,9 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
 from pyrevit import revit, forms, script
 
 from pymep_config import (get_export_folder, get_downloads_folder,
-                          load_settings)
+                          load_settings, save_settings)
 from pymep_drainage_networks import (find_edits_file, parse_edits,
-                                     apply_edits, mark_applied,
+                                     apply_edits, edits_stamp,
                                      networks_settings)
 from pymep_log import Logger
 
@@ -60,8 +64,21 @@ try:
 except ValueError as ex:
     log("'{}' rejected: {}".format(path, ex))
     log.close()
-    forms.alert("'{}' doesn't look like a dashboard edits file:\n\n"
-                "{}".format(os.path.basename(path), ex), exitscript=True)
+    forms.alert("'{}' doesn't hold any applicable dashboard edits:\n\n"
+                "{}\n\nChange something in the Networks dashboard "
+                "first - it keeps the file up to date.".format(
+                    os.path.basename(path), ex), exitscript=True)
+
+settings = load_settings()
+stamp = edits_stamp(edits, path)
+if stamp and stamp == settings.get("networks_applied_stamp"):
+    log("The newest save ({}) was already applied - nothing new."
+        .format(stamp))
+    log.close()
+    forms.alert(
+        "These edits were already applied.\n\nChange something in the "
+        "Networks dashboard (it re-saves the file) and run this "
+        "again.", exitscript=True)
 
 names = [e.get("network") or "?" for e in edits["edits"]]
 log("Edits file: **{}**".format(path))
@@ -86,9 +103,14 @@ except Exception as ex:
     forms.alert("Applying the edits failed - everything was rolled "
                 "back:\n\n{}".format(ex), exitscript=True)
 
-new_path = mark_applied(path)
-log("Edits file marked applied: **{}**".format(
-    os.path.basename(new_path)))
+if stamp:
+    settings["networks_applied_stamp"] = stamp
+    try:
+        save_settings(settings)
+    except Exception:
+        pass
+    log("Save **{}** remembered as applied - the file stays put for "
+        "the dashboard to keep writing to.".format(stamp))
 
 log("#### Summary")
 log("- Networks adapted: **{}**".format(res["networks"]))
