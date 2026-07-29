@@ -38,6 +38,8 @@ from pymep_connect_fixtures import (
     fixture_outlet_info, main_pipe_info, connect_fixture_to_main,
     plan_dist_to_segment,
 )
+from pymep_net_param import (ensure_network_param, stamp_network,
+                             with_connected_fittings, node_network_name)
 
 
 REGISTRY = "node_branches.json"
@@ -270,6 +272,7 @@ def update_branches(doc, base, log=None):
     tg = TransactionGroup(doc, "Update Nodes")
     tg.Start()
     try:
+        ensure_network_param(doc)
         for rec in data["branches"]:
             label = rec.get("node_label") or rec.get("node_uid") or "?"
             node = _by_uid(doc, rec.get("node_uid"))
@@ -333,6 +336,15 @@ def update_branches(doc, base, log=None):
                     rec.get("invert_m"), rec.get("pipe_type"),
                     rec.get("sys_type"), (line_a, line_b), label))
                 rebuilt += 1
+                try:
+                    els = [node, r.get("down"), r.get("sloped"),
+                           r.get("elbow"), r.get("tee"),
+                           r.get("new_main_segment")]
+                    els += with_connected_fittings([r.get("down"),
+                                                    r.get("sloped")])
+                    stamp_network(doc, els, node_network_name(node))
+                except Exception:
+                    pass
             except Exception as ex:
                 say("  ! rebuild failed: {}".format(ex))
                 failed += 1

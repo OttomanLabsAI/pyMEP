@@ -154,6 +154,7 @@ input:focus,select:focus{ border-color:var(--ink); outline:none; }
     </div>
     <div class="settings-bar">
       <button id="saveBtn" disabled title="Write every pending change into the pymep_network_edits.json file - pick where it lives once (Chrome/Edge keep writing to the same file), then hit 'Apply Edits' in pyMEP to adapt the model. Browsers without that support download a copy instead.">Save changes for Revit</button>
+      <button id="undoBtn" disabled title="Undo the last dashboard edit (field change, preview or revert)">Undo</button>
       <button id="themeToggle" aria-pressed="false" title="Toggle light / dark">
         <span class="th-dot" aria-hidden="true"></span><span id="themeLabel">Dark</span>
       </button>
@@ -349,6 +350,8 @@ function boot(DATA){
       [s[0],s[1]].forEach(function(p){ xs.push(p[0]); ys.push(p[1]); zs.push(p[2]); }); }); });
     nw.mains.forEach(function(m){ [m.a,m.b].forEach(function(p){
       xs.push(p[0]); ys.push(p[1]); zs.push(p[2]); }); });
+    (nw.extras||[]).forEach(function(s){
+      [s[0],s[1]].forEach(function(p){ xs.push(p[0]); ys.push(p[1]); zs.push(p[2]); }); });
   });
   function ext(arr){ return arr.length?[Math.min.apply(null,arr),Math.max.apply(null,arr)]:[0,10]; }
   var ex=ext(xs), ey=ext(ys), ez=ext(zs);
@@ -388,6 +391,7 @@ function boot(DATA){
     nw.nodes.forEach(function(n){ sh(n.xyz); });
     nw.branches.forEach(function(br){ br.segs.forEach(function(s){ sh(s[0]); sh(s[1]); }); });
     nw.mains.forEach(function(m){ sh(m.a); sh(m.b); });
+    (nw.extras||[]).forEach(function(s){ sh(s[0]); sh(s[1]); });
   });
 
   /* ---------- edited working copies ---------- */
@@ -479,6 +483,10 @@ function boot(DATA){
     w.mains.forEach(function(mr){
       var m=cyl(mr.a,mr.b,Math.max((mr.dia_mm||150)/2000,.05),mat);
       if (m){ m.userData={net:name,main:true}; group.add(m); pickables.push(m); }
+    });
+    (nw.extras||[]).forEach(function(sg){
+      var m=cyl(sg[0],sg[1],Math.max((sg[2]||100)/2000,.04),mat);
+      if (m){ m.userData={net:name}; group.add(m); pickables.push(m); }
     });
   }
   DATA.networks.forEach(function(nw){
@@ -573,6 +581,9 @@ function boot(DATA){
     if (nw.flow) bits.push("flow "+nw.flow);
     bits.push(nw.nodes.length+" node"+(nw.nodes.length===1?"":"s"));
     bits.push(n.tracked+" tracked");
+    if (nw.extras&&nw.extras.length)
+      bits.push(nw.extras.length+" stamped extra"+
+                (nw.extras.length===1?"":"s"));
     document.getElementById("eKind").textContent=bits.join(" · ");
     var p=pendingFor(name), pb=(p&&p.branch)||{}, s=nw.settings||{};
     eBDia.value=pb.dia_mm||s.dia_mm||"";
@@ -637,18 +648,48 @@ function boot(DATA){
     if (!hasEdits(p)) delete pending[name];
     return pendingFor(name);
   }
+  /* ---------- undo: a snapshot stack over the pending edits ----------
+     a snapshot is pushed only when an action actually CHANGES the
+     pending edits - the browser's change-on-blur (firing when a field
+     loses focus to the Undo button itself) must never add a no-op
+     entry that would eat the click */
+  var undoBtn=document.getElementById("undoBtn");
+  var undoStack=[];
+  function pushUndoState(s){
+    if (undoStack.length&&undoStack[undoStack.length-1]===s) return;
+    undoStack.push(s);
+    if (undoStack.length>80) undoStack.shift();
+    undoBtn.disabled=false;
+  }
+  function withUndo(mutate){
+    var before=JSON.stringify(pending);
+    mutate();
+    if (JSON.stringify(pending)!==before) pushUndoState(before);
+  }
+  undoBtn.onclick=function(){
+    if (!undoStack.length) return;
+    pending=JSON.parse(undoStack.pop());
+    undoBtn.disabled=!undoStack.length;
+    nets.forEach(function(_n,name){ rebuildNet(name); });
+    if (st.sel!==null) openEdit(st.sel);
+    updateList(); updateSave(); autoSave();
+  };
+
   document.getElementById("ePrev").onclick=function(){
     if (st.sel===null) return;
-    stashAll(); rebuildNet(st.sel); updateList(); updateSave(); autoSave();
+    withUndo(stashAll);
+    rebuildNet(st.sel); updateList(); updateSave(); autoSave();
   };
   document.getElementById("eRevert").onclick=function(){
     if (st.sel===null) return;
-    delete pending[st.sel]; rebuildNet(st.sel);
+    withUndo(function(){ delete pending[st.sel]; });
+    rebuildNet(st.sel);
     openEdit(st.sel); updateSave(); autoSave();
   };
   [eBDia,eBSlope,eBPt,eBSt,eWs,eMDia,eMSlope,eMKeep,eMIEnd,eMInv].forEach(function(el){
     el.addEventListener("change",function(){
-      stashAll(); updateList(); updateSave(); autoSave();
+      withUndo(stashAll);
+      updateList(); updateSave(); autoSave();
     });
   });
 
@@ -824,7 +865,8 @@ function boot(DATA){
           dot.title="Has pending edits";
           var ct=document.createElement("span"); ct.className="ct";
           ct.textContent=nw.nodes.length+"n·"+nw.branches.length+"b"+
-            (nw.mains.length?("·"+nw.mains.length+"m"):"");
+            (nw.mains.length?("·"+nw.mains.length+"m"):"")+
+            ((nw.extras&&nw.extras.length)?("·"+nw.extras.length+"x"):"");
           var eye=document.createElement("button"); eye.className="gbtn";
           eye.title="Show / hide";
           row.append(sw,nm,dot,ct,eye); host.appendChild(row);

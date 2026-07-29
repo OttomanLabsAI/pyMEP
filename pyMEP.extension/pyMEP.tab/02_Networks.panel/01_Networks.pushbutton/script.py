@@ -30,7 +30,8 @@ from pymep_config import (load_settings, get_export_folder,
 from pymep_dashboard_launch import write_preload_html, launch_html
 from pymep_drainage_networks import (build_dashboard_data,
                                      write_networks_json,
-                                     networks_settings)
+                                     networks_settings,
+                                     backfill_network_stamps)
 from pymep_log import Logger
 
 output = script.get_output()
@@ -53,6 +54,15 @@ if not viewer:
 filt, _folder, _confirm = networks_settings(load_settings())
 
 base = os.path.join(get_export_folder(doc), "project_files")
+# every tracked element carries its network name as the pyMEP_Network
+# parameter - stamp anything an older version built without it
+try:
+    n = backfill_network_stamps(doc, base)
+    if n:
+        log("Stamped **{}** element(s) with their pyMEP_Network "
+            "value.".format(n))
+except Exception as ex:
+    log("(network stamping skipped: {})".format(ex))
 log("Scanning for families containing **{}** (set the word in "
     "**Network Settings**) ...".format(filt))
 data = build_dashboard_data(doc, base, filt)

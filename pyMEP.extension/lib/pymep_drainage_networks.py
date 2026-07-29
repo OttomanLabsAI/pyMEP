@@ -47,6 +47,10 @@ from pymep_nodes_track import (
     load_branches, save_branches, add_branch, make_record,
     _by_uid, _resolve_named, _main_pieces, _delete_branch, _heal_main,
 )
+from pymep_net_param import (
+    ensure_network_param, stamp_network, with_connected_fittings,
+    node_network_name, collect_by_network,
+)
 
 
 NETWORKS_JSON = "drainage_networks.json"
@@ -344,11 +348,44 @@ def _set_workset(el, ws_int):
         pass
 
 
+def backfill_network_stamps(doc, base):
+    """Stamp every element the registry knows (nodes, branch pipes,
+    fittings, main pieces) with its network name - how models built
+    before the pyMEP_Network parameter existed catch up. Returns how
+    many elements took the stamp; 0 when there is nothing to do."""
+    registry = load_branches(base)
+    if not registry["branches"]:
+        return 0
+    # best effort: even when binding isn't possible, stamping is a
+    # harmless no-op on elements without the parameter
+    ensure_network_param(doc)
+    total = 0
+    for rec in registry["branches"]:
+        node = _by_uid(doc, rec.get("node_uid"))
+        if node is None:
+            continue
+        network = node_network_name(node)
+        els = [node]
+        for k in ("down_uid", "sloped_uid", "elbow_uid", "tee_uid"):
+            els.append(_by_uid(doc, rec.get(k)))
+        pipes = [e for e in els if isinstance(e, Pipe)]
+        els += with_connected_fittings(pipes)
+        if rec.get("main_line"):
+            la, lb = [tuple(x) for x in rec["main_line"]]
+            els += _main_pieces(doc, la, lb)
+        total += stamp_network(doc, els, network)
+    return total
+
+
 def build_dashboard_data(doc, base, name_filter):
     """The drainage dashboard's whole JSON payload: node groups joined
-    with the tracker registry and the mains' LIVE geometry. Coordinates
-    go out in metres, X/Y shifted onto a local origin; Z stays absolute.
-    ``base`` is the project_files folder holding node_branches.json."""
+    with the tracker registry, the mains' LIVE geometry, and every
+    element stamped with a pyMEP_Network value - stamped pipes that
+    aren't part of a tracked branch or main come out as the network's
+    ``extras`` (so manually drawn pipework joins a network by just
+    typing the value). Coordinates go out in metres, X/Y shifted onto a
+    local origin; Z stays absolute. ``base`` is the project_files
+    folder holding node_branches.json."""
     groups = collect_node_groups(doc, name_filter)
     registry = load_branches(base)
     recs_by_uid = {}
@@ -357,6 +394,7 @@ def build_dashboard_data(doc, base, name_filter):
             recs_by_uid[r["node_uid"]] = r
 
     xs, ys = [], []
+    used_uids = set()
 
     def m3(p):
         return [round(p[0] * FT_TO_M, 3), round(p[1] * FT_TO_M, 3),
@@ -379,6 +417,7 @@ def build_dashboard_data(doc, base, name_filter):
                     continue
             uid = inst.UniqueId
             uids.append(uid)
+            used_uids.add(uid)
             rec = recs_by_uid.get(uid)
             dia = None
             try:
@@ -399,6 +438,9 @@ def build_dashboard_data(doc, base, name_filter):
                             "pipe_type": rec.get("pipe_type") or "",
                             "sys_type": rec.get("sys_type") or ""}
             segs = []
+            for k in ("down_uid", "sloped_uid", "elbow_uid", "tee_uid"):
+                if rec.get(k):
+                    used_uids.add(rec[k])
             for k in ("down_uid", "sloped_uid"):
                 p = _by_uid(doc, rec.get(k))
                 if isinstance(p, Pipe):
@@ -427,6 +469,7 @@ def build_dashboard_data(doc, base, name_filter):
             ends = []
             for p in pieces:
                 try:
+                    used_uids.add(p.UniqueId)
                     pa, pb = _pipe_ends(p)
                     ends.extend([pa, pb])
                 except Exception:
@@ -460,7 +503,41 @@ def build_dashboard_data(doc, base, name_filter):
                              "flow": net["flow"], "label": net["label"],
                              "node_uids": uids, "nodes": nodes,
                              "branches": branches, "mains": main_rows,
-                             "settings": settings})
+                             "settings": settings, "extras": []})
+
+    # everything stamped with a pyMEP_Network value that isn't already
+    # part of a tracked branch / main becomes the network's EXTRAS -
+    # and a stamped value with no nodes becomes its own network
+    by_name = {}
+    for nw in networks:
+        by_name[nw["name"]] = nw
+    try:
+        stamped = collect_by_network(doc)
+    except Exception:
+        stamped = {}
+    for net_name in sorted(stamped.keys(), key=lambda s: s.lower()):
+        segs = []
+        for e in stamped[net_name]:
+            try:
+                if e.UniqueId in used_uids or not isinstance(e, Pipe):
+                    continue
+                pa, pb = _pipe_ends(e)
+            except Exception:
+                continue
+            segs.append([m3(pa), m3(pb),
+                         round(ft2mm(_pipe_dia_ft(e)), 1)])
+            xs.extend([pa[0], pb[0]])
+            ys.extend([pa[1], pb[1]])
+        if net_name in by_name:
+            by_name[net_name]["extras"] = segs
+        elif segs:
+            net = parse_network(net_name)
+            networks.append({"name": net["name"],
+                             "system": net["system"],
+                             "flow": net["flow"], "label": net["label"],
+                             "node_uids": [], "nodes": [],
+                             "branches": [], "mains": [],
+                             "settings": None, "extras": segs})
 
     ox = min(xs) * FT_TO_M if xs else 0.0
     oy = min(ys) * FT_TO_M if ys else 0.0
@@ -476,6 +553,10 @@ def build_dashboard_data(doc, base, name_filter):
                     p[1] = round(p[1] - oy, 3)
         for mr in nw["mains"]:
             for p in (mr["a"], mr["b"]):
+                p[0] = round(p[0] - ox, 3)
+                p[1] = round(p[1] - oy, 3)
+        for seg in nw.get("extras", []):
+            for p in (seg[0], seg[1]):
                 p[0] = round(p[0] - ox, 3)
                 p[1] = round(p[1] - oy, 3)
 
@@ -575,6 +656,7 @@ def apply_edits(doc, base, edits_data, log=None):
     tg = TransactionGroup(doc, "Drainage dashboard edits")
     tg.Start()
     try:
+        ensure_network_param(doc)
         for edit in edits_data.get("edits", []):
             net_name = edit.get("network") or "?"
             say("**{}**:".format(net_name))
@@ -740,6 +822,15 @@ def apply_edits(doc, base, edits_data, log=None):
                                           invert, ptn or "", stn or "",
                                           (la, lb), label)
                     recs[recs.index(r)] = new_rec
+                    try:
+                        els = [node, res.get("down"), res.get("sloped"),
+                               res.get("elbow"), res.get("tee"),
+                               res.get("new_main_segment")]
+                        els += with_connected_fittings(
+                            [res.get("down"), res.get("sloped")])
+                        stamp_network(doc, els, node_network_name(node))
+                    except Exception:
+                        pass
                     if ws_int is not None and mine:
                         _set_worksets(doc, _branch_elements(doc, new_rec),
                                       ws_int)

@@ -32,6 +32,8 @@ from pymep_connect_fixtures import (
     list_system_type_options, set_pipe_dia,
 )
 from pymep_config import load_settings, save_settings, get_export_folder
+from pymep_net_param import (ensure_network_param, stamp_network,
+                             with_connected_fittings)
 from pymep_nodes_track import make_record, add_branch
 from pymep_revit import safe_name, ft2mm
 from pymep_log import Logger
@@ -453,9 +455,14 @@ done = 0
 failed = 0
 fitting_notes = 0
 
+net_name = row["type"]          # the type name IS the network name
+
 tg = TransactionGroup(doc, "Nodes to Main")
 tg.Start()
 try:
+    # the network parameter rides on everything this run creates
+    if not ensure_network_param(doc):
+        log("(pyMEP_Network parameter not bound - stamping skipped)")
     if win.result["main_dia"] is not None:
         try:
             set_pipe_dia(doc, main, win.result["main_dia"], log=log)
@@ -502,6 +509,16 @@ try:
             fitting_notes += r["fitting_misses"]
             if r.get("new_main_segment") is not None:
                 main_segs.append(r["new_main_segment"])
+            # the network name rides on the node, its branch and every
+            # fitting Revit slipped in - the dashboard maps by it
+            try:
+                els = [node, r.get("down"), r.get("sloped"),
+                       r.get("elbow"), r.get("tee")]
+                els += with_connected_fittings([r.get("down"),
+                                                r.get("sloped")])
+                stamp_network(doc, els, net_name)
+            except Exception:
+                pass
             # track it so Update Nodes can adapt when the node moves
             try:
                 base = os.path.join(get_export_folder(doc),
@@ -520,6 +537,11 @@ try:
             import traceback
             log(traceback.format_exc())
             log("  ! not connected: {}".format(ex))
+    # every piece of the (split) main belongs to the network too
+    try:
+        stamp_network(doc, main_segs, net_name)
+    except Exception:
+        pass
     # one go: everything lands as a SINGLE undo step
     tg.Assimilate()
 except Exception:
