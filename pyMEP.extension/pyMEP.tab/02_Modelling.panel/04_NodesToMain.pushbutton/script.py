@@ -27,7 +27,8 @@ from pymep_connect_fixtures import (
     fixture_outlet_info, main_pipe_info, connect_fixture_to_main,
     plan_dist_to_segment, outlet_is_connected, node_type_rows,
     node_categories, node_families, node_types_in, search_node_rows,
-    node_dia_mm,
+    node_dia_mm, node_dia_param_options, CONNECTOR_DIA, DIA_PARAM_NAMES,
+    main_gradient, regrade_main,
 )
 from pymep_config import load_settings, save_settings
 from pymep_revit import safe_name, ft2mm
@@ -105,17 +106,36 @@ def _type_label(r):
         r["type"], len(r["insts"]), len(r["todo"]))
 
 
+_cur_grad = main_gradient(a, b)
+
+
 class NodesWindow(forms.WPFWindow):
 
     def __init__(self):
         forms.WPFWindow.__init__(self, XAML_PATH)
         self.result = None
         self._shown = []          # the rows currently in CmbType
+        self._dia_opts = []       # (mode, name) per CmbDiaParam entry
         self._loading = True
         self.TxtInfo.Text = "Main: '{}' ({:.0f} mm), tee junctions".format(
             safe_name(main), ft2mm(main_dia_ft))
         self.TxtSlope.Text = "{:g}".format(
             float(settings.get("nodes_slope", 100.0)))
+        if _cur_grad is not None:
+            self.TxtMainSlope.Text = "{:.0f}".format(_cur_grad)
+            self.TxtMainHint.Text = (
+                "The main currently falls at about 1:{:.0f}. Tick to "
+                "re-grade it BEFORE the branches are drawn - the chosen "
+                "end stays put, the other moves.".format(_cur_grad))
+        else:
+            self.TxtMainSlope.Text = "{:g}".format(
+                float(settings.get("nodes_slope", 100.0)))
+            self.TxtMainHint.Text = (
+                "The main is currently LEVEL. Tick to re-grade it before "
+                "the branches are drawn - the chosen end stays put, the "
+                "other moves.")
+        if settings.get("nodes_main_keep", "low") == "high":
+            self.RadMainUpper.IsChecked = True
 
         self.CmbCat.Items.Clear()
         for c in node_categories(rows):
@@ -161,6 +181,61 @@ class NodesWindow(forms.WPFWindow):
             self.CmbType.Items.Add(_type_label(r))
         if self.CmbType.Items.Count:
             self.CmbType.SelectedIndex = 0
+        self._fill_dia_params()
+
+    def _fill_dia_params(self):
+        """The diameter-source list for the currently selected type: the
+        outlet connector (when the family has one) plus every numeric
+        parameter with a sample value."""
+        self._dia_opts = []
+        self.CmbDiaParam.Items.Clear()
+        i = self.CmbType.SelectedIndex
+        if i < 0 or i >= len(self._shown):
+            return
+        insts = self._shown[i]["insts"]
+        probe = insts[0] if insts else None
+        if probe is None:
+            return
+        _o, conn_dia = fixture_outlet_info(probe)
+        if conn_dia:
+            self._dia_opts.append(("conn", None))
+            self.CmbDiaParam.Items.Add("{}   ({:.0f} mm)".format(
+                CONNECTOR_DIA, conn_dia))
+        for nm, sample in node_dia_param_options(probe):
+            self._dia_opts.append(("param", nm))
+            self.CmbDiaParam.Items.Add(
+                "{}   ({:.0f} mm)".format(nm, sample)
+                if sample is not None else nm)
+        # preselect: remembered choice, else the connector, else the
+        # first DIA-style name
+        want = settings.get("nodes_dia_param")
+        idx = 0
+        names = [(m, n) for m, n in self._dia_opts]
+        if want == CONNECTOR_DIA and ("conn", None) in names:
+            idx = names.index(("conn", None))
+        elif want and ("param", want) in names:
+            idx = names.index(("param", want))
+        elif ("conn", None) not in names:
+            for dn in DIA_PARAM_NAMES:
+                if ("param", dn) in names:
+                    idx = names.index(("param", dn))
+                    break
+        if self.CmbDiaParam.Items.Count:
+            self.CmbDiaParam.SelectedIndex = idx
+
+    def on_type_changed(self, sender, args):
+        if self._loading:
+            return
+        self._fill_dia_params()
+
+    def on_regrade(self, sender, args):
+        try:
+            on = bool(self.ChkRegrade.IsChecked)
+            self.TxtMainSlope.IsEnabled = on
+            self.RadMainUpper.IsEnabled = on
+            self.RadMainLower.IsEnabled = on
+        except Exception:
+            pass
 
     def on_cat_changed(self, sender, args):
         if self._loading or self.TxtSearch.Text.strip():
@@ -209,7 +284,25 @@ class NodesWindow(forms.WPFWindow):
             self.StatusText.Text = ("The gradient must be a positive "
                                     "number (the n of 1:n).")
             return
-        self.result = {"row": self._shown[i], "slope": slope}
+        main_slope = None
+        if self.ChkRegrade.IsChecked:
+            try:
+                main_slope = float(self.TxtMainSlope.Text)
+                if main_slope <= 0:
+                    raise ValueError()
+            except Exception:
+                self.StatusText.Text = ("The main's gradient must be a "
+                                        "positive number (the n of 1:n).")
+                return
+        di = self.CmbDiaParam.SelectedIndex
+        dia_mode, dia_param = ("auto", None)
+        if 0 <= di < len(self._dia_opts):
+            dia_mode, dia_param = self._dia_opts[di]
+        self.result = {"row": self._shown[i], "slope": slope,
+                       "dia_mode": dia_mode, "dia_param": dia_param,
+                       "main_slope": main_slope,
+                       "main_keep": "high" if self.RadMainUpper.IsChecked
+                       else "low"}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -227,15 +320,23 @@ if win.result is None:
 row = win.result["row"]
 label, insts, todo = row["label"], row["insts"], row["todo"]
 slope = win.result["slope"]
+dia_mode = win.result["dia_mode"]
+dia_param = win.result["dia_param"]
 settings["nodes_label"] = label
 settings["nodes_slope"] = slope
+settings["nodes_dia_param"] = (CONNECTOR_DIA if dia_mode == "conn"
+                               else (dia_param or ""))
+settings["nodes_main_keep"] = win.result["main_keep"]
 try:
     save_settings(settings)
 except Exception:
     pass
 
 log("Type **{}**: {} placed, **{}** unconnected to pipe up; gradient "
-    "**1:{:g}**.".format(label, len(insts), len(todo), slope))
+    "**1:{:g}**; dia from **{}**.".format(
+        label, len(insts), len(todo), slope,
+        CONNECTOR_DIA if dia_mode == "conn"
+        else (dia_param or "auto (connector, then DIA)")))
 if not todo:
     log("Every node of that type is already connected - nothing to do.")
     log.close()
@@ -243,9 +344,13 @@ if not todo:
                 exitscript=True)
 
 # ---------------------------------------------------------------------------
-# 3. Pipe each node up - dia from ITS connector; tees split the main, so
-#    track the pieces and tie each node into the one spanning it
+# 3. Model everything in ONE go: a TransactionGroup wraps the optional
+#    main re-grade and every branch, assimilated into a single undo
+#    step. Tees split the main, so track the pieces and tie each node
+#    into the one spanning it.
 # ---------------------------------------------------------------------------
+from Autodesk.Revit.DB import TransactionGroup
+
 main_segs = [main]
 
 
@@ -265,34 +370,61 @@ def _nearest_seg(outlet_xyz):
 done = 0
 failed = 0
 fitting_notes = 0
-for node in todo:
-    log("**{}** (id {}):".format(safe_name(node), node.Id))
-    try:
-        o_xyz, _c_dia = fixture_outlet_info(node)
-        if o_xyz is None:
+
+tg = TransactionGroup(doc, "Nodes to Main")
+tg.Start()
+try:
+    if win.result["main_slope"] is not None:
+        try:
+            regrade_main(doc, main, win.result["main_slope"],
+                         keep=win.result["main_keep"], log=log)
+        except Exception as ex:
+            log("! Couldn't re-grade the main ({}) - branches meet it "
+                "as it lies.".format(ex))
+
+    for node in todo:
+        log("**{}** (id {}):".format(safe_name(node), node.Id))
+        try:
+            o_xyz, conn_dia = fixture_outlet_info(node)
+            if o_xyz is None:
+                failed += 1
+                log("  ! no outlet point - skipped")
+                continue
+            if dia_mode == "conn":
+                node_dia = conn_dia
+            elif dia_mode == "param":
+                node_dia = node_dia_mm(node, dia_param)
+            else:
+                node_dia = node_dia_mm(node)
+            dia_mm = node_dia or 100.0
+            if not node_dia:
+                log("  ! no size on '{}' - using 100 mm".format(
+                    dia_param or "connector/DIA"))
+            seg = _nearest_seg(o_xyz)
+            r = connect_fixture_to_main(doc, node, seg, slope, dia_mm,
+                                        invert_m=None, log=log)
+            done += 1
+            fitting_notes += r["fitting_misses"]
+            if r.get("new_main_segment") is not None:
+                main_segs.append(r["new_main_segment"])
+        except Exception as ex:
             failed += 1
-            log("  ! no outlet point - skipped")
-            continue
-        node_dia = node_dia_mm(node)
-        dia_mm = node_dia or 100.0
-        if not node_dia:
-            log("  ! no connector size or DIA parameter - using 100 mm")
-        seg = _nearest_seg(o_xyz)
-        r = connect_fixture_to_main(doc, node, seg, slope, dia_mm,
-                                    invert_m=None, log=log)
-        done += 1
-        fitting_notes += r["fitting_misses"]
-        if r.get("new_main_segment") is not None:
-            main_segs.append(r["new_main_segment"])
-    except Exception as ex:
-        failed += 1
-        import traceback
-        log(traceback.format_exc())
-        log("  ! not connected: {}".format(ex))
+            import traceback
+            log(traceback.format_exc())
+            log("  ! not connected: {}".format(ex))
+    # one go: everything lands as a SINGLE undo step
+    tg.Assimilate()
+except Exception:
+    try:
+        tg.RollBack()
+    except Exception:
+        pass
+    raise
 
 log("#### Summary")
-log("- Nodes piped into the main: **{}** of {} (tee junctions; the "
-    "main is now {} segment(s))".format(done, len(todo), len(main_segs)))
+log("- Nodes piped into the main: **{}** of {} in one go (tee "
+    "junctions; the main is now {} segment(s))".format(
+        done, len(todo), len(main_segs)))
 if fitting_notes:
     log("- Fitting notes: **{}** (see above)".format(fitting_notes))
 if failed:

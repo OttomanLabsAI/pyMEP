@@ -67,6 +67,7 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
@@ -81,15 +82,21 @@
                     <TextBlock Grid.Row="2" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
                                Text="Type"/>
-                    <ComboBox x:Name="CmbType" Grid.Row="2" Grid.Column="1"/>
+                    <ComboBox x:Name="CmbType" Grid.Row="2" Grid.Column="1"
+                              SelectionChanged="on_type_changed"/>
                     <TextBlock Grid.Row="3" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
                                Text="Search"/>
                     <TextBox x:Name="TxtSearch" Grid.Row="3" Grid.Column="1"
                              TextChanged="on_search"/>
-                    <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
+                    <TextBlock Grid.Row="4" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Dia from"/>
+                    <ComboBox x:Name="CmbDiaParam" Grid.Row="4"
+                              Grid.Column="1"/>
+                    <TextBlock Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="2"
                                Style="{StaticResource Hint}"
-                               Text="Type anything to search every category / family / type at once - the Type list becomes the matches (clear it to go back to the three lists). Every placed, still-unconnected node of the chosen type gets piped into the main; the pipe diameter comes from EACH node's own outlet connector."/>
+                               Text="Search matches every category / family / type at once (clear it to go back to the three lists). 'Dia from' picks WHICH family parameter carries the pipe diameter - the type's numeric parameters are listed with a sample value, plus the outlet connector when the family has one."/>
                 </Grid>
             </GroupBox>
 
@@ -112,6 +119,40 @@
                                Style="{StaticResource Hint}"
                                Text="Each node gets a drop pipe from its outlet, a bend, and a run falling at this gradient to meet the main as it lies - joined into the main with a tee junction."/>
                 </Grid>
+            </GroupBox>
+
+            <GroupBox Header="Main pipe">
+                <StackPanel>
+                    <CheckBox x:Name="ChkRegrade" IsChecked="False"
+                              Content="Re-grade the main at its own gradient first"
+                              Margin="0,2,0,0"
+                              Checked="on_regrade" Unchecked="on_regrade"/>
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Ratio  1 :"/>
+                        <TextBox x:Name="TxtMainSlope" Grid.Column="1"
+                                 IsEnabled="False"/>
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <TextBlock Style="{StaticResource FieldLabel}"
+                                   Text="Keep as is:"/>
+                        <RadioButton x:Name="RadMainUpper" Content="Upper end"
+                                     GroupName="mainkeep" IsEnabled="False"
+                                     Margin="0,6,18,0"/>
+                        <RadioButton x:Name="RadMainLower" Content="Lower end"
+                                     GroupName="mainkeep" IsChecked="True"
+                                     IsEnabled="False" Margin="0,6,0,0"/>
+                    </StackPanel>
+                    <TextBlock x:Name="TxtMainHint"
+                               Style="{StaticResource Hint}"
+                               Text="&#8212;"/>
+                </StackPanel>
             </GroupBox>
 
             <TextBlock x:Name="StatusText" Foreground="#B00020"
