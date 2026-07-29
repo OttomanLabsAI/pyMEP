@@ -1,0 +1,99 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Merge Pipes"
+        Width="460" Height="360" MinWidth="420" MinHeight="330"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Background="White">
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Padding" Value="10,8,10,10"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,6,10,0"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="DialogButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#F4F4F4" Padding="14,10">
+            <StackPanel>
+                <TextBlock FontSize="15" FontWeight="SemiBold"
+                           Text="Merge Pipes"/>
+                <TextBlock x:Name="TxtInfo" Style="{StaticResource Hint}"
+                           Text="&#8212;"/>
+            </StackPanel>
+        </Border>
+
+        <StackPanel Grid.Row="1" Margin="14,12,14,0">
+            <GroupBox Header="Slope">
+                <StackPanel>
+                    <CheckBox x:Name="ChkSlope" IsChecked="True"
+                              Content="Re-grade each merged pipe at:"
+                              Margin="0,2,0,0"
+                              Checked="on_slope" Unchecked="on_slope"/>
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Ratio  1 :"/>
+                        <TextBox x:Name="TxtSlope" Grid.Column="1"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Unticked: the merged pipe spans the run's two extreme endpoints exactly as they are."/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Keep which end's level as is">
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="RadTop" Content="Top end"
+                                 GroupName="keep" Margin="0,2,18,0"/>
+                    <RadioButton x:Name="RadBottom" Content="Bottom end"
+                                 GroupName="keep" IsChecked="True"
+                                 Margin="0,2,0,0"/>
+                </StackPanel>
+            </GroupBox>
+
+            <TextBlock x:Name="StatusText" Foreground="#B00020"
+                       TextWrapping="Wrap" Text=""/>
+        </StackPanel>
+
+        <Border Grid.Row="2" Background="#F4F4F4" Padding="14,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnMerge" Content="Merge"
+                        Style="{StaticResource DialogButton}" IsDefault="True"
+                        Click="on_merge"/>
+                <Button x:Name="BtnCancel" Content="Cancel"
+                        Style="{StaticResource DialogButton}" IsCancel="True"
+                        Click="on_cancel"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

@@ -203,7 +203,11 @@ The new pipe inherits the run's longest segment - pipe type, system
 type, level, Mark, comments - and the run's diameter (the largest when
 a run mixes sizes, reported). The workset is kept when every merged
 pipe shares one; when they differ the new pipe lands on the ACTIVE
-workset and the report says so. Runs with a gap larger than a
+workset and the report says so. A settings dialog opens first: re-grade
+each merged pipe at `1 : n` (remembered), choosing whether the TOP or
+BOTTOM end's level stays exactly as it is (the other end's Z derives
+over the plan run; XY never moves) - or untick to keep both extreme
+endpoints exactly. Runs with a gap larger than a
 coupling are flagged in the confirm dialog; selected pipes that line up
 with nothing are left untouched.
 

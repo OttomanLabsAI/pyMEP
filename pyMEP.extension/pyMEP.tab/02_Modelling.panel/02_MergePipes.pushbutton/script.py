@@ -20,6 +20,7 @@ the selection that line up with nothing are left untouched.
 __title__  = "Merge\nPipes"
 __author__ = "Glent Group"
 
+import os
 import sys
 
 for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
@@ -30,6 +31,7 @@ from pyrevit import revit, forms, script
 from pymep_merge_pipes import (
     read_pipe_rows, group_collinear, chain_gaps, merge_chain,
 )
+from pymep_config import load_settings, save_settings
 from pymep_revit import ft2mm
 from pymep_log import Logger
 
@@ -84,8 +86,6 @@ if not chains:
 log("Found **{}** run(s) to merge; {} selected pipe(s) line up with "
     "nothing and will be left alone.".format(len(chains), len(singles)))
 
-# report any large gaps to the output window (no confirm popup - the
-# merge runs straight away)
 for ci, chain in enumerate(chains):
     dias = sorted(set(round(ft2mm(r["dia_ft"]), 0) for r in chain))
     log("Run {}: {} pipes -> 1  ({} mm)".format(
@@ -98,6 +98,82 @@ for ci, chain in enumerate(chains):
             "to be one pipe)".format(ft2mm(big)))
 
 # ---------------------------------------------------------------------------
+# 2b. The settings dialog: slope 1:n + which end's level stays as is
+# ---------------------------------------------------------------------------
+settings = load_settings()
+XAML_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
+    "pymep_merge_pipes.xaml")
+
+
+class MergeWindow(forms.WPFWindow):
+
+    def __init__(self):
+        forms.WPFWindow.__init__(self, XAML_PATH)
+        self.result = None
+        self.TxtInfo.Text = "{} run(s) from {} selected pipe(s)".format(
+            len(chains), len(rows))
+        self.ChkSlope.IsChecked = bool(settings.get("merge_slope_on", True))
+        self.TxtSlope.Text = "{:g}".format(
+            float(settings.get("merge_slope", 150.0)))
+        if settings.get("merge_keep_end", "bottom") == "top":
+            self.RadTop.IsChecked = True
+        else:
+            self.RadBottom.IsChecked = True
+        self.on_slope(None, None)
+
+    def on_slope(self, sender, args):
+        try:
+            on = bool(self.ChkSlope.IsChecked)
+            self.TxtSlope.IsEnabled = on
+            self.RadTop.IsEnabled = on
+            self.RadBottom.IsEnabled = on
+        except Exception:
+            pass
+
+    def on_merge(self, sender, args):
+        slope = None
+        if self.ChkSlope.IsChecked:
+            try:
+                slope = float(self.TxtSlope.Text)
+                if slope <= 0:
+                    raise ValueError()
+            except Exception:
+                self.StatusText.Text = ("The slope must be a positive "
+                                        "number (the n of 1:n).")
+                return
+        self.result = {"slope": slope,
+                       "keep": "top" if self.RadTop.IsChecked
+                       else "bottom"}
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.Close()
+
+
+win = MergeWindow()
+win.ShowDialog()
+if win.result is None:
+    log("Cancelled - nothing changed.")
+    log.close()
+    script.exit()
+opts = win.result
+
+settings["merge_slope_on"] = opts["slope"] is not None
+if opts["slope"] is not None:
+    settings["merge_slope"] = opts["slope"]
+settings["merge_keep_end"] = opts["keep"]
+try:
+    save_settings(settings)
+except Exception:
+    pass
+
+log("Slope: {} - keeping the **{}** end's level.".format(
+    "**1:{:g}**".format(opts["slope"]) if opts["slope"] is not None
+    else "none (exact extreme endpoints)", opts["keep"].upper()))
+
+# ---------------------------------------------------------------------------
 # 3. Merge each chain (each in its own transaction)
 # ---------------------------------------------------------------------------
 merged = 0
@@ -108,7 +184,8 @@ failed = 0
 for ci, chain in enumerate(chains):
     log("Run {}:".format(ci + 1))
     try:
-        res = merge_chain(doc, pipes_by_id, chain, log=log)
+        res = merge_chain(doc, pipes_by_id, chain, log=log,
+                          slope_n=opts["slope"], keep_end=opts["keep"])
         merged += res["pipes"]
         new_pipes += 1
         deleted_couplings += res["internal"]
