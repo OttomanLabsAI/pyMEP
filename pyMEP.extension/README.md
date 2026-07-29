@@ -267,6 +267,17 @@ branch removed. One undo step.
 
 ### Networks
 
+Everything a network owns - nodes, branch pipes, fittings (including
+the couplings Revit inserts by itself) and the main's pieces - carries
+its network name in a **`pyMEP_Network`** instance parameter (a shared
+parameter pyMEP binds automatically, under Identity Data). Nodes to
+Main, Update Nodes and Apply Edits stamp it on everything they build;
+the dashboard launch backfills older models from the tracking
+registry. The parameter IS the network map: schedule it, filter views
+by it, and ADD any manually drawn pipe to a network by just typing the
+value in its Properties - it shows up in the dashboard as a stamped
+extra. A value with no nodes at all becomes its own dashboard network.
+
 **Drainage** (the big launch button) - opens the drainage networks 3D dashboard. It scans
 every placed family whose FAMILY name contains the Network Settings
 filter word (default `node`), groups the instances into networks by
@@ -279,7 +290,10 @@ Main populates it automatically. Click a network in the viewer to edit
 it: branch diameter / gradient / pipe + system type, main diameter /
 gradient (upper or lower end kept), the INVERT LEVEL of the main's
 upper or lower end, and the workset - Preview redraws the network in
-3D. **Save changes for Revit** documents everything into ONE
+3D, and **Undo** steps the dashboard's pending edits back one change
+at a time (field edits, previews, reverts - the 3D view, the edit card
+and the documented file all follow). **Save changes for Revit**
+documents everything into ONE
 `pymep_network_edits.json`: the first save asks where the file lives
 (Chrome/Edge - the browser then keeps writing to that same file on
 every further change, automatically), so the model update is a single
