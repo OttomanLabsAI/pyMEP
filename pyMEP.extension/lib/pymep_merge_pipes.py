@@ -181,6 +181,27 @@ def chain_gaps(chain, min_gap_ft=0.35):
     return gaps
 
 
+def regrade_extremes(e0, e1, slope_n, keep="bottom"):
+    """Re-grade the merged pipe at 1:slope_n, pinning one end's level:
+    ``keep`` names the end whose Z stays EXACTLY as it is - "top" (the
+    currently higher end) or "bottom" (the lower; also the tie-winner).
+    The other end's Z becomes pinned_z -/+ plan_run / n. XY never moves
+    on either end, and the pinned end keeps its exact input tuple.
+    Returns (e0', e1') in the same order. slope_n None/0 -> unchanged.
+    Pure."""
+    if not slope_n or slope_n <= 0:
+        return e0, e1
+    run = math.sqrt((e1[0] - e0[0]) ** 2 + (e1[1] - e0[1]) ** 2)
+    fall = run / slope_n
+    e0_is_bottom = e0[2] <= e1[2]
+    pin_first = e0_is_bottom if keep == "bottom" else not e0_is_bottom
+    if pin_first:
+        z = e0[2] + (fall if keep == "bottom" else -fall)
+        return e0, (e1[0], e1[1], z)
+    z = e1[2] + (fall if keep == "bottom" else -fall)
+    return (e0[0], e0[1], z), e1
+
+
 def workset_decision(ws_ids):
     """Which workset the merged pipe gets: ``(workset_id, mixed)``.
     Every merged pipe on the SAME workset -> keep it (that id, False).
@@ -294,11 +315,14 @@ def _copy_param(src, dst, bip):
         pass
 
 
-def merge_chain(doc, pipes_by_id, chain, log=None):
+def merge_chain(doc, pipes_by_id, chain, log=None, slope_n=None,
+                keep_end="bottom"):
     """Replace one chain with a single pipe, inside ONE transaction.
-    Returns a summary dict; raises only when the new pipe cannot be
-    created (in which case the transaction rolled back and nothing was
-    deleted)."""
+    ``slope_n`` re-grades the merged pipe at 1:slope_n with the
+    ``keep_end`` ("top"/"bottom") level pinned exactly where it is;
+    None keeps both extreme endpoints exactly. Returns a summary dict;
+    raises only when the new pipe cannot be created (in which case the
+    transaction rolled back and nothing was deleted)."""
     def say(m):
         if log is not None:
             log(m)
@@ -308,6 +332,10 @@ def merge_chain(doc, pipes_by_id, chain, log=None):
     donor = pipes_by_id[donor_row["id"]]
 
     e0, e1 = chain_extremes(chain)
+    if slope_n:
+        e0, e1 = regrade_extremes(e0, e1, slope_n, keep_end)
+        say("  re-graded at **1:{:g}**, the {} end's level kept as is"
+            .format(slope_n, keep_end.upper()))
     dias = sorted(set(round(r["dia_ft"], 6) for r in chain))
     dia = dias[-1]
     if len(dias) > 1:

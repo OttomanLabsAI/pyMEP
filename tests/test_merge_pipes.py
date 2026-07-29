@@ -41,12 +41,13 @@ def load(names):
 
 
 NS = load(["group_collinear", "chain_extremes", "chain_gaps",
-           "classify_fittings", "workset_decision"])
+           "classify_fittings", "workset_decision", "regrade_extremes"])
 group_collinear = NS["group_collinear"]
 chain_extremes = NS["chain_extremes"]
 chain_gaps = NS["chain_gaps"]
 classify_fittings = NS["classify_fittings"]
 workset_decision = NS["workset_decision"]
+regrade_extremes = NS["regrade_extremes"]
 
 
 def row(rid, p0, p1, dia=0.5):
@@ -179,6 +180,36 @@ class Fittings(unittest.TestCase):
         internal, boundary = classify_fittings(links, [1, 2])
         self.assertEqual(internal, [])
         self.assertEqual(boundary, [])
+
+
+class RegradeExtremes(unittest.TestCase):
+    # 100 ft plan run, ends at z=8 (e0, bottom) and z=10 (e1, top)
+    E0 = (0.0, 0.0, 8.0)
+    E1 = (100.0, 0.0, 10.0)
+
+    def test_keep_bottom_pins_low_end_exactly(self):
+        a, b = regrade_extremes(self.E0, self.E1, 200.0, "bottom")
+        self.assertIs(a, self.E0)                     # exact tuple kept
+        self.assertEqual(b[:2], (100.0, 0.0))         # XY untouched
+        self.assertAlmostEqual(b[2], 8.0 + 100.0 / 200.0, places=9)
+
+    def test_keep_top_pins_high_end_exactly(self):
+        a, b = regrade_extremes(self.E0, self.E1, 200.0, "top")
+        self.assertIs(b, self.E1)
+        self.assertEqual(a[:2], (0.0, 0.0))
+        self.assertAlmostEqual(a[2], 10.0 - 0.5, places=9)
+
+    def test_order_independent_of_which_is_low(self):
+        # swap so e0 is the TOP end: keep-bottom must pin e1 now
+        a, b = regrade_extremes(self.E1, self.E0, 200.0, "bottom")
+        self.assertIs(b, self.E0)
+        self.assertAlmostEqual(a[2], 8.5, places=9)
+
+    def test_no_slope_unchanged(self):
+        self.assertEqual(regrade_extremes(self.E0, self.E1, None),
+                         (self.E0, self.E1))
+        self.assertEqual(regrade_extremes(self.E0, self.E1, 0),
+                         (self.E0, self.E1))
 
 
 class WorksetDecision(unittest.TestCase):
