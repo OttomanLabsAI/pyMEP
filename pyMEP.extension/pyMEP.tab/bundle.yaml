@@ -2,10 +2,10 @@ title: pyMEP
 layout:
   - 00_Setup
   - 01_Civil3DConversion
+  - 08_Electrical
   - 02_Modelling
   - 02_Networks
   - 03_Topography
   - 04_Chambers
   - 05_Parameters
   - 06_Annotate
-  - 08_Electrical

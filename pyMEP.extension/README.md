@@ -29,14 +29,14 @@ pyMEP.extension/
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
-    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, small stack: Create Pipe Sizes + Structure to Pipe
+    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, stacked icons: Create Pipe Sizes + Structure to Pipe
     02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools
-    02_Networks.panel/          # 'Networks': dashboard launch, small stack: Apply Edits + Network Settings
+    02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
     06_Annotate.panel/          # 4 annotation buttons
-    08_Electrical.panel/        # Encasement
+    08_Electrical.panel/        # Encasement (shown before Drainage on the ribbon)
 ```
 
 9 panels, 32 buttons, every one with its own icon.
@@ -158,7 +158,7 @@ neither fits, it offers to place at the internal origin using the
 export's own origin (optionally saving it to Settings). Rectangular duct-bank
 rows are skipped - only circular runs become pipes.
 
-**Create Pipe Sizes** (small, stacked) - reads a dashboard pipes
+**Create Pipe Sizes** (stacked, big icon - the name lives in the tooltip) - reads a dashboard pipes
 export, lists the distinct circular diameters and adds the missing ones
 to the pipe Segment configured in Settings > Pipes (Place Pipes already
 does this automatically; keep for adding sizes without placing pipes).
@@ -261,7 +261,7 @@ branch removed. One undo step.
 
 ### Networks
 
-**Networks** - launches the drainage networks 3D dashboard. It scans
+**Drainage** (the big launch button) - opens the drainage networks 3D dashboard. It scans
 every placed family whose FAMILY name contains the Network Settings
 filter word (default `node`), groups the instances into networks by
 their TYPE name (`STORMWATER - IN - N1` reads as system STORMWATER,
@@ -275,7 +275,7 @@ gradient (upper or lower end kept), the INVERT LEVEL of the main's
 upper or lower end, and the workset - Preview redraws the network in
 3D, **Save changes for Revit** downloads `pymep_network_edits.json`.
 
-**Apply Edits** (small, stacked) - picks the newest edits file out of
+**Apply Edits** (stacked, big icon) - picks the newest edits file out of
 the configured folder (default: Downloads) and adapts the model to it:
 mains resized, re-graded and set to the typed end invert, worksets
 moved, and every tracked branch teeing into a touched main
@@ -284,7 +284,7 @@ machinery as Update Nodes) - one undo step. The applied file is renamed
 `*.applied.json` so it can't run twice. Asks first unless the confirm
 toggle is off.
 
-**Network Settings** (small, stacked) - the dialog behind both buttons:
+**Network Settings** (stacked, big icon) - the dialog behind both buttons:
 the INPUT-NODE filter word (families whose family name contains it),
 the folder the dashboard's saved edits land in (blank = Downloads), and
 whether Apply Edits asks before changing the model. Saved per user.

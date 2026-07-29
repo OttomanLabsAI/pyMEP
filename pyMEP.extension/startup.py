@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""pyMEP extension startup hook - keep the ribbon panels in order.
+"""pyMEP extension startup hook - keep the ribbon panels in order and
+dress the stacked buttons.
 
 Revit's ribbon API cannot MOVE a panel once it exists in the running
 session: a pyRevit reload rebuilds panel contents in place, and any
@@ -10,7 +11,10 @@ Install Update to the far end after every update + reload.
 
 The underlying Autodesk.Windows ribbon CAN reorder panels in-session,
 so this hook re-sorts the pyMEP tab back into the layout order on the
-first Idling event after every load / reload. A failure here must
+first Idling event after every load / reload. The same pass turns the
+named stacked buttons into BIG ICON-ONLY buttons (32 px, no label) -
+stacks are limited to small text buttons through the official API, but
+the underlying ribbon takes Size/ShowText happily. A failure here must
 never hurt Revit startup - everything is wrapped defensively.
 """
 
@@ -19,9 +23,14 @@ import clr
 TAB_TITLE = "pyMEP"
 # Same order as pyMEP.tab/bundle.yaml - matched by title prefix so the
 # versioned Setup panel ("pyMEP v1.16.0") matches on plain "pyMEP".
-PANEL_ORDER = ["pyMEP", "Civil 3D Conversion", "Drainage", "Networks",
-               "Topography", "Chamber Drawing Setup", "Parameters",
-               "Annotate", "Electrical"]
+PANEL_ORDER = ["pyMEP", "Civil 3D Conversion", "Electrical", "Drainage",
+               "Networks", "Topography", "Chamber Drawing Setup",
+               "Parameters", "Annotate"]
+
+# Stacked buttons shown BIG with no label (their tooltips still carry
+# the names). Titles normalized to single-space before matching.
+ICON_ONLY = set(["Create Pipe Sizes", "Structure to Pipe",
+                 "Apply Edits", "Network Settings"])
 
 _state = {"tries": 0}
 
@@ -62,8 +71,38 @@ def _reorder_pymep_panels():
                     best = j
             if best != target:
                 panels.Move(best, target)
+
+        for panel in panels:
+            try:
+                _enlarge_stacked(panel.Source.Items)
+            except Exception:
+                pass
         return True
     return False
+
+
+def _enlarge_stacked(items):
+    """Recursively find the ICON_ONLY buttons (stacks live inside row
+    panels) and show them big with no label."""
+    from Autodesk.Windows import RibbonItemSize
+    for item in items:
+        sub = getattr(item, "Items", None)
+        if sub is not None:
+            _enlarge_stacked(sub)
+            continue
+        try:
+            text = " ".join(str(item.Text or "").split())
+        except Exception:
+            continue
+        if text not in ICON_ONLY:
+            continue
+        try:
+            if item.LargeImage is None and item.Image is not None:
+                item.LargeImage = item.Image
+            item.Size = RibbonItemSize.Large
+            item.ShowText = False
+        except Exception:
+            pass
 
 
 def _on_idling(sender, args):
