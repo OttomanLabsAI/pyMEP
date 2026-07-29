@@ -205,6 +205,21 @@ def find_edits_file(folder):
     return cands[-1][1]
 
 
+def edits_stamp(data, path):
+    """The identity of one dashboard save: the payload's own ``saved``
+    timestamp (written by the dashboard on every save), else the file's
+    mtime. Apply Edits remembers the last stamp it applied, so the SAME
+    save never applies twice while the edits file itself stays in place
+    for the dashboard to keep writing to. Pure."""
+    stamp = str((data or {}).get("saved") or "").strip()
+    if stamp:
+        return stamp
+    try:
+        return "mtime:{:.0f}".format(os.path.getmtime(path))
+    except Exception:
+        return ""
+
+
 def mark_applied(path):
     """Rename an applied edits file to *.applied.json so it can't be
     picked up twice. Returns the new path (or the old one when the

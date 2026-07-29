@@ -279,16 +279,22 @@ Main populates it automatically. Click a network in the viewer to edit
 it: branch diameter / gradient / pipe + system type, main diameter /
 gradient (upper or lower end kept), the INVERT LEVEL of the main's
 upper or lower end, and the workset - Preview redraws the network in
-3D, **Save changes for Revit** downloads `pymep_network_edits.json`.
+3D. **Save changes for Revit** documents everything into ONE
+`pymep_network_edits.json`: the first save asks where the file lives
+(Chrome/Edge - the browser then keeps writing to that same file on
+every further change, automatically), so the model update is a single
+click on Apply Edits. Browsers without that support download a fresh
+copy per save instead. Every save carries a timestamp.
 
 **Apply Edits** (stacked, big icon) - picks the newest edits file out of
 the configured folder (default: Downloads) and adapts the model to it:
 mains resized, re-graded and set to the typed end invert, worksets
 moved, and every tracked branch teeing into a touched main
 delete-healed-rebuilt against the main as it now lies (the same
-machinery as Update Nodes) - one undo step. The applied file is renamed
-`*.applied.json` so it can't run twice. Asks first unless the confirm
-toggle is off.
+machinery as Update Nodes) - one undo step. The applied save's
+timestamp is remembered, so the same save never applies twice - while
+the edits file itself stays in place for the dashboard to keep
+writing to. Asks first unless the confirm toggle is off.
 
 **Network Settings** (stacked, big icon) - the dialog behind both buttons:
 the INPUT-NODE filter word (families whose family name contains it),
