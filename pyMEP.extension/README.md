@@ -25,7 +25,7 @@ at it. The analysis package ships inside the extension (`conduit_analysis/`).
 pyMEP.extension/
   conduit_analysis/           # standalone CPython analysis (run via external Python)
   dashboard/                  # utilities 3D dashboard (self-contained HTML app)
-  exports/                    # default output folder, per-Revit-file
+  exports/                    # legacy per-model output home (live data now in %APPDATA%\pyRevit\pyMEP_exports)
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
@@ -67,7 +67,11 @@ leaves a truncated zip; if the download fails an existing zip in
 Downloads is offered instead), then deployed atomically. The previous
 version's folder and the zip are REMOVED after a successful install -
 there is no superseded archive; any version stays one click away in
-*Settings > Updates*. Every failure
+*Settings > Updates*. Anything the old install still holds in its
+legacy in-extension `exports/` (tracking registries, project files) is
+carried over into `%APPDATA%\pyRevit\pyMEP_exports` first - the
+durable per-project home every button reads and writes, so the branch
+tracking and stored project files SURVIVE version updates. Every failure
 after the swap restores the previous version; if Windows won't release
 the live folder, nothing is touched and it points you at
 `supersede_pyExtensions.py`. Uses the `github_repo` / `github_token` /
@@ -89,7 +93,9 @@ twice and everything reports Skipped.
 
 **Project Files** - the file-management window for THIS project: the
 files its workflows depend on live together in one managed folder
-(`exports/<model>/project_files/` with a small registry), copied in and
+(`%APPDATA%\pyRevit\pyMEP_exports\<model>\project_files\` with a
+small registry - OUTSIDE the extension, so version updates can't touch
+it), copied in and
 addressed by role. First resident: the project's Civil 3D LandXML - the
 Civil 3D LandXML Dashboard opens it by default. Set/replace (file
 picker; the original stays put), open the file, open the folder, or
@@ -352,7 +358,7 @@ earlier runs. Idempotent: existing boxes/views are skipped, and a preview
 confirm lists what will be created.
 
 Associations are stored per model in
-`<extension>/exports/<model>/chamber_section_links.json`.
+`pyMEP_exports/<model>/chamber_section_links.json` (in %APPDATA%\pyRevit).
 
 ### Annotate
 

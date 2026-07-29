@@ -102,7 +102,7 @@
                                     <Button DockPanel.Dock="Right" Content="Browse..." Style="{StaticResource SideButton}" Click="on_browse_export"/>
                                     <TextBox x:Name="TxtExportOverride"/>
                                 </DockPanel>
-                                <TextBlock Text="Blank = exports/(model name)/ inside the extension folder." Style="{StaticResource Hint}"/>
+                                <TextBlock Text="Blank = %APPDATA%\pyRevit\pyMEP_exports\(model name) - survives version updates." Style="{StaticResource Hint}"/>
 
                                 <DockPanel Margin="0,4,0,0">
                                     <Button DockPanel.Dock="Right" Content="Open" Style="{StaticResource SideButton}" Click="on_open_export"/>

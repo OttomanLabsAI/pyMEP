@@ -243,6 +243,22 @@ def deploy_zip(zip_path, log=None):
 
     _say(log, "Extracted -> {}".format(ext_dir))
 
+    # The old install may still hold per-project data in its legacy
+    # in-extension exports/ (tracking registries, project files) -
+    # salvage it into the durable %APPDATA% home before the folder
+    # goes, never overwriting anything already there.
+    try:
+        from pymep_config import EXPORTS_ROOT, _merge_copy
+        old_exports = os.path.join(old_dir, "exports")
+        if os.path.isdir(old_exports):
+            n = _merge_copy(old_exports, EXPORTS_ROOT)
+            if n:
+                _say(log, "Carried {} project file(s) over into {}."
+                     .format(n, EXPORTS_ROOT))
+    except Exception as ex:
+        _say(log, "Couldn't carry the old exports folder over "
+                  "(non-fatal): {}".format(ex))
+
     # Success: the old copy and the zip are no longer needed - any
     # version can be reinstalled from GitHub via Downgrade / reinstall.
     try:
