@@ -1,0 +1,97 @@
+# -*- coding: utf-8 -*-
+"""Apply Dashboard Edits - adapt the model to the drainage dashboard's
+saved changes.
+
+Picks the NEWEST pymep_network_edits*.json out of Downloads (the file
+the dashboard's 'Save changes for Revit' button downloads), then per
+edited network: resizes / re-grades its mains, sets an end invert where
+one was typed, moves worksets, and rebuilds the tracked branches
+against the main as it now lies - the same delete-heal-rebuild
+machinery Update Nodes uses, all in ONE undo step. The applied file is
+renamed *.applied.json so it can't run twice.
+"""
+
+__title__  = "Apply Dashboard\nEdits"
+__author__ = "Glent Group"
+
+import os
+import sys
+
+for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
+    del sys.modules[_mod]
+
+from pyrevit import revit, forms, script
+
+from pymep_config import get_export_folder, get_downloads_folder
+from pymep_drainage_networks import (find_edits_file, parse_edits,
+                                     apply_edits, mark_applied)
+from pymep_log import Logger
+
+output = script.get_output()
+log = Logger(output, "ApplyNetworkEdits")
+doc = revit.doc
+
+log("### Apply Dashboard Edits")
+
+downloads = get_downloads_folder()
+path = find_edits_file(downloads)
+if path is None:
+    log("No pymep_network_edits*.json in {}".format(downloads))
+    log.close()
+    forms.alert(
+        "No edits file found in Downloads.\n\nOpen the Drainage "
+        "Networks dashboard, change something on a network and hit "
+        "'Save changes for Revit' - then run this again.",
+        exitscript=True)
+
+f = open(path, "rb")
+try:
+    text = f.read().decode("utf-8-sig", "replace")
+finally:
+    f.close()
+try:
+    edits = parse_edits(text)
+except ValueError as ex:
+    log("'{}' rejected: {}".format(path, ex))
+    log.close()
+    forms.alert("'{}' doesn't look like a dashboard edits file:\n\n"
+                "{}".format(os.path.basename(path), ex), exitscript=True)
+
+names = [e.get("network") or "?" for e in edits["edits"]]
+log("Edits file: **{}**".format(path))
+log("Networks to adapt: **{}**".format(", ".join(names)))
+if not forms.alert(
+        "Apply the dashboard edits from\n{}\n\nNetworks: {}\n\nThe "
+        "mains and tracked branches of these networks will be "
+        "reshaped/rebuilt (one undo step).".format(
+            os.path.basename(path), ", ".join(names)),
+        yes=True, cancel=True):
+    log("Cancelled - nothing changed.")
+    log.close()
+    script.exit()
+
+base = os.path.join(get_export_folder(doc), "project_files")
+try:
+    res = apply_edits(doc, base, edits, log=log)
+except Exception as ex:
+    import traceback
+    log(traceback.format_exc())
+    log.close()
+    forms.alert("Applying the edits failed - everything was rolled "
+                "back:\n\n{}".format(ex), exitscript=True)
+
+new_path = mark_applied(path)
+log("Edits file marked applied: **{}**".format(
+    os.path.basename(new_path)))
+
+log("#### Summary")
+log("- Networks adapted: **{}**".format(res["networks"]))
+log("- Main runs reshaped: **{}**".format(res["mains"]))
+log("- Branches rebuilt: **{}**".format(res["branches"]))
+if res["worksets"]:
+    log("- Elements moved to a new workset: **{}**".format(
+        res["worksets"]))
+if res["failed"]:
+    log("- Failed: **{}** (see above)".format(res["failed"]))
+log("Open the dashboard again and it shows the model as it now is.")
+log.close()

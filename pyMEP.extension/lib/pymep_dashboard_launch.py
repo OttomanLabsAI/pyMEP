@@ -27,7 +27,8 @@ def _read_text(path):
     return raw.decode("utf-8-sig", "replace")
 
 
-def write_preload_html(viewer_path, data_path, out_dir):
+def write_preload_html(viewer_path, data_path, out_dir,
+                       out_name="dashboard_project.html"):
     """Write the launch copy and return its path."""
     html = _read_text(viewer_path)
     text = _read_text(data_path)
@@ -40,7 +41,7 @@ def write_preload_html(viewer_path, data_path, out_dir):
         html = tag + html
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir)
-    out = os.path.join(out_dir, "dashboard_project.html")
+    out = os.path.join(out_dir, out_name)
     f = open(out, "wb")
     try:
         f.write(html.encode("utf-8"))

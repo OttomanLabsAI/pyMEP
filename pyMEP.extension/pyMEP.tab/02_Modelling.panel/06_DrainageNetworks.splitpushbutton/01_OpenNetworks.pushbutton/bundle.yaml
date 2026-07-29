@@ -1,0 +1,2 @@
+title: "Drainage\nNetworks"
+tooltip: "Open the drainage networks 3D dashboard: family instances whose family name contains your filter word (default 'node'), grouped into networks by type name, joined with the tracked branches and mains Nodes to Main built. Select a network in the dashboard to edit sizes, gradients, worksets and main end inverts, then Save the edits file for Apply Dashboard Edits."

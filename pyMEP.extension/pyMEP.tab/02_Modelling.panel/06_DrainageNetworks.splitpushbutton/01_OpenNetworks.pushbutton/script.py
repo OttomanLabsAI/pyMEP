@@ -1,0 +1,112 @@
+# -*- coding: utf-8 -*-
+"""Drainage Networks - the model's node families as editable 3D
+networks.
+
+Scans every placed family instance whose FAMILY name contains a filter
+word (default "node"), groups the instances into networks by their type
+name ('STORMWATER - IN - N1' -> system STORMWATER, flow IN, network
+N1), joins them with the branches Nodes to Main tracked and the mains
+they tee into, and opens the whole picture in the drainage 3D viewer.
+
+The dashboard is rebuilt from the model + registry on every launch -
+run Nodes to Main, hit this again, and the networks follow. Edits made
+in the viewer (sizes, gradients, worksets, main end inverts) download
+as pymep_network_edits.json; the dropdown's Apply Dashboard Edits
+adapts the model to them.
+"""
+
+__title__  = "Drainage\nNetworks"
+__author__ = "Glent Group"
+
+import os
+import sys
+
+for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
+    del sys.modules[_mod]
+
+from pyrevit import revit, forms, script
+
+from pymep_config import (load_settings, save_settings, get_export_folder,
+                          get_drainage_dashboard_html, DASHBOARD_DIR)
+from pymep_dashboard_launch import write_preload_html, launch_html
+from pymep_drainage_networks import (build_dashboard_data,
+                                     write_networks_json)
+from pymep_log import Logger
+
+output = script.get_output()
+log = Logger(output, "DrainageNetworks")
+doc = revit.doc
+
+log("### Drainage Networks")
+
+viewer = get_drainage_dashboard_html()
+if not viewer:
+    log("No drainage viewer HTML found in {}".format(DASHBOARD_DIR))
+    log.close()
+    forms.alert(
+        "No drainage networks viewer found.\n\nExpected a "
+        "*drainage*.html inside:\n{}\n\n(or set "
+        "'drainage_dashboard_html_path' in pyMEP_settings.json).".format(
+            DASHBOARD_DIR),
+        exitscript=True)
+
+settings = load_settings()
+filt = forms.ask_for_string(
+    default=str(settings.get("networks_filter", "node")),
+    prompt="Families whose FAMILY NAME contains this word become "
+           "network nodes\n(their TYPE name names the network, e.g. "
+           "STORMWATER - IN - N1):",
+    title="Drainage Networks")
+if filt is None:
+    log("Cancelled - nothing opened.")
+    log.close()
+    script.exit()
+filt = filt.strip() or "node"
+settings["networks_filter"] = filt
+try:
+    save_settings(settings)
+except Exception:
+    pass
+
+base = os.path.join(get_export_folder(doc), "project_files")
+log("Scanning for families containing **{}** ...".format(filt))
+data = build_dashboard_data(doc, base, filt)
+
+if not data["networks"]:
+    log("No placed families whose family name contains '{}'.".format(filt))
+    log.close()
+    forms.alert(
+        "No placed families whose FAMILY name contains '{}'.\n\n"
+        "Place some node families (or try another filter word) and run "
+        "this again.".format(filt),
+        exitscript=True)
+
+n_nodes = sum(len(nw["nodes"]) for nw in data["networks"])
+n_br = sum(len(nw["branches"]) for nw in data["networks"])
+n_mains = sum(len(nw["mains"]) for nw in data["networks"])
+log("Found **{}** network(s): {} node(s), {} tracked branch(es), "
+    "{} main run(s).".format(len(data["networks"]), n_nodes, n_br,
+                             n_mains))
+for nw in data["networks"]:
+    log("- **{}**: {} nodes, {} branches, {} mains".format(
+        nw["name"], len(nw["nodes"]), len(nw["branches"]),
+        len(nw["mains"])))
+if not n_br:
+    log("(No tracked branches yet - run **Nodes to Main** and the "
+        "pipework appears here automatically.)")
+
+data_path = write_networks_json(base, data)
+log("Networks stored: **{}**".format(data_path))
+
+try:
+    launch = write_preload_html(viewer, data_path, get_export_folder(doc),
+                                out_name="drainage_dashboard.html")
+    launch_html(launch)
+    log("Dashboard opened. Select a network there to edit it; **Save "
+        "changes for Revit** downloads the edits file for **Apply "
+        "Dashboard Edits**.")
+except Exception as ex:
+    log("Couldn't build the preloaded launch copy ({}) - opening the "
+        "viewer empty instead.".format(ex))
+    launch_html(viewer)
+log.close()
