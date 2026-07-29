@@ -452,8 +452,53 @@ def _tee_into_main(doc, c_end, main_seg, end_xyz, fit_notes):
     return other
 
 
+def list_pipe_type_options(doc):
+    """[(name, ElementId), ...] of the model's pipe types, sorted."""
+    from Autodesk.Revit.DB.Plumbing import PipeType
+    out = []
+    for t in FilteredElementCollector(doc).OfClass(PipeType):
+        try:
+            out.append((safe_name(t), t.Id))
+        except Exception:
+            continue
+    out.sort(key=lambda x: x[0].lower())
+    return out
+
+
+def list_system_type_options(doc):
+    """[(name, ElementId), ...] of the model's piping system types."""
+    from Autodesk.Revit.DB.Plumbing import PipingSystemType
+    out = []
+    for t in FilteredElementCollector(doc).OfClass(PipingSystemType):
+        try:
+            out.append((safe_name(t), t.Id))
+        except Exception:
+            continue
+    out.sort(key=lambda x: x[0].lower())
+    return out
+
+
+def set_pipe_dia(doc, pipe, dia_mm, log=None):
+    """Resize a pipe (the main) to ``dia_mm``, snapped to its own type's
+    routing sizes, in ONE transaction. Returns the new dia in feet."""
+    pipe_type = doc.GetElement(pipe.GetTypeId())
+    dia_ft = _snap_dia_ft(doc, pipe_type, mm2ft(dia_mm))
+    t = Transaction(doc, "Resize main pipe")
+    t.Start()
+    try:
+        _set_dia(pipe, dia_ft)
+        t.Commit()
+    except Exception:
+        t.RollBack()
+        raise
+    if log is not None:
+        log("Main resized to **{:.0f} mm**.".format(ft2mm(dia_ft)))
+    return dia_ft
+
+
 def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
-                            invert_m=None, log=None):
+                            invert_m=None, log=None,
+                            pipe_type_id=None, system_type_id=None):
     """Build one fixture's branch, in ONE transaction. Returns a summary
     dict; raises with everything rolled back when the pipes can't be
     created (a failed FITTING never fails the branch - the pipes stay
@@ -468,6 +513,10 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
             safe_name(fixture)))
 
     a, b, type_id, sys_id, lvl_id, _mdia = main_pipe_info(main)
+    if pipe_type_id is not None:
+        type_id = pipe_type_id
+    if system_type_id is not None:
+        sys_id = system_type_id
     if lvl_id is None or lvl_id == ElementId.InvalidElementId:
         lvl = _host_level(doc, fixture)
         if lvl is None:

@@ -1,7 +1,7 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Nodes to Main"
-        Width="540" Height="520" MinWidth="480" MinHeight="320"
+        Width="540" Height="640" MinWidth="480" MinHeight="320"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False"
         Background="White">
@@ -100,32 +100,73 @@
                 </Grid>
             </GroupBox>
 
-            <GroupBox Header="Gradient">
+            <GroupBox Header="Branch pipes">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="110"/>
+                        <ColumnDefinition Width="180"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
-                               Text="Ratio  1 :"/>
+                               Text="Gradient  1 :"/>
                     <TextBox x:Name="TxtSlope" Grid.Row="0" Grid.Column="1"/>
-                    <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                    <TextBlock Grid.Row="1" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Fixed dia (mm)"/>
+                    <TextBox x:Name="TxtFixedDia" Grid.Row="1"
+                             Grid.Column="1"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Pipe type"/>
+                    <ComboBox x:Name="CmbPipeType" Grid.Row="2"
+                              Grid.Column="1"/>
+                    <TextBlock Grid.Row="3" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="System"/>
+                    <ComboBox x:Name="CmbSysType" Grid.Row="3"
+                              Grid.Column="1"/>
+                    <CheckBox x:Name="ChkAuto" Grid.Row="4" Grid.Column="0"
+                              Grid.ColumnSpan="3" IsChecked="True"
+                              Content="Upstream invert: keep it where it currently is (meet the main as it lies)"
+                              Margin="0,8,0,0"
+                              Checked="on_auto" Unchecked="on_auto"/>
+                    <TextBlock Grid.Row="5" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Invert level (m)"/>
+                    <TextBox x:Name="TxtInvert" Grid.Row="5" Grid.Column="1"
+                             IsEnabled="False"/>
+                    <TextBlock Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3"
                                Style="{StaticResource Hint}"
-                               Text="Each node gets a drop pipe from its outlet, a bend, and a run falling at this gradient to meet the main as it lies - joined into the main with a tee junction."/>
+                               Text="Each node gets a drop pipe, a bend, and a run falling at the gradient into a tee on the main. 'Fixed dia' (when set) overrides 'Dia from' for every node; pipe type and system default to the main's own. Untick the invert box to pin the elbow invert at an absolute level for every node."/>
                 </Grid>
             </GroupBox>
 
             <GroupBox Header="Main pipe">
                 <StackPanel>
+                    <Grid Margin="0,2,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Diameter (mm)"/>
+                        <TextBox x:Name="TxtMainDia" Grid.Column="1"/>
+                    </Grid>
                     <CheckBox x:Name="ChkRegrade" IsChecked="False"
                               Content="Re-grade the main at its own gradient first"
-                              Margin="0,2,0,0"
+                              Margin="0,8,0,0"
                               Checked="on_regrade" Unchecked="on_regrade"/>
                     <Grid Margin="0,6,0,0">
                         <Grid.ColumnDefinitions>

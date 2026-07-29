@@ -244,9 +244,13 @@ listed with placed/unconnected counts), or
 type in the SEARCH box to match across all three at once - a 'Dia from'
 picker choosing WHICH family parameter carries the pipe diameter (the
 type's numeric parameters with sample values, or the outlet connector),
-a branch gradient, and optionally re-grading the MAIN at its own 1:n
-first, keeping the UPPER or LOWER end where it is. Everything models in
-ONE go - a single undo step. Every still-unconnected node of that type gets a
+a branch gradient, a FIXED branch diameter override, the branch pipe
+type and system (defaulting to the main's own), and the upstream invert
+(keep it where it currently is, or pin an absolute level). The MAIN gets
+options too: set its DIAMETER (prefilled with the current bore; changing
+it resizes the main before anything connects) and optionally re-grade it
+at its own 1:n, keeping the UPPER or LOWER end where it is. Everything
+models in ONE go - a single undo step. Every still-unconnected node of that type gets a
 drop pipe from its outlet - diameter taken from THE NODE's own connector,
 snapped to the main type's routing sizes - a bend, a run falling at 1:n
 to meet the main as it lies, and a TEE JUNCTION into the main (segment
