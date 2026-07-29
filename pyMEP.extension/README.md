@@ -30,7 +30,7 @@ pyMEP.extension/
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, Create Pipe Sizes
-    02_Modelling.panel/         # Encasement, Gully to MH, Merge Pipes, Connect Fixtures
+    02_Modelling.panel/         # Encasement, Gully to MH, Merge Pipes, Connect Fixtures, Nodes to Main
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
@@ -38,7 +38,7 @@ pyMEP.extension/
     07_ReplaceStructure.panel/  # Structure to Pipe
 ```
 
-8 panels, 27 buttons, every one with its own icon.
+8 panels, 28 buttons, every one with its own icon.
 
 ## Panels
 
@@ -233,6 +233,17 @@ elbow invert for every fixture instead. Branches take the main's pipe
 type, system type and level; diameter and slope are remembered between
 runs. A fitting that can't be placed never fails the branch - the
 pipes stay and the miss is reported.
+
+**Nodes to Main** - the family-type-driven sibling of Connect Fixtures:
+select (or pick) ONE main pipe, then choose a node FAMILY TYPE (every
+placed family with a pipe connector is offered, with placed/unconnected
+counts) and a gradient. Every still-unconnected node of that type gets a
+drop pipe from its outlet - diameter taken from THE NODE's own connector,
+snapped to the main type's routing sizes - a bend, a run falling at 1:n
+to meet the main as it lies, and a TEE JUNCTION into the main (segment
+tracking across the splits, same engine as Connect Fixtures).
+Already-connected nodes are left alone; family type and gradient are
+remembered between runs.
 
 ### Parameters
 

@@ -36,6 +36,7 @@ import math
 
 from Autodesk.Revit.DB import (
     XYZ, Transaction, BuiltInParameter, ElementId, Line,
+    FilteredElementCollector, FamilyInstance,
 )
 from Autodesk.Revit.DB.Plumbing import Pipe
 
@@ -192,6 +193,45 @@ def fixture_outlet_info(fixture):
     if o is None:
         return None, None
     return (o.X, o.Y, o.Z), dia_mm
+
+
+def list_node_types(doc):
+    """The placed family types that carry a pipe connector - the NODES a
+    main can be piped up from. Returns [(label, [instances]), ...]
+    sorted by label, label = 'Family : Type'."""
+    groups = {}
+    for inst in FilteredElementCollector(doc).OfClass(FamilyInstance):
+        try:
+            if not get_connectors(inst):
+                continue
+            sym = inst.Symbol
+            key = sym.Id.IntegerValue
+            if key not in groups:
+                try:
+                    fam = safe_name(sym.Family)
+                except Exception:
+                    fam = "?"
+                groups[key] = ("{} : {}".format(fam, safe_name(sym)), [])
+            groups[key][1].append(inst)
+        except Exception:
+            continue
+    return sorted(groups.values(), key=lambda t: t[0].lower())
+
+
+def outlet_is_connected(fixture):
+    """True when the fixture's outlet connector already has something on
+    it - such nodes are left alone."""
+    o, _d = fixture_outlet_info(fixture)
+    if o is None:
+        return False
+    ox = XYZ(o[0], o[1], o[2])
+    for c in get_connectors(fixture):
+        try:
+            if c.Origin.DistanceTo(ox) < mm2ft(10.0):
+                return bool(c.IsConnected)
+        except Exception:
+            continue
+    return False
 
 
 def regrade_main(doc, main, slope_n, log=None):

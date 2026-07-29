@@ -1,0 +1,2 @@
+title: "Nodes\nto Main"
+tooltip: "Select (or pick) a main pipe, choose a node FAMILY TYPE and a gradient: every placed, still-unconnected node of that type gets a drop pipe from its outlet (diameter from the node's own connector, snapped to the main type's routing sizes), a bend, a run falling at 1:n to meet the main as it lies, and a TEE JUNCTION into the main. Already-connected nodes are left alone; branches take the main's pipe type, system type and level. Family type and gradient are remembered between runs."
