@@ -1,0 +1,87 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Network Settings"
+        Width="480" Height="430" MinWidth="440" MinHeight="380"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Background="White">
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Padding" Value="10,8,10,10"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="DialogButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#F4F4F4" Padding="14,10">
+            <StackPanel>
+                <TextBlock FontSize="15" FontWeight="SemiBold"
+                           Text="Network Settings"/>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="How the Networks dashboard finds its input nodes, and how Apply Edits behaves."/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="14,12,14,12">
+            <GroupBox Header="Input nodes">
+                <StackPanel>
+                    <TextBlock Text="Family name contains:"/>
+                    <TextBox x:Name="TxtFilter"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Every placed family whose FAMILY name contains this word becomes a network node - e.g. 'node' catches 'Node - Spherical'. The instance's TYPE name names its network: 'STORMWATER - IN - N1' reads as system STORMWATER, flow IN, network N1."/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Dashboard edits">
+                <StackPanel>
+                    <TextBlock Text="Folder the saved edits land in:"/>
+                    <TextBox x:Name="TxtEditsDir"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Where the dashboard's 'Save changes for Revit' download ends up and Apply Edits looks for it. Leave BLANK for your Downloads folder."/>
+                    <CheckBox x:Name="ChkConfirm" IsChecked="True"
+                              Margin="0,10,0,0"
+                              Content="Ask before Apply Edits changes the model"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Unticked, Apply Edits applies the newest edits file straight away (still one undo step)."/>
+                </StackPanel>
+            </GroupBox>
+
+            <TextBlock Style="{StaticResource Hint}"
+                       Text="Everything here is remembered per user (pyMEP settings), not per model."/>
+        </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" Background="#F4F4F4" Padding="14,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnOK" Content="OK" IsDefault="True"
+                        Style="{StaticResource DialogButton}" Click="on_ok"/>
+                <Button x:Name="BtnCancel" Content="Cancel" IsCancel="True"
+                        Style="{StaticResource DialogButton}" Click="on_cancel"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

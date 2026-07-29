@@ -29,8 +29,9 @@ pyMEP.extension/
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
-    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, Create Pipe Sizes
-    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools, Networks dashboard, Structure to Pipe
+    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, small stack: Create Pipe Sizes + Structure to Pipe
+    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools
+    02_Networks.panel/          # 'Networks': dashboard launch, small stack: Apply Edits + Network Settings
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
@@ -38,7 +39,7 @@ pyMEP.extension/
     08_Electrical.panel/        # Encasement
 ```
 
-8 panels, 31 buttons, every one with its own icon.
+9 panels, 32 buttons, every one with its own icon.
 
 ## Panels
 
@@ -157,10 +158,21 @@ neither fits, it offers to place at the internal origin using the
 export's own origin (optionally saving it to Settings). Rectangular duct-bank
 rows are skipped - only circular runs become pipes.
 
-**Create Pipe Sizes** - reads a dashboard pipes export, lists the
-distinct circular diameters and adds the missing ones to the pipe
-Segment configured in Settings > Pipes (Place Pipes already does this
-automatically; keep for adding sizes without placing pipes).
+**Create Pipe Sizes** (small, stacked) - reads a dashboard pipes
+export, lists the distinct circular diameters and adds the missing ones
+to the pipe Segment configured in Settings > Pipes (Place Pipes already
+does this automatically; keep for adding sizes without placing pipes).
+
+**Structure to Pipe** (small, stacked under Create Pipe Sizes) -
+selection-driven one-off: replaces a cylinder structure (a Generic
+Cylinder Plumbing Fixture carrying `DIA` + `H`, the placeholder used
+for vertical risers) with a real vertical Revit pipe of the same
+diameter and length. Each pipe stands on the cylinder's base at its
+EXACT XY (base Z from the instance bounding box, so the family's
+vertical origin doesn't matter), runs one `H` up, and takes the
+cylinder's System Type, Mark and Comments; the pipe type is the
+Settings default (else the first in the model). The original cylinders
+are deleted. Select one or more and confirm.
 
 ### Drainage
 
@@ -247,13 +259,15 @@ stretched back into one pipe), and the branch rebuilt with the same
 settings against the main as it now lies; deleted nodes get their
 branch removed. One undo step.
 
-**Drainage Networks** (split button) - the drainage 3D dashboard. The
-main click scans every placed family whose FAMILY name contains a
-filter word (default `node`, remembered), groups the instances into
-networks by their TYPE name (`STORMWATER - IN - N1` reads as system
-STORMWATER, flow IN, network N1), joins them with the tracked branches
-and the mains they tee into, and opens the lot in a browser 3D viewer
-(same design as the LandXML dashboard, fully offline). The dashboard is
+### Networks
+
+**Networks** - launches the drainage networks 3D dashboard. It scans
+every placed family whose FAMILY name contains the Network Settings
+filter word (default `node`), groups the instances into networks by
+their TYPE name (`STORMWATER - IN - N1` reads as system STORMWATER,
+flow IN, network N1), joins them with the tracked branches and the
+mains they tee into, and opens the lot in a browser 3D viewer (same
+design as the LandXML dashboard, fully offline). The dashboard is
 REBUILT from the model + registry on every launch, so running Nodes to
 Main populates it automatically. Click a network in the viewer to edit
 it: branch diameter / gradient / pipe + system type, main diameter /
@@ -261,23 +275,19 @@ gradient (upper or lower end kept), the INVERT LEVEL of the main's
 upper or lower end, and the workset - Preview redraws the network in
 3D, **Save changes for Revit** downloads `pymep_network_edits.json`.
 
-The dropdown's **Apply Dashboard Edits** picks the newest edits file
-out of Downloads and adapts the model to it: mains resized, re-graded
-and set to the typed end invert, worksets moved, and every tracked
-branch teeing into a touched main delete-healed-rebuilt against the
-main as it now lies (the same machinery as Update Nodes) - one undo
-step. The applied file is renamed `*.applied.json` so it can't run
-twice.
+**Apply Edits** (small, stacked) - picks the newest edits file out of
+the configured folder (default: Downloads) and adapts the model to it:
+mains resized, re-graded and set to the typed end invert, worksets
+moved, and every tracked branch teeing into a touched main
+delete-healed-rebuilt against the main as it now lies (the same
+machinery as Update Nodes) - one undo step. The applied file is renamed
+`*.applied.json` so it can't run twice. Asks first unless the confirm
+toggle is off.
 
-**Structure to Pipe** - selection-driven one-off: replaces a cylinder
-structure (a Generic Cylinder Plumbing Fixture carrying `DIA` + `H`, the
-placeholder used for vertical risers) with a real vertical Revit pipe of
-the same diameter and length. Each pipe stands on the cylinder's base at
-its EXACT XY (base Z from the instance bounding box, so the family's
-vertical origin doesn't matter), runs one `H` up, and takes the
-cylinder's System Type, Mark and Comments; the pipe type is the Settings
-default (else the first in the model). The original cylinders are
-deleted. Select one or more and confirm.
+**Network Settings** (small, stacked) - the dialog behind both buttons:
+the INPUT-NODE filter word (families whose family name contains it),
+the folder the dashboard's saved edits land in (blank = Downloads), and
+whether Apply Edits asks before changing the model. Saved per user.
 
 
 ### Parameters
@@ -404,6 +414,7 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `annotate_pipe_offset_mm` | perpendicular offset for pipe labels / spot elevations |
 | `chamber_dim_pairs` | reference-plane name pairs dimensioned by Dimension Section |
 | `gully_downpipe_length_mm` / `gully_invert_offset_mm` / `gully_slope_ratio` | remembered by the Gully to MH prompts (not in the Settings dialog) |
+| `networks_filter` / `networks_edits_folder` / `networks_confirm_apply` | Networks dashboard: input-node filter word, edits-file folder (blank = Downloads), ask-before-apply |
 | `github_repo` | `owner/repo` the update buttons talk to (default `OttomanLabsAI/pyMEP`; Settings > Updates) |
 | `github_token` | optional GitHub personal-access token (private repo / rate limits; Settings > Updates) |
 | `update_downloads_folder` | override the Downloads folder used by Install Update |

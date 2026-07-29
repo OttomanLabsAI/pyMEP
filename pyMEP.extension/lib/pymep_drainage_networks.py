@@ -53,6 +53,7 @@ NETWORKS_JSON = "drainage_networks.json"
 EDITS_PREFIX = "pymep_network_edits"
 EDITS_KIND = "pymep-drainage-edits"
 DATA_KIND = "pymep-drainage"
+FILTER_DEFAULT = "node"
 
 FT_TO_M = 304.8 / 1000.0
 
@@ -60,6 +61,18 @@ FT_TO_M = 304.8 / 1000.0
 # ---------------------------------------------------------------------------
 # pure (stdlib only - unit-tested without Revit)
 # ---------------------------------------------------------------------------
+def networks_settings(settings):
+    """The Networks buttons' shared settings with defaults applied:
+    (filter_word, edits_folder_or_empty, confirm_before_apply). Pure -
+    Network Settings writes the keys, Networks / Apply Edits read them
+    through this."""
+    filt = str(settings.get("networks_filter") or "").strip() \
+        or FILTER_DEFAULT
+    folder = str(settings.get("networks_edits_folder") or "").strip()
+    confirm = settings.get("networks_confirm_apply", True)
+    return filt, folder, bool(confirm)
+
+
 def parse_network(type_name):
     """'STORMWATER - IN - N1' -> {name, system, flow, label}: the parts
     of the type name split on '-'. Fewer parts degrade gracefully - the

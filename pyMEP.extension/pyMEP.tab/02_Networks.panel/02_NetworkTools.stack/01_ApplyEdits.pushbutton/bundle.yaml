@@ -1,0 +1,2 @@
+title: Apply Edits
+tooltip: "Apply the newest pymep_network_edits.json (saved by the Networks dashboard) to the model: resize/re-grade mains, set a main end's invert, move worksets, and rebuild the tracked branches to match - one undo step. Looks in the folder set in Network Settings (default: Downloads); the file is renamed *.applied.json afterwards so it can't run twice."

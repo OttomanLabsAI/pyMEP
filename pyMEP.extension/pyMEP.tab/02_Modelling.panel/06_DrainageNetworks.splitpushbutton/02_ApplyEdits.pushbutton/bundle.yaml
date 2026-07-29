@@ -1,2 +1,0 @@
-title: "Apply Dashboard\nEdits"
-tooltip: "Apply the newest pymep_network_edits.json from your Downloads folder (saved by the drainage networks dashboard) to the model: resize/re-grade mains, set a main end's invert, move worksets, and rebuild the tracked branches to match - one undo step. The file is renamed *.applied.json afterwards so it can't run twice."
