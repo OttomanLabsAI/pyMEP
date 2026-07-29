@@ -1,21 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Drainage Networks - the model's node families as editable 3D
-networks.
+"""Networks - the model's node families as editable 3D networks.
 
-Scans every placed family instance whose FAMILY name contains a filter
-word (default "node"), groups the instances into networks by their type
-name ('STORMWATER - IN - N1' -> system STORMWATER, flow IN, network
-N1), joins them with the branches Nodes to Main tracked and the mains
-they tee into, and opens the whole picture in the drainage 3D viewer.
+Scans every placed family instance whose FAMILY name contains the
+Network Settings filter word (default "node"), groups the instances
+into networks by their type name ('STORMWATER - IN - N1' -> system
+STORMWATER, flow IN, network N1), joins them with the branches Nodes to
+Main tracked and the mains they tee into, and opens the whole picture
+in the drainage 3D viewer.
 
 The dashboard is rebuilt from the model + registry on every launch -
 run Nodes to Main, hit this again, and the networks follow. Edits made
 in the viewer (sizes, gradients, worksets, main end inverts) download
-as pymep_network_edits.json; the dropdown's Apply Dashboard Edits
-adapts the model to them.
+as pymep_network_edits.json; Apply Edits adapts the model to them.
 """
 
-__title__  = "Drainage\nNetworks"
+__title__  = "Networks"
 __author__ = "Glent Group"
 
 import os
@@ -26,18 +25,19 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
 
 from pyrevit import revit, forms, script
 
-from pymep_config import (load_settings, save_settings, get_export_folder,
+from pymep_config import (load_settings, get_export_folder,
                           get_drainage_dashboard_html, DASHBOARD_DIR)
 from pymep_dashboard_launch import write_preload_html, launch_html
 from pymep_drainage_networks import (build_dashboard_data,
-                                     write_networks_json)
+                                     write_networks_json,
+                                     networks_settings)
 from pymep_log import Logger
 
 output = script.get_output()
-log = Logger(output, "DrainageNetworks")
+log = Logger(output, "Networks")
 doc = revit.doc
 
-log("### Drainage Networks")
+log("### Networks")
 
 viewer = get_drainage_dashboard_html()
 if not viewer:
@@ -50,26 +50,11 @@ if not viewer:
             DASHBOARD_DIR),
         exitscript=True)
 
-settings = load_settings()
-filt = forms.ask_for_string(
-    default=str(settings.get("networks_filter", "node")),
-    prompt="Families whose FAMILY NAME contains this word become "
-           "network nodes\n(their TYPE name names the network, e.g. "
-           "STORMWATER - IN - N1):",
-    title="Drainage Networks")
-if filt is None:
-    log("Cancelled - nothing opened.")
-    log.close()
-    script.exit()
-filt = filt.strip() or "node"
-settings["networks_filter"] = filt
-try:
-    save_settings(settings)
-except Exception:
-    pass
+filt, _folder, _confirm = networks_settings(load_settings())
 
 base = os.path.join(get_export_folder(doc), "project_files")
-log("Scanning for families containing **{}** ...".format(filt))
+log("Scanning for families containing **{}** (set the word in "
+    "**Network Settings**) ...".format(filt))
 data = build_dashboard_data(doc, base, filt)
 
 if not data["networks"]:
@@ -77,8 +62,8 @@ if not data["networks"]:
     log.close()
     forms.alert(
         "No placed families whose FAMILY name contains '{}'.\n\n"
-        "Place some node families (or try another filter word) and run "
-        "this again.".format(filt),
+        "Place some node families, or change the word in Network "
+        "Settings, and run this again.".format(filt),
         exitscript=True)
 
 n_nodes = sum(len(nw["nodes"]) for nw in data["networks"])
@@ -104,7 +89,7 @@ try:
     launch_html(launch)
     log("Dashboard opened. Select a network there to edit it; **Save "
         "changes for Revit** downloads the edits file for **Apply "
-        "Dashboard Edits**.")
+        "Edits**.")
 except Exception as ex:
     log("Couldn't build the preloaded launch copy ({}) - opening the "
         "viewer empty instead.".format(ex))

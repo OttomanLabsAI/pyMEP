@@ -1,0 +1,2 @@
+title: Networks
+tooltip: "Launch the drainage networks 3D dashboard: every placed family whose family name contains the Network Settings filter word (default 'node'), grouped into networks by type name (e.g. STORMWATER - IN - N1), joined with the tracked branches and mains Nodes to Main built. Select a network in the dashboard to edit sizes, gradients, worksets and main end inverts, then Save the edits file for Apply Edits. Rebuilt from the model on every launch."

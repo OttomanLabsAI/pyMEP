@@ -18,7 +18,7 @@ Pipes already ensures sizes automatically; keep this for adding sizes
 without placing pipes.
 """
 
-__title__  = "Create\nPipe Sizes"
+__title__  = "Create Pipe Sizes"
 __author__ = "Glent Group"
 
 import os

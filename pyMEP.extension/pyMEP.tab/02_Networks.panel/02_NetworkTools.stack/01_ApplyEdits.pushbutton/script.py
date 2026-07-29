@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Apply Dashboard Edits - adapt the model to the drainage dashboard's
-saved changes.
+"""Apply Edits - adapt the model to the Networks dashboard's saved
+changes.
 
-Picks the NEWEST pymep_network_edits*.json out of Downloads (the file
-the dashboard's 'Save changes for Revit' button downloads), then per
-edited network: resizes / re-grades its mains, sets an end invert where
-one was typed, moves worksets, and rebuilds the tracked branches
-against the main as it now lies - the same delete-heal-rebuild
-machinery Update Nodes uses, all in ONE undo step. The applied file is
-renamed *.applied.json so it can't run twice.
+Picks the NEWEST pymep_network_edits*.json out of the Network Settings
+edits folder (default: Downloads - where the dashboard's 'Save changes
+for Revit' button downloads to), then per edited network: resizes /
+re-grades its mains, sets an end invert where one was typed, moves
+worksets, and rebuilds the tracked branches against the main as it now
+lies - the same delete-heal-rebuild machinery Update Nodes uses, all in
+ONE undo step. The applied file is renamed *.applied.json so it can't
+run twice.
 """
 
-__title__  = "Apply Dashboard\nEdits"
+__title__  = "Apply Edits"
 __author__ = "Glent Group"
 
 import os
@@ -22,26 +23,31 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
 
 from pyrevit import revit, forms, script
 
-from pymep_config import get_export_folder, get_downloads_folder
+from pymep_config import (get_export_folder, get_downloads_folder,
+                          load_settings)
 from pymep_drainage_networks import (find_edits_file, parse_edits,
-                                     apply_edits, mark_applied)
+                                     apply_edits, mark_applied,
+                                     networks_settings)
 from pymep_log import Logger
 
 output = script.get_output()
 log = Logger(output, "ApplyNetworkEdits")
 doc = revit.doc
 
-log("### Apply Dashboard Edits")
+log("### Apply Edits")
 
-downloads = get_downloads_folder()
-path = find_edits_file(downloads)
+_filt, folder, confirm = networks_settings(load_settings())
+if not (folder and os.path.isdir(folder)):
+    folder = get_downloads_folder()
+path = find_edits_file(folder)
 if path is None:
-    log("No pymep_network_edits*.json in {}".format(downloads))
+    log("No pymep_network_edits*.json in {}".format(folder))
     log.close()
     forms.alert(
-        "No edits file found in Downloads.\n\nOpen the Drainage "
-        "Networks dashboard, change something on a network and hit "
-        "'Save changes for Revit' - then run this again.",
+        "No edits file found in\n{}\n\nOpen the Networks dashboard, "
+        "change something on a network and hit 'Save changes for "
+        "Revit' - then run this again. (The folder is set in Network "
+        "Settings; blank = Downloads.)".format(folder),
         exitscript=True)
 
 f = open(path, "rb")
@@ -60,7 +66,7 @@ except ValueError as ex:
 names = [e.get("network") or "?" for e in edits["edits"]]
 log("Edits file: **{}**".format(path))
 log("Networks to adapt: **{}**".format(", ".join(names)))
-if not forms.alert(
+if confirm and not forms.alert(
         "Apply the dashboard edits from\n{}\n\nNetworks: {}\n\nThe "
         "mains and tracked branches of these networks will be "
         "reshaped/rebuilt (one undo step).".format(

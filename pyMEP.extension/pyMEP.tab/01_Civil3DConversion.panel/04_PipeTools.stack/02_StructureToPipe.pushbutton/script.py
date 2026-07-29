@@ -11,7 +11,7 @@ tool for models where vertical risers were placed as placeholder
 cylinders.
 """
 
-__title__  = "Structure\nto Pipe"
+__title__  = "Structure to Pipe"
 __author__ = "Glent Group"
 
 import sys

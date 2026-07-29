@@ -28,7 +28,8 @@ def load(names):
     import json as _json
     ns = {"math": math, "os": os, "json": _json, "FT_TO_M": FT,
           "EDITS_KIND": "pymep-drainage-edits",
-          "EDITS_PREFIX": "pymep_network_edits"}
+          "EDITS_PREFIX": "pymep_network_edits",
+          "FILTER_DEFAULT": "node"}
 
     def regrade_main_ends(a, b, slope_n, keep="low"):
         if not slope_n or slope_n <= 0:
@@ -53,7 +54,9 @@ def load(names):
 
 
 NS = load(["parse_network", "line_key", "run_extremes", "new_main_ends",
-           "project_z", "parse_edits", "find_edits_file", "mark_applied"])
+           "project_z", "parse_edits", "find_edits_file", "mark_applied",
+           "networks_settings"])
+networks_settings = NS["networks_settings"]
 parse_network = NS["parse_network"]
 line_key = NS["line_key"]
 run_extremes = NS["run_extremes"]
@@ -62,6 +65,21 @@ project_z = NS["project_z"]
 parse_edits = NS["parse_edits"]
 find_edits_file = NS["find_edits_file"]
 mark_applied = NS["mark_applied"]
+
+
+class NetworksSettings(unittest.TestCase):
+
+    def test_defaults(self):
+        self.assertEqual(networks_settings({}), ("node", "", True))
+
+    def test_values_and_blanks(self):
+        s = {"networks_filter": "  chamber ",
+             "networks_edits_folder": " C:\\edits ",
+             "networks_confirm_apply": False}
+        self.assertEqual(networks_settings(s),
+                         ("chamber", "C:\\edits", False))
+        self.assertEqual(networks_settings({"networks_filter": "   "}),
+                         ("node", "", True))
 
 
 class ParseNetwork(unittest.TestCase):
