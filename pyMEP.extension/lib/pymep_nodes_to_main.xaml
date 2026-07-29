@@ -1,0 +1,100 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Nodes to Main"
+        Width="520" Height="400" MinWidth="480" MinHeight="370"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Background="White">
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Padding" Value="10,8,10,10"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,6,10,0"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="DialogButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#F4F4F4" Padding="14,10">
+            <StackPanel>
+                <TextBlock FontSize="15" FontWeight="SemiBold"
+                           Text="Nodes to Main"/>
+                <TextBlock x:Name="TxtInfo" Style="{StaticResource Hint}"
+                           Text="&#8212;"/>
+            </StackPanel>
+        </Border>
+
+        <StackPanel Grid.Row="1" Margin="14,12,14,0">
+            <GroupBox Header="Node family type">
+                <StackPanel>
+                    <ComboBox x:Name="CmbType"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Every placed, still-unconnected node of this type gets piped into the main. The pipe diameter comes from EACH node's own outlet connector (snapped to the main type's routing sizes)."/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Gradient">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="110"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Ratio  1 :"/>
+                    <TextBox x:Name="TxtSlope" Grid.Row="0" Grid.Column="1"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                               Style="{StaticResource Hint}"
+                               Text="Each node gets a drop pipe from its outlet, a bend, and a run falling at this gradient to meet the main as it lies - joined into the main with a tee junction."/>
+                </Grid>
+            </GroupBox>
+
+            <TextBlock x:Name="StatusText" Foreground="#B00020"
+                       TextWrapping="Wrap" Text=""/>
+        </StackPanel>
+
+        <Border Grid.Row="2" Background="#F4F4F4" Padding="14,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnConnect" Content="Connect"
+                        Style="{StaticResource DialogButton}" IsDefault="True"
+                        Click="on_connect"/>
+                <Button x:Name="BtnCancel" Content="Cancel"
+                        Style="{StaticResource DialogButton}" IsCancel="True"
+                        Click="on_cancel"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
