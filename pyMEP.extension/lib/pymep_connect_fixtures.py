@@ -476,6 +476,13 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
 
     pipe_type = doc.GetElement(type_id)
     dia_ft = _snap_dia_ft(doc, pipe_type, mm2ft(dia_mm))
+    # Revit compares connector sizes EXACTLY: a branch that differs from
+    # the main by a rounding hair (235.0 vs 234.9998856 - a feet value
+    # rounded somewhere upstream) reads as a size change and buys a
+    # 'reducing' coupling at the tee. Same-within-a-millimetre means
+    # same: take the main's exact diameter.
+    if _mdia and abs(dia_ft - _mdia) <= mm2ft(1.0):
+        dia_ft = _mdia
 
     pts = branch_points(outlet, a, b, slope_n, dia_ft, invert_m)
     bend = XYZ(*pts["bend"])
