@@ -232,7 +232,7 @@ type, system type and level; diameter and slope are remembered between
 runs. A fitting that can't be placed never fails the branch - the
 pipes stay and the miss is reported.
 
-**Nodes to Main** - the family-type-driven sibling of Connect Fixtures:
+**Inflow Drop Pipe to Collector** - the family-type-driven sibling of Connect Fixtures:
 select (or pick) ONE main pipe, then choose the node family -
 CATEGORY, then FAMILY, then TYPE (EVERY placed point-placed family is
 offered, all categories - a pipe connector is not required, families

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Track the branches Nodes to Main builds, so moving a node and hitting
+"""Track the branches Inflow Drop Pipe to Collector builds, so moving a node and hitting
 UPDATE adapts the pipework.
 
 Every built branch is recorded in the project's file store

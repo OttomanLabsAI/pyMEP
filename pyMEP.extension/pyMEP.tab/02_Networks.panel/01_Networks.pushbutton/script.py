@@ -9,7 +9,7 @@ Main tracked and the mains they tee into, and opens the whole picture
 in the drainage 3D viewer.
 
 The dashboard is rebuilt from the model + registry on every launch -
-run Nodes to Main, hit this again, and the networks follow. Edits made
+run Inflow Drop Pipe to Collector, hit this again, and the networks follow. Edits made
 in the viewer (sizes, gradients, worksets, main end inverts) download
 as pymep_network_edits.json; Apply Edits adapts the model to them.
 """
@@ -87,7 +87,7 @@ for nw in data["networks"]:
         nw["name"], len(nw["nodes"]), len(nw["branches"]),
         len(nw["mains"])))
 if not n_br:
-    log("(No tracked branches yet - run **Nodes to Main** and the "
+    log("(No tracked branches yet - run **Inflow Drop Pipe to Collector** and the "
         "pipework appears here automatically.)")
 
 data_path = write_networks_json(base, data)
