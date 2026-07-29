@@ -137,6 +137,65 @@ class RegradeMain(unittest.TestCase):
         self.assertAlmostEqual(b2[2], 6.0, places=9)
 
 
+node_categories = extract("node_categories")
+node_families = extract("node_families")
+node_types_in = extract("node_types_in")
+search_node_rows = extract("search_node_rows")
+
+
+def nrow(cat, fam, typ):
+    return {"cat": cat, "fam": fam, "type": typ,
+            "label": "{} : {} : {}".format(cat, fam, typ), "insts": []}
+
+
+NODE_ROWS = [
+    nrow("Plumbing Fixtures", "760.403.110 INDUSTRIAL DRAIN FG", "110"),
+    nrow("Plumbing Fixtures", "760.403.110 INDUSTRIAL DRAIN FG", "160"),
+    nrow("Plumbing Fixtures", "Gully Trapped", "Standard"),
+    nrow("Generic Models", "Cylinder Chamber", "1200 dia"),
+]
+
+
+class NodePicker(unittest.TestCase):
+    """category > family > type cascade, plus the search box."""
+
+    def test_categories_sorted_and_unique(self):
+        self.assertEqual(node_categories(NODE_ROWS),
+                         ["Generic Models", "Plumbing Fixtures"])
+
+    def test_families_scoped_to_category(self):
+        self.assertEqual(node_families(NODE_ROWS, "Plumbing Fixtures"),
+                         ["760.403.110 INDUSTRIAL DRAIN FG",
+                          "Gully Trapped"])
+        self.assertEqual(node_families(NODE_ROWS, "Generic Models"),
+                         ["Cylinder Chamber"])
+
+    def test_types_scoped_to_family(self):
+        got = node_types_in(NODE_ROWS, "Plumbing Fixtures",
+                            "760.403.110 INDUSTRIAL DRAIN FG")
+        self.assertEqual([r["type"] for r in got], ["110", "160"])
+
+    def test_search_matches_any_level_all_words(self):
+        self.assertEqual(
+            [r["type"] for r in search_node_rows(NODE_ROWS, "industrial")],
+            ["110", "160"])
+        # words may span category / family / type
+        self.assertEqual(
+            [r["type"] for r in search_node_rows(NODE_ROWS,
+                                                 "generic 1200")],
+            ["1200 dia"])
+        self.assertEqual(search_node_rows(NODE_ROWS, "drain 160")[0]["type"],
+                         "160")
+
+    def test_search_is_case_insensitive_and_empty_falls_back(self):
+        self.assertEqual(len(search_node_rows(NODE_ROWS, "GULLY")), 1)
+        self.assertEqual(search_node_rows(NODE_ROWS, ""), [])
+        self.assertEqual(search_node_rows(NODE_ROWS, "   "), [])
+
+    def test_search_miss_is_empty(self):
+        self.assertEqual(search_node_rows(NODE_ROWS, "ductwork"), [])
+
+
 class NearestSegment(unittest.TestCase):
 
     def test_plan_distance_clamps_and_measures(self):

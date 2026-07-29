@@ -53,12 +53,42 @@
         </Border>
 
         <StackPanel Grid.Row="1" Margin="14,12,14,0">
-            <GroupBox Header="Node family type">
-                <StackPanel>
-                    <ComboBox x:Name="CmbType"/>
-                    <TextBlock Style="{StaticResource Hint}"
-                               Text="Every placed, still-unconnected node of this type gets piped into the main. The pipe diameter comes from EACH node's own outlet connector (snapped to the main type's routing sizes)."/>
-                </StackPanel>
+            <GroupBox Header="Node family">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Category"/>
+                    <ComboBox x:Name="CmbCat" Grid.Row="0" Grid.Column="1"
+                              SelectionChanged="on_cat_changed"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Family"/>
+                    <ComboBox x:Name="CmbFam" Grid.Row="1" Grid.Column="1"
+                              SelectionChanged="on_fam_changed"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Type"/>
+                    <ComboBox x:Name="CmbType" Grid.Row="2" Grid.Column="1"/>
+                    <TextBlock Grid.Row="3" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Search"/>
+                    <TextBox x:Name="TxtSearch" Grid.Row="3" Grid.Column="1"
+                             TextChanged="on_search"/>
+                    <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
+                               Style="{StaticResource Hint}"
+                               Text="Type anything to search every category / family / type at once - the Type list becomes the matches (clear it to go back to the three lists). Every placed, still-unconnected node of the chosen type gets piped into the main; the pipe diameter comes from EACH node's own outlet connector."/>
+                </Grid>
             </GroupBox>
 
             <GroupBox Header="Gradient">

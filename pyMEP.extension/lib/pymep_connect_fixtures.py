@@ -218,6 +218,65 @@ def list_node_types(doc):
     return sorted(groups.values(), key=lambda t: t[0].lower())
 
 
+def node_type_rows(doc):
+    """One row per placed node TYPE, for the category > family > type
+    picker: [{"cat", "fam", "type", "label", "insts"}, ...] sorted by
+    category, family, type. ``label`` is 'Category : Family : Type'."""
+    rows = []
+    for _lbl, insts in list_node_types(doc):
+        cat, fam, typ = "(no category)", "?", "?"
+        try:
+            sym = insts[0].Symbol
+            typ = safe_name(sym)
+            try:
+                fam = safe_name(sym.Family)
+            except Exception:
+                pass
+            c = sym.Category
+            if c is not None:
+                cat = c.Name
+        except Exception:
+            pass
+        rows.append({"cat": cat, "fam": fam, "type": typ,
+                     "label": "{} : {} : {}".format(cat, fam, typ),
+                     "insts": insts})
+    rows.sort(key=lambda r: (r["cat"].lower(), r["fam"].lower(),
+                             r["type"].lower()))
+    return rows
+
+
+# --- pure helpers over those rows (unit-tested without Revit) ----------
+def node_categories(rows):
+    """Sorted category names present."""
+    return sorted(set(r["cat"] for r in rows), key=lambda s: s.lower())
+
+
+def node_families(rows, cat):
+    """Sorted family names inside one category."""
+    return sorted(set(r["fam"] for r in rows if r["cat"] == cat),
+                  key=lambda s: s.lower())
+
+
+def node_types_in(rows, cat, fam):
+    """The rows of one category+family, in type order."""
+    return [r for r in rows if r["cat"] == cat and r["fam"] == fam]
+
+
+def search_node_rows(rows, query):
+    """Rows whose 'Category : Family : Type' contains EVERY whitespace-
+    separated word of ``query`` (case-insensitive). Empty query -> []
+    so the caller can fall back to the cascade."""
+    words = (query or "").lower().split()
+    if not words:
+        return []
+    out = []
+    for r in rows:
+        hay = r["label"].lower()
+        if all(w in hay for w in words):
+            out.append(r)
+    return out
+
+
 def outlet_is_connected(fixture):
     """True when the fixture's outlet connector already has something on
     it - such nodes are left alone."""

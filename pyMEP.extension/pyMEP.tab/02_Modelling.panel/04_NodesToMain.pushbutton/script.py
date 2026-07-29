@@ -25,7 +25,8 @@ from pyrevit import revit, forms, script
 
 from pymep_connect_fixtures import (
     fixture_outlet_info, main_pipe_info, connect_fixture_to_main,
-    plan_dist_to_segment, list_node_types, outlet_is_connected,
+    plan_dist_to_segment, outlet_is_connected, node_type_rows,
+    node_categories, node_families, node_types_in, search_node_rows,
 )
 from pymep_config import load_settings, save_settings
 from pymep_revit import safe_name, ft2mm
@@ -85,15 +86,12 @@ except Exception as ex:
 # ---------------------------------------------------------------------------
 # 2. The node types placed in this model (families with a pipe connector)
 # ---------------------------------------------------------------------------
-node_types = list_node_types(doc)
-if not node_types:
+rows = node_type_rows(doc)
+if not rows:
     forms.alert("No placed families with a pipe connector in this "
                 "model - nothing to pipe up.", exitscript=True)
-
-rows = []
-for label, insts in node_types:
-    todo = [i for i in insts if not outlet_is_connected(i)]
-    rows.append((label, insts, todo))
+for r in rows:
+    r["todo"] = [i for i in r["insts"] if not outlet_is_connected(i)]
 
 settings = load_settings()
 XAML_PATH = os.path.join(
@@ -101,30 +99,106 @@ XAML_PATH = os.path.join(
     "pymep_nodes_to_main.xaml")
 
 
+def _type_label(r):
+    return "{}   ({} placed, {} to connect)".format(
+        r["type"], len(r["insts"]), len(r["todo"]))
+
+
 class NodesWindow(forms.WPFWindow):
 
     def __init__(self):
         forms.WPFWindow.__init__(self, XAML_PATH)
         self.result = None
+        self._shown = []          # the rows currently in CmbType
+        self._loading = True
         self.TxtInfo.Text = "Main: '{}' ({:.0f} mm), tee junctions".format(
             safe_name(main), ft2mm(main_dia_ft))
-        self.CmbType.Items.Clear()
-        for label, insts, todo in rows:
-            self.CmbType.Items.Add("{}   ({} placed, {} to connect)"
-                                   .format(label, len(insts), len(todo)))
-        want = settings.get("nodes_family")
-        idx = 0
-        for i, (label, _insts, _todo) in enumerate(rows):
-            if label == want:
-                idx = i
-                break
-        self.CmbType.SelectedIndex = idx
         self.TxtSlope.Text = "{:g}".format(
             float(settings.get("nodes_slope", 100.0)))
 
+        self.CmbCat.Items.Clear()
+        for c in node_categories(rows):
+            self.CmbCat.Items.Add(c)
+        # restore the last-used category > family > type when it is still
+        # in the model, else start at the top of each list
+        want = settings.get("nodes_label")
+        prev = None
+        for r in rows:
+            if r["label"] == want:
+                prev = r
+                break
+        self._loading = False
+        self.CmbCat.SelectedItem = prev["cat"] if prev else (
+            self.CmbCat.Items[0] if self.CmbCat.Items.Count else None)
+        if prev:
+            self.CmbFam.SelectedItem = prev["fam"]
+            for i, r in enumerate(self._shown):
+                if r["label"] == prev["label"]:
+                    self.CmbType.SelectedIndex = i
+                    break
+
+    # ---- cascade ----------------------------------------------------------
+    def _fill_fams(self):
+        cat = self.CmbCat.SelectedItem
+        self.CmbFam.Items.Clear()
+        if cat is None:
+            return
+        for f in node_families(rows, str(cat)):
+            self.CmbFam.Items.Add(f)
+        if self.CmbFam.Items.Count:
+            self.CmbFam.SelectedIndex = 0
+
+    def _fill_types(self):
+        cat, fam = self.CmbCat.SelectedItem, self.CmbFam.SelectedItem
+        self._show_rows(node_types_in(rows, str(cat), str(fam))
+                        if (cat is not None and fam is not None) else [])
+
+    def _show_rows(self, shown):
+        self._shown = list(shown)
+        self.CmbType.Items.Clear()
+        for r in self._shown:
+            self.CmbType.Items.Add(_type_label(r))
+        if self.CmbType.Items.Count:
+            self.CmbType.SelectedIndex = 0
+
+    def on_cat_changed(self, sender, args):
+        if self._loading or self.TxtSearch.Text.strip():
+            return
+        self._fill_fams()
+        self._fill_types()
+
+    def on_fam_changed(self, sender, args):
+        if self._loading or self.TxtSearch.Text.strip():
+            return
+        self._fill_types()
+
+    # ---- search overrides the cascade --------------------------------------
+    def on_search(self, sender, args):
+        if self._loading:
+            return
+        q = self.TxtSearch.Text.strip()
+        if not q:
+            self.CmbCat.IsEnabled = self.CmbFam.IsEnabled = True
+            self._fill_types()
+            self.StatusText.Text = ""
+            return
+        self.CmbCat.IsEnabled = self.CmbFam.IsEnabled = False
+        hits = search_node_rows(rows, q)
+        # searching shows the FULL label so matches stay unambiguous
+        self._shown = list(hits)
+        self.CmbType.Items.Clear()
+        for r in hits:
+            self.CmbType.Items.Add("{}   ({} placed, {} to connect)".format(
+                r["label"], len(r["insts"]), len(r["todo"])))
+        if self.CmbType.Items.Count:
+            self.CmbType.SelectedIndex = 0
+        self.StatusText.Text = ("" if hits else
+                                "Nothing matches '{}'.".format(q))
+
     def on_connect(self, sender, args):
-        if self.CmbType.SelectedIndex < 0:
-            self.StatusText.Text = "Pick a node family type."
+        i = self.CmbType.SelectedIndex
+        if i < 0 or i >= len(self._shown):
+            self.StatusText.Text = "Pick a node type."
             return
         try:
             slope = float(self.TxtSlope.Text)
@@ -134,7 +208,7 @@ class NodesWindow(forms.WPFWindow):
             self.StatusText.Text = ("The gradient must be a positive "
                                     "number (the n of 1:n).")
             return
-        self.result = {"idx": self.CmbType.SelectedIndex, "slope": slope}
+        self.result = {"row": self._shown[i], "slope": slope}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -149,9 +223,10 @@ if win.result is None:
     log.close()
     script.exit()
 
-label, insts, todo = rows[win.result["idx"]]
+row = win.result["row"]
+label, insts, todo = row["label"], row["insts"], row["todo"]
 slope = win.result["slope"]
-settings["nodes_family"] = label
+settings["nodes_label"] = label
 settings["nodes_slope"] = slope
 try:
     save_settings(settings)
