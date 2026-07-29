@@ -47,7 +47,9 @@ uidoc = revit.uidoc
 log("### Merge Pipes")
 
 # ---------------------------------------------------------------------------
-# 1. Gather the selected pipes
+# 1. Gather the pipes: a pre-selection works as before; nothing selected
+#    drops into PICK mode - choose pipes in the view, then Finish on the
+#    options bar under the ribbon
 # ---------------------------------------------------------------------------
 pipes = []
 for eid in uidoc.Selection.GetElementIds():
@@ -56,12 +58,37 @@ for eid in uidoc.Selection.GetElementIds():
         pipes.append(el)
 
 if len(pipes) < 2:
-    forms.alert("Select at least two pipes to merge.\n\n"
-                "Tip: select all the pipes that make up a run (you can "
-                "leave the couplings between them unselected) and run "
-                "this again.", exitscript=True)
+    log("No pipes pre-selected - pick the pipes to merge in the view, "
+        "then **Finish** on the options bar under the ribbon.")
+    clr.AddReference("RevitAPIUI")
+    from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 
-log("Selected **{}** pipe(s).".format(len(pipes)))
+    class _PipesOnly(ISelectionFilter):
+        def AllowElement(self, e):
+            return isinstance(e, Pipe)
+
+        def AllowReference(self, r, p):
+            return False
+
+    try:
+        refs = uidoc.Selection.PickObjects(
+            ObjectType.Element, _PipesOnly(),
+            "Pick the pipes to merge, then Finish")
+    except Exception:            # Esc / Cancel on the options bar
+        refs = None
+    if refs:
+        for r in refs:
+            el = doc.GetElement(r.ElementId)
+            if isinstance(el, Pipe):
+                pipes.append(el)
+
+if len(pipes) < 2:
+    forms.alert("At least two pipes are needed to merge.\n\n"
+                "Tip: pick all the pipes that make up a run (you can "
+                "leave the couplings between them unpicked).",
+                exitscript=True)
+
+log("Working on **{}** pipe(s).".format(len(pipes)))
 pipes_by_id = dict((p.Id.IntegerValue, p) for p in pipes)
 
 rows, notes = read_pipe_rows(pipes)
