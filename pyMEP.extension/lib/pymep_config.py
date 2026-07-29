@@ -291,20 +291,15 @@ def get_landxml_segment_name():
 DASHBOARD_DIR = os.path.join(EXT_ROOT, "dashboard")
 
 
-def get_dashboard_html():
-    """Path of the utilities 3D dashboard HTML that Open Dashboard
-    launches. Priority: the 'dashboard_html_path' settings override
-    (when the file exists), then the NEWEST *.html inside
-    <extension>/dashboard/ - so dropping a new viewer version into that
-    folder is all an upgrade takes. '' when nothing is found."""
-    s = load_settings()
-    override = (s.get("dashboard_html_path") or "").strip()
-    if override and os.path.isfile(override):
-        return override
+def _newest_dashboard_html(want_drainage):
+    """The NEWEST *.html inside <extension>/dashboard/ - names carrying
+    'drainage' belong to the Drainage Networks viewer, everything else
+    to the LandXML one. '' when nothing matches."""
     try:
         cands = [os.path.join(DASHBOARD_DIR, n)
                  for n in os.listdir(DASHBOARD_DIR)
-                 if n.lower().endswith((".html", ".htm"))]
+                 if n.lower().endswith((".html", ".htm"))
+                 and (("drainage" in n.lower()) == bool(want_drainage))]
     except OSError:
         cands = []
     cands = [p for p in cands if os.path.isfile(p)]
@@ -312,6 +307,31 @@ def get_dashboard_html():
         return ""
     cands.sort(key=lambda p: os.path.getmtime(p))
     return cands[-1]
+
+
+def get_dashboard_html():
+    """Path of the utilities 3D dashboard HTML that Open Dashboard
+    launches. Priority: the 'dashboard_html_path' settings override
+    (when the file exists), then the NEWEST non-drainage *.html inside
+    <extension>/dashboard/ - so dropping a new viewer version into that
+    folder is all an upgrade takes. '' when nothing is found."""
+    s = load_settings()
+    override = (s.get("dashboard_html_path") or "").strip()
+    if override and os.path.isfile(override):
+        return override
+    return _newest_dashboard_html(False)
+
+
+def get_drainage_dashboard_html():
+    """Path of the Drainage Networks 3D viewer HTML. Priority: the
+    'drainage_dashboard_html_path' settings override (when the file
+    exists), then the NEWEST *drainage*.html inside
+    <extension>/dashboard/. '' when nothing is found."""
+    s = load_settings()
+    override = (s.get("drainage_dashboard_html_path") or "").strip()
+    if override and os.path.isfile(override):
+        return override
+    return _newest_dashboard_html(True)
 
 
 def get_dashboard_layer_workset_map():

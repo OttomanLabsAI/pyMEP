@@ -30,7 +30,7 @@ pyMEP.extension/
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, Create Pipe Sizes
-    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools, Structure to Pipe
+    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools, Networks dashboard, Structure to Pipe
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
@@ -38,7 +38,7 @@ pyMEP.extension/
     08_Electrical.panel/        # Encasement
 ```
 
-8 panels, 29 buttons, every one with its own icon.
+8 panels, 31 buttons, every one with its own icon.
 
 ## Panels
 
@@ -246,6 +246,28 @@ deleted, the main healed across the old tee (the two open halves
 stretched back into one pipe), and the branch rebuilt with the same
 settings against the main as it now lies; deleted nodes get their
 branch removed. One undo step.
+
+**Drainage Networks** (split button) - the drainage 3D dashboard. The
+main click scans every placed family whose FAMILY name contains a
+filter word (default `node`, remembered), groups the instances into
+networks by their TYPE name (`STORMWATER - IN - N1` reads as system
+STORMWATER, flow IN, network N1), joins them with the tracked branches
+and the mains they tee into, and opens the lot in a browser 3D viewer
+(same design as the LandXML dashboard, fully offline). The dashboard is
+REBUILT from the model + registry on every launch, so running Nodes to
+Main populates it automatically. Click a network in the viewer to edit
+it: branch diameter / gradient / pipe + system type, main diameter /
+gradient (upper or lower end kept), the INVERT LEVEL of the main's
+upper or lower end, and the workset - Preview redraws the network in
+3D, **Save changes for Revit** downloads `pymep_network_edits.json`.
+
+The dropdown's **Apply Dashboard Edits** picks the newest edits file
+out of Downloads and adapts the model to it: mains resized, re-graded
+and set to the typed end invert, worksets moved, and every tracked
+branch teeing into a touched main delete-healed-rebuilt against the
+main as it now lies (the same machinery as Update Nodes) - one undo
+step. The applied file is renamed `*.applied.json` so it can't run
+twice.
 
 **Structure to Pipe** - selection-driven one-off: replaces a cylinder
 structure (a Generic Cylinder Plumbing Fixture carrying `DIA` + `H`, the
