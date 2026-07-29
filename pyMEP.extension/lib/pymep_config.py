@@ -24,6 +24,7 @@ auto-detected paths:
 
 import os
 import json
+import shutil
 
 # ---------------------------------------------------------------------------
 # PATHS RELATIVE TO THIS FILE
@@ -34,7 +35,42 @@ _THIS_FILE   = os.path.abspath(__file__)
 _LIB_DIR     = os.path.dirname(_THIS_FILE)
 EXT_ROOT     = os.path.dirname(_LIB_DIR)  # pyMEP.extension/
 SCRIPTS_DIR  = os.path.join(EXT_ROOT, "conduit_analysis")
-EXPORTS_ROOT = os.path.join(EXT_ROOT, "exports")
+
+# Where a project's exports / tracking / project files live. The OLD
+# home was inside the extension folder - which Install Update REPLACES,
+# taking the branch-tracking registry and stored project files with it.
+# The durable home sits beside the settings file in %APPDATA%\pyRevit,
+# so it survives every version update; the legacy in-extension folder
+# is still read (and rescued from) so nothing already stored is lost.
+LEGACY_EXPORTS_ROOT = os.path.join(EXT_ROOT, "exports")
+_APPDATA = os.environ.get("APPDATA", "")
+EXPORTS_ROOT = (os.path.join(_APPDATA, "pyRevit", "pyMEP_exports")
+                if _APPDATA else LEGACY_EXPORTS_ROOT)
+
+
+def _merge_copy(src, dst):
+    """Copy everything under ``src`` into ``dst`` WITHOUT overwriting
+    anything already there (existing files win - they are the newer,
+    live data). Returns the number of files copied."""
+    copied = 0
+    for root, _dirs, files in os.walk(src):
+        rel = os.path.relpath(root, src)
+        target = dst if rel == "." else os.path.join(dst, rel)
+        if not os.path.isdir(target):
+            try:
+                os.makedirs(target)
+            except Exception:
+                continue
+        for name in files:
+            t = os.path.join(target, name)
+            if os.path.exists(t):
+                continue
+            try:
+                shutil.copy2(os.path.join(root, name), t)
+                copied += 1
+            except Exception:
+                pass
+    return copied
 
 # User-level settings file (optional overrides). Kept separate from the
 # sibling pyMEP extension so the two don't clobber each other's config.
@@ -100,11 +136,24 @@ def _safe_folder_name(title):
 
 
 def get_default_export_folder(doc):
-    """`<extension root>/exports/<revit filename>/`, auto-created."""
-    folder = os.path.join(EXPORTS_ROOT, _safe_folder_name(doc.Title))
+    """`%APPDATA%/pyRevit/pyMEP_exports/<revit filename>/`, auto-created.
+
+    Anything still sitting in the legacy in-extension home
+    (`<extension>/exports/<model>/`) is merge-copied in on access -
+    never overwriting live files - so tracking registries and project
+    files stored by older versions carry over."""
+    name = _safe_folder_name(doc.Title)
+    folder = os.path.join(EXPORTS_ROOT, name)
     if not os.path.exists(folder):
         try: os.makedirs(folder)
         except: pass
+    if EXPORTS_ROOT != LEGACY_EXPORTS_ROOT:
+        legacy = os.path.join(LEGACY_EXPORTS_ROOT, name)
+        if os.path.isdir(legacy):
+            try:
+                _merge_copy(legacy, folder)
+            except Exception:
+                pass
     return folder
 
 
