@@ -309,10 +309,13 @@ def node_direction(inst):
 
 def node_directions(inst):
     """Candidate plan directions from the node's ROTATION, in priority
-    order: facing, hand, then their opposites. Families draw their
-    direction wire along different local axes, so the caller tries each
-    and keeps the FIRST whose ray actually meets the main - that's the
-    axis the modeller aimed."""
+    order: the FACING pair (facing, then its opposite), then the HAND
+    pair. Families draw their direction wire along different local
+    axes, so the caller tries each and keeps the FIRST whose ray meets
+    the main. Within a pair only ONE direction can hit forward (they
+    point apart), so pair order is what matters: a long main can be hit
+    by both pairs 90 degrees apart - the facing pair, the axis families
+    draw their wire on, must win."""
     out = []
     for attr in ("FacingOrientation", "HandOrientation"):
         try:
@@ -320,9 +323,10 @@ def node_directions(inst):
             d = (v.X, v.Y)
             if abs(d[0]) + abs(d[1]) > 1e-6:
                 out.append(d)
+                out.append((-d[0], -d[1]))
         except Exception:
             continue
-    return out + [(-d[0], -d[1]) for d in out]
+    return out
 
 
 def node_drop_pipe(inst):
