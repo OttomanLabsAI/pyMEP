@@ -183,8 +183,8 @@ cylinder's System Type, Mark and Comments; the pipe type is the
 Settings default (else the first in the model). The original cylinders
 are deleted. Select one or more and confirm.
 
-**Family at Pipe Top** (its own column, big icon with no label - the
-name lives in the tooltip)
+**Family at Pipe Top** (its own column, small icon with no label -
+the name lives in the tooltip)
 - the inverse of Structure to Pipe: select pipes, pick a family type
 (category > family > type, with a search box that matches all three at
 once) and one instance is placed at the TOP end of each pipe - the head

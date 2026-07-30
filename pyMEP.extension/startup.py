@@ -31,7 +31,11 @@ PANEL_ORDER = ["pyMEP", "Civil 3D Conversion", "Electrical", "Drainage",
 # names): big icons in a two-high stack, standard size in a three-high
 # one. Titles normalized to single-space before matching.
 ICON_ONLY = set(["Create Pipe Sizes", "Structure to Pipe",
-                 "Family at Pipe Top", "Apply Edits", "Network Settings"])
+                 "Apply Edits", "Network Settings"])
+
+# Standalone buttons shown SMALL with no label: a slim column of their
+# own, standard icon size - not a full-height large button.
+ICON_ONLY_SMALL = set(["Family at Pipe Top"])
 
 _state = {"tries": 0}
 
@@ -109,14 +113,14 @@ def _enlarge_stacked(items, siblings=0):
             text = " ".join(str(item.Text or "").split())
         except Exception:
             continue
-        if text not in ICON_ONLY:
+        if text not in ICON_ONLY and text not in ICON_ONLY_SMALL:
             continue
         try:
             if item.LargeImage is None and item.Image is not None:
                 item.LargeImage = item.Image
             if item.Image is None and item.LargeImage is not None:
                 item.Image = item.LargeImage
-            if siblings >= 3:
+            if text in ICON_ONLY_SMALL or siblings >= 3:
                 item.Size = RibbonItemSize.Standard
             else:
                 item.Size = RibbonItemSize.Large
