@@ -167,7 +167,7 @@ neither fits, it offers to place at the internal origin using the
 export's own origin (optionally saving it to Settings). Rectangular duct-bank
 rows are skipped - only circular runs become pipes.
 
-**Create Pipe Sizes** (stacked, big icon - the name lives in the tooltip) - reads a dashboard pipes
+**Create Pipe Sizes** (stacked icon-only - the name lives in the tooltip; a three-high stack keeps the standard icon size, two-high stacks show big icons) - reads a dashboard pipes
 export, lists the distinct circular diameters and adds the missing ones
 to the pipe Segment configured in Settings > Pipes (Place Pipes already
 does this automatically; keep for adding sizes without placing pipes).
