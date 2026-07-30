@@ -74,7 +74,10 @@ durable per-project home every button reads and writes, so the branch
 tracking and stored project files SURVIVE version updates. Every failure
 after the swap restores the previous version; if Windows won't release
 the live folder, nothing is touched and it points you at
-`supersede_pyExtensions.py`. Uses the `github_repo` / `github_token` /
+`supersede_pyExtensions.py`. After a successful install pyRevit
+RELOADS AUTOMATICALLY - accepting the upgrade is the go-ahead, no
+second question (a full Revit restart is still the safest after
+ribbon reshuffles). Uses the `github_repo` / `github_token` /
 `update_downloads_folder` settings keys.
 
 The Settings window's Updates section holds the **install a specific

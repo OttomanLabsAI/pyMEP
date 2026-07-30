@@ -381,19 +381,17 @@ class SettingsWindow(forms.WPFWindow):
             return
         self.TxtInstalledVer.Text = new_ver or ver
         self.StatusText.Text = "Installed {}.".format(new_ver or ver)
-        if forms.alert(
-                "Installed {}.\n\nReload pyRevit now so it is live?"
-                .format(new_ver or ver),
-                title="Installed",
-                options=["Reload pyRevit", "Later"]) == "Reload pyRevit":
-            self.Close()
-            try:
-                from pyrevit.loader import sessionmgr
-                sessionmgr.reload_pyrevit()
-            except Exception as ex:
-                forms.alert(
-                    "Automatic reload failed ({}).\n\nReload manually: "
-                    "pyRevit tab > Reload.".format(ex))
+        # accepting the install IS the go-ahead: reload pyRevit straight
+        # away so the picked version is live - no second question
+        self.Close()
+        try:
+            from pyrevit.loader import sessionmgr
+            sessionmgr.reload_pyrevit()
+        except Exception as ex:
+            forms.alert(
+                "Installed {}, but the automatic reload failed ({})."
+                "\n\nReload manually: pyRevit tab > Reload.".format(
+                    new_ver or ver, ex))
 
     # ------------------------------------------------------------------
     # bottom bar

@@ -4,5 +4,7 @@ tooltip: >-
   else newest tag, else the default branch) and installs it in one go. The
   previous version's folder is removed after a successful install (any
   version can be reinstalled from Settings > General > Downgrade /
-  reinstall); a failed install restores it automatically. Configure
+  reinstall); a failed install restores it automatically. pyRevit
+  RELOADS AUTOMATICALLY once the install succeeds, so the new version
+  is live straight away. Configure
   'github_repo' / 'github_token' in pyMEP_settings.json if needed.
