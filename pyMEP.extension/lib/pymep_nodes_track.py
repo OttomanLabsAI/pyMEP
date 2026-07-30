@@ -335,6 +335,8 @@ def update_branches(doc, base, log=None):
                     node, r, rec["slope"], rec["dia_mm"],
                     rec.get("invert_m"), rec.get("pipe_type"),
                     rec.get("sys_type"), (line_a, line_b), label))
+                if rec.get("collector"):
+                    kept[-1]["collector"] = rec["collector"]
                 rebuilt += 1
                 try:
                     els = [node, r.get("down"), r.get("sloped"),
@@ -342,7 +344,8 @@ def update_branches(doc, base, log=None):
                            r.get("new_main_segment")]
                     els += with_connected_fittings([r.get("down"),
                                                     r.get("sloped")])
-                    stamp_network(doc, els, node_network_name(node))
+                    stamp_network(doc, els, rec.get("collector")
+                                  or node_network_name(node))
                 except Exception:
                     pass
             except Exception as ex:

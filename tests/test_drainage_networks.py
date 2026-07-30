@@ -55,9 +55,10 @@ def load(names):
 
 NS = load(["parse_network", "line_key", "run_extremes", "new_main_ends",
            "project_z", "parse_edits", "find_edits_file", "mark_applied",
-           "networks_settings", "edits_stamp"])
+           "networks_settings", "edits_stamp", "next_collector_name"])
 networks_settings = NS["networks_settings"]
 edits_stamp = NS["edits_stamp"]
+next_collector_name = NS["next_collector_name"]
 parse_network = NS["parse_network"]
 line_key = NS["line_key"]
 run_extremes = NS["run_extremes"]
@@ -97,6 +98,24 @@ class ParseNetwork(unittest.TestCase):
         self.assertEqual(parse_network("FOUL")["flow"], "")
         self.assertEqual(parse_network("A - B")["flow"], "B")
         self.assertEqual(parse_network("")["name"], "(unnamed)")
+
+
+class NextCollectorName(unittest.TestCase):
+
+    def test_first_and_next(self):
+        self.assertEqual(next_collector_name([], "STORMWATER - IN"),
+                         "STORMWATER - IN - C1")
+        self.assertEqual(next_collector_name(
+            ["STORMWATER - IN - C1", "STORMWATER - IN - C3"],
+            "STORMWATER - IN"), "STORMWATER - IN - C4")
+
+    def test_other_types_and_junk_ignored(self):
+        self.assertEqual(next_collector_name(
+            ["FOUL - OUT - C7", "STORMWATER - IN - Cx", None, ""],
+            "STORMWATER - IN"), "STORMWATER - IN - C1")
+
+    def test_blank_type(self):
+        self.assertEqual(next_collector_name([], ""), "NETWORK - C1")
 
 
 class LineKey(unittest.TestCase):

@@ -32,9 +32,11 @@ from pymep_connect_fixtures import (
     list_system_type_options, set_pipe_dia,
 )
 from pymep_config import load_settings, save_settings, get_export_folder
+from pymep_drainage_networks import next_collector_name
 from pymep_net_param import (ensure_network_param, stamp_network,
-                             with_connected_fittings)
-from pymep_nodes_track import make_record, add_branch
+                             with_connected_fittings, network_value,
+                             collect_by_network)
+from pymep_nodes_track import make_record, add_branch, load_branches
 from pymep_revit import safe_name, ft2mm
 from pymep_log import Logger
 
@@ -455,7 +457,28 @@ done = 0
 failed = 0
 fitting_notes = 0
 
-net_name = row["type"]          # the type name IS the network name
+net_name = row["type"]          # e.g. STORMWATER - IN
+base = os.path.join(get_export_folder(doc), "project_files")
+
+# THE COLLECTOR'S IDENTITY: reuse the name already stamped on the
+# picked run, else allocate the next free '<type> - C<n>' - type names
+# carry no network number any more, the collector pipe does.
+collector = network_value(main)
+if not collector:
+    existing = set()
+    try:
+        existing.update(collect_by_network(doc).keys())
+    except Exception:
+        pass
+    try:
+        for _r0 in load_branches(base)["branches"]:
+            if _r0.get("collector"):
+                existing.add(_r0["collector"])
+    except Exception:
+        pass
+    collector = next_collector_name(existing, net_name)
+log("Collector network: **{}** (carried by every element's "
+    "pyMEP_Network parameter).".format(collector))
 
 tg = TransactionGroup(doc, "Inflow Drop Pipe to Collector")
 tg.Start()
@@ -509,27 +532,27 @@ try:
             fitting_notes += r["fitting_misses"]
             if r.get("new_main_segment") is not None:
                 main_segs.append(r["new_main_segment"])
-            # the network name rides on the node, its branch and every
-            # fitting Revit slipped in - the dashboard maps by it
+            # the collector name rides on the node, its branch and every
+            # fitting Revit slipped in - the dashboard groups by it
             try:
                 els = [node, r.get("down"), r.get("sloped"),
                        r.get("elbow"), r.get("tee")]
                 els += with_connected_fittings([r.get("down"),
                                                 r.get("sloped")])
-                stamp_network(doc, els, net_name)
+                stamp_network(doc, els, collector)
             except Exception:
                 pass
             # track it so Update Nodes can adapt when the node moves
             try:
-                base = os.path.join(get_export_folder(doc),
-                                    "project_files")
-                add_branch(base, make_record(
+                rec = make_record(
                     node, r, slope, dia_mm, win.result["invert_m"],
                     win.result["pipe_type"][0]
                     if win.result["pipe_type"] else "",
                     win.result["sys_type"][0]
                     if win.result["sys_type"] else "",
-                    (a, b), label))
+                    (a, b), label)
+                rec["collector"] = collector
+                add_branch(base, rec)
             except Exception as ex:
                 log("  (branch not tracked: {})".format(ex))
         except Exception as ex:
@@ -537,9 +560,9 @@ try:
             import traceback
             log(traceback.format_exc())
             log("  ! not connected: {}".format(ex))
-    # every piece of the (split) main belongs to the network too
+    # every piece of the (split) collector belongs to the network too
     try:
-        stamp_network(doc, main_segs, net_name)
+        stamp_network(doc, main_segs, collector)
     except Exception:
         pass
     # one go: everything lands as a SINGLE undo step

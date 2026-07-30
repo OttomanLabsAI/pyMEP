@@ -52,7 +52,7 @@
                     <TextBlock Text="Family name contains:"/>
                     <TextBox x:Name="TxtFilter"/>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Every placed family whose FAMILY name contains this word becomes a network node - e.g. 'node' catches 'Node - Spherical'. The instance's TYPE name names its network: 'STORMWATER - IN - N1' reads as system STORMWATER, flow IN, network N1."/>
+                               Text="Every placed family whose FAMILY name contains this word becomes a network node - e.g. 'node' catches 'Node - Spherical'. Type names carry just system and flow ('STORMWATER - IN'); every collector run is numbered automatically (STORMWATER - IN - C1, C2, ...)."/>
                 </StackPanel>
             </GroupBox>
 
