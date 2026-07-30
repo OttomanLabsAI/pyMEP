@@ -29,7 +29,7 @@ pyMEP.extension/
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
-    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, stacked icons: Create Pipe Sizes + Structure to Pipe + Family at Pipe Top
+    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, stacked icons: Create Pipe Sizes + Structure to Pipe; Family at Pipe Top (own icon-only column)
     02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
@@ -167,7 +167,7 @@ neither fits, it offers to place at the internal origin using the
 export's own origin (optionally saving it to Settings). Rectangular duct-bank
 rows are skipped - only circular runs become pipes.
 
-**Create Pipe Sizes** (stacked icon-only - the name lives in the tooltip; a three-high stack keeps the standard icon size, two-high stacks show big icons) - reads a dashboard pipes
+**Create Pipe Sizes** (stacked, big icon - the name lives in the tooltip) - reads a dashboard pipes
 export, lists the distinct circular diameters and adds the missing ones
 to the pipe Segment configured in Settings > Pipes (Place Pipes already
 does this automatically; keep for adding sizes without placing pipes).
@@ -183,7 +183,8 @@ cylinder's System Type, Mark and Comments; the pipe type is the
 Settings default (else the first in the model). The original cylinders
 are deleted. Select one or more and confirm.
 
-**Family at Pipe Top** (small, stacked - the name lives in the tooltip)
+**Family at Pipe Top** (its own column, big icon with no label - the
+name lives in the tooltip)
 - the inverse of Structure to Pipe: select pipes, pick a family type
 (category > family > type, with a search box that matches all three at
 once) and one instance is placed at the TOP end of each pipe - the head
