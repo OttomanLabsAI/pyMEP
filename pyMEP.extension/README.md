@@ -239,6 +239,14 @@ pipes stay and the miss is reported.
 Fixtures. Choose the nodes BY SELECTION - pre-select them with the
 collector pipe, or pick them when prompted (any mix of types) - or
 finish the pick empty and drive it by family type:
+Each branch LEAVES ALONG THE NODE'S ROTATION - the facing ray decides
+where it tees into the collector (plan-nearest when the ray misses) -
+and the family's **Drop Pipe** yes/no picks the geometry: ticked (or
+absent), the classic drop-under-the-outlet then graded run; unticked,
+the 1:n run starts straight AT the outlet and a vertical drop lands it
+on the collector (the typed invert doesn't apply there - the outlet
+pins the run). Update Nodes and Apply Edits re-read rotation and the
+toggle on every rebuild, so turning a node re-aims its branch.
 select (or pick) ONE main pipe, then choose the node family -
 CATEGORY, then FAMILY, then TYPE (EVERY placed point-placed family is
 offered, all categories - a pipe connector is not required, families

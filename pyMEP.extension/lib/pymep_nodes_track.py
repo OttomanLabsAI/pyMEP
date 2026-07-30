@@ -330,7 +330,8 @@ def update_branches(doc, base, log=None):
                 r = connect_fixture_to_main(
                     doc, node, best, rec["slope"], rec["dia_mm"],
                     invert_m=rec.get("invert_m"), log=log,
-                    pipe_type_id=pt_id, system_type_id=st_id)
+                    pipe_type_id=pt_id, system_type_id=st_id,
+                    use_rotation=True)
                 kept.append(make_record(
                     node, r, rec["slope"], rec["dia_mm"],
                     rec.get("invert_m"), rec.get("pipe_type"),

@@ -891,7 +891,7 @@ def apply_edits(doc, base, edits_data, log=None):
                     res = connect_fixture_to_main(
                         doc, node, best, slope, dia_mm, invert_m=invert,
                         log=None, pipe_type_id=rpt_id,
-                        system_type_id=rst_id)
+                        system_type_id=rst_id, use_rotation=True)
                     new_rec = make_record(node, res, slope, dia_mm,
                                           invert, ptn or "", stn or "",
                                           (la, lb), label)
