@@ -245,7 +245,11 @@ and the family's **Drop Pipe** yes/no picks the geometry: ticked (or
 absent), the classic drop-under-the-outlet then graded run; unticked,
 the 1:n run starts straight AT the outlet and a vertical drop lands it
 on the collector (the typed invert doesn't apply there - the outlet
-pins the run). Update Nodes and Apply Edits re-read rotation and the
+pins the run). Tee fittings only place at right angles, so a branch
+arriving at an angle SQUARES its last bit: it elbows just short of the
+collector into a short perpendicular stub (2 x diameter, min 300 mm)
+and tees in square - angled branches connect properly instead of
+stopping at the pipe. Update Nodes and Apply Edits re-read rotation and the
 toggle on every rebuild, so turning a node re-aims its branch.
 select (or pick) ONE main pipe, then choose the node family -
 CATEGORY, then FAMILY, then TYPE (EVERY placed point-placed family is

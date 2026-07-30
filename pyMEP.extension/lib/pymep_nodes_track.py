@@ -135,7 +135,9 @@ def make_record(node, result, slope, dia_mm, invert_m, pt_name, st_name,
             "outlet": list(o) if o else None,
             "down_uid": uid(result.get("down")),
             "sloped_uid": uid(result.get("sloped")),
+            "stub_uid": uid(result.get("stub")),
             "elbow_uid": uid(result.get("elbow")),
+            "elbow2_uid": uid(result.get("elbow2")),
             "tee_uid": uid(result.get("tee")),
             "end": list(result.get("end") or ()) or None,
             "mode": result.get("mode"), "pose": pose,
@@ -162,7 +164,7 @@ def tracked_node_uids(doc, base):
         uid = rec.get("node_uid")
         if not uid:
             continue
-        for k in ("down_uid", "sloped_uid"):
+        for k in ("down_uid", "sloped_uid", "stub_uid"):
             if rec.get(k) and _by_uid(doc, rec[k]) is not None:
                 out.add(uid)
                 break
@@ -273,7 +275,8 @@ def _delete_branch(doc, rec, log=None):
     t = Transaction(doc, "Remove node branch")
     t.Start()
     try:
-        for key in ("tee_uid", "elbow_uid", "sloped_uid", "down_uid"):
+        for key in ("tee_uid", "elbow_uid", "elbow2_uid", "stub_uid",
+                    "sloped_uid", "down_uid"):
             el = _by_uid(doc, rec.get(key))
             if el is not None:
                 try:
@@ -381,7 +384,7 @@ def update_branches(doc, base, log=None):
 
             branch_alive = all(
                 _by_uid(doc, rec.get(k)) is not None
-                for k in ("down_uid", "sloped_uid")
+                for k in ("down_uid", "sloped_uid", "stub_uid")
                 if rec.get(k))
             if rec.get("outlet") and branch_alive and \
                     not outlet_moved(tuple(rec["outlet"]), o, MOVE_TOL_FT):
@@ -428,10 +431,11 @@ def update_branches(doc, base, log=None):
                 rebuilt += 1
                 try:
                     els = [node, r.get("down"), r.get("sloped"),
-                           r.get("elbow"), r.get("tee"),
+                           r.get("stub"), r.get("elbow"),
+                           r.get("elbow2"), r.get("tee"),
                            r.get("new_main_segment")]
-                    els += with_connected_fittings([r.get("down"),
-                                                    r.get("sloped")])
+                    els += with_connected_fittings(
+                        [r.get("down"), r.get("sloped"), r.get("stub")])
                     stamp_network(doc, els, rec.get("collector")
                                   or node_network_name(node))
                 except Exception:

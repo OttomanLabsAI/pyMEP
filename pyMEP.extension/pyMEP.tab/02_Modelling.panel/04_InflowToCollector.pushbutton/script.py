@@ -629,9 +629,10 @@ try:
             # fitting Revit slipped in - the dashboard groups by it
             try:
                 els = [node, r.get("down"), r.get("sloped"),
-                       r.get("elbow"), r.get("tee")]
-                els += with_connected_fittings([r.get("down"),
-                                                r.get("sloped")])
+                       r.get("stub"), r.get("elbow"),
+                       r.get("elbow2"), r.get("tee")]
+                els += with_connected_fittings(
+                    [r.get("down"), r.get("sloped"), r.get("stub")])
                 stamp_network(doc, els, collector)
             except Exception:
                 pass
