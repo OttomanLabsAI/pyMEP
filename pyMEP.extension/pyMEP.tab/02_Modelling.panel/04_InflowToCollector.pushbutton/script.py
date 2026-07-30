@@ -42,7 +42,8 @@ from pymep_drainage_networks import next_collector_name
 from pymep_net_param import (ensure_network_param, stamp_network,
                              with_connected_fittings, network_value,
                              collect_by_network)
-from pymep_nodes_track import make_record, add_branch, load_branches
+from pymep_nodes_track import (make_record, add_branch, load_branches,
+                               tracked_node_uids)
 from pymep_revit import safe_name, ft2mm
 from pymep_log import Logger
 
@@ -135,8 +136,21 @@ rows = node_type_rows(doc)
 if not rows and not sel_nodes:
     forms.alert("No placed families with a pipe connector in this "
                 "model - nothing to pipe up.", exitscript=True)
+# 'already connected' = outlet physically connected OR a live tracked
+# branch (grade-first runs don't hook the outlet connector)
+try:
+    _tracked = tracked_node_uids(
+        doc, os.path.join(get_export_folder(doc), "project_files"))
+except Exception:
+    _tracked = set()
+
+
+def _is_done(n):
+    return n.UniqueId in _tracked or outlet_is_connected(n)
+
+
 for r in rows:
-    r["todo"] = [i for i in r["insts"] if not outlet_is_connected(i)]
+    r["todo"] = [i for i in r["insts"] if not _is_done(i)]
 
 
 def _node_label(n):
@@ -469,7 +483,7 @@ else:
     # selection mode: exactly the picked nodes
     label = "{} selected node(s)".format(len(sel_nodes))
     insts = list(sel_nodes)
-    todo = [n for n in insts if not outlet_is_connected(n)]
+    todo = [n for n in insts if not _is_done(n)]
 settings["nodes_slope"] = slope
 settings["nodes_dia_param"] = (CONNECTOR_DIA if dia_mode == "conn"
                                else (dia_param or ""))

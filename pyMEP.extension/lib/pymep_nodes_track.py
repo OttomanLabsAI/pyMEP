@@ -36,7 +36,8 @@ from Autodesk.Revit.DB.Plumbing import Pipe
 from pymep_revit import safe_name, mm2ft, ft2mm
 from pymep_connect_fixtures import (
     fixture_outlet_info, main_pipe_info, connect_fixture_to_main,
-    plan_dist_to_segment,
+    plan_dist_to_segment, node_pose, node_drop_pipe, node_directions,
+    ray_hits_main, branch_points,
 )
 from pymep_net_param import (ensure_network_param, stamp_network,
                              with_connected_fittings, node_network_name)
@@ -126,6 +127,10 @@ def make_record(node, result, slope, dia_mm, invert_m, pt_name, st_name,
             return None
 
     o, _d = fixture_outlet_info(node)
+    try:
+        pose = node_pose(node)
+    except Exception:
+        pose = None
     return {"node_uid": uid(node), "node_label": label,
             "outlet": list(o) if o else None,
             "down_uid": uid(result.get("down")),
@@ -133,6 +138,7 @@ def make_record(node, result, slope, dia_mm, invert_m, pt_name, st_name,
             "elbow_uid": uid(result.get("elbow")),
             "tee_uid": uid(result.get("tee")),
             "end": list(result.get("end") or ()) or None,
+            "mode": result.get("mode"), "pose": pose,
             "slope": slope, "dia_mm": dia_mm, "invert_m": invert_m,
             "pipe_type": pt_name or "", "sys_type": st_name or "",
             "main_line": [list(main_line[0]), list(main_line[1])]}
@@ -145,6 +151,81 @@ def _by_uid(doc, uid):
         return doc.GetElement(uid)
     except Exception:
         return None
+
+
+def tracked_node_uids(doc, base):
+    """UniqueIds of nodes whose tracked branch is still alive - the
+    'already connected' signal for branches that don't physically hook
+    to the outlet connector (Drop Pipe OFF runs)."""
+    out = set()
+    for rec in load_branches(base)["branches"]:
+        uid = rec.get("node_uid")
+        if not uid:
+            continue
+        for k in ("down_uid", "sloped_uid"):
+            if rec.get(k) and _by_uid(doc, rec[k]) is not None:
+                out.add(uid)
+                break
+    return out
+
+
+def _stored_mode(doc, rec):
+    """drop_first / drop_last of an OLD record (no mode key), inferred
+    from which tracked pipe starts at the outlet. None = ambiguous."""
+    if rec.get("mode"):
+        return rec["mode"]
+    o = rec.get("outlet")
+    down = _by_uid(doc, rec.get("down_uid"))
+    sloped = _by_uid(doc, rec.get("sloped_uid"))
+    if not o or down is None or sloped is None:
+        return None
+    ox = XYZ(o[0], o[1], o[2])
+    for el, mode in ((down, "drop_first"), (sloped, "drop_last")):
+        try:
+            crv = el.Location.Curve
+            for i in (0, 1):
+                if crv.GetEndPoint(i).DistanceTo(ox) <= MOVE_TOL_FT * 4:
+                    return mode
+        except Exception:
+            continue
+    return None
+
+
+def _shape_changed(doc, rec, node, line_a, line_b):
+    """(changed, why): would the branch be built differently TODAY -
+    node turned, or its Drop Pipe toggled? Records carry the pose
+    signature; older ones fall back to inference."""
+    try:
+        pose_now = node_pose(node)
+    except Exception:
+        return False, ""
+    stored = rec.get("pose")
+    if stored is not None:
+        if list(stored) != list(pose_now):
+            return True, "node turned / Drop Pipe changed"
+        return False, ""
+    # legacy record: infer what was built vs what would be built
+    want = "drop_first" if node_drop_pipe(node) else "drop_last"
+    was = _stored_mode(doc, rec)
+    if was is not None and was != want:
+        return True, "Drop Pipe changed"
+    o, _d = fixture_outlet_info(node)
+    if o is not None and rec.get("end"):
+        direction = None
+        for cand in node_directions(node):
+            if ray_hits_main(o, cand, line_a, line_b) is not None:
+                direction = cand
+                break
+        pts = branch_points(o, line_a, line_b,
+                            rec.get("slope") or 100.0,
+                            mm2ft(rec.get("dia_mm") or 100.0), None,
+                            direction=direction,
+                            drop_pipe=(want == "drop_first"))
+        dx = pts["end"][0] - rec["end"][0]
+        dy = pts["end"][1] - rec["end"][1]
+        if math.sqrt(dx * dx + dy * dy) > LINE_TOL_FT:
+            return True, "node turned"
+    return False, ""
 
 
 def _resolve_named(doc, cls, name):
@@ -304,11 +385,17 @@ def update_branches(doc, base, log=None):
                 if rec.get(k))
             if rec.get("outlet") and branch_alive and \
                     not outlet_moved(tuple(rec["outlet"]), o, MOVE_TOL_FT):
-                unchanged += 1
-                kept.append(rec)
-                continue
-
-            say("**{}**: node moved - rebuilding its branch".format(label))
+                changed, why = _shape_changed(doc, rec, node, line_a,
+                                              line_b)
+                if not changed:
+                    unchanged += 1
+                    kept.append(rec)
+                    continue
+                say("**{}**: {} - rebuilding its branch".format(label,
+                                                                why))
+            else:
+                say("**{}**: node moved - rebuilding its "
+                    "branch".format(label))
             try:
                 tee_pt = _delete_branch(doc, rec, log=log)
                 _heal_main(doc, tee_pt, line_a, line_b, log=log)

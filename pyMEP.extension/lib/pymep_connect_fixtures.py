@@ -346,6 +346,22 @@ def node_drop_pipe(inst):
     return True
 
 
+def node_pose(inst):
+    """The rotation + Drop Pipe signature Update Nodes watches: turning
+    the node or toggling the family's 'Drop Pipe' yes/no changes it,
+    and the branch gets rebuilt. JSON-stable (rounded floats / None /
+    bool)."""
+    sig = []
+    for attr in ("FacingOrientation", "HandOrientation"):
+        try:
+            v = getattr(inst, attr)
+            sig.extend([round(v.X, 4), round(v.Y, 4)])
+        except Exception:
+            sig.extend([None, None])
+    sig.append(bool(node_drop_pipe(inst)))
+    return sig
+
+
 DIA_PARAM_NAMES = ["DIA", "Diameter", "Nominal Diameter", "dia", "D"]
 
 # the picker's sentinel for 'take the size off the outlet connector'
@@ -734,20 +750,25 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
                 except Exception as ex:
                     fit_notes.append("elbow not placed ({})".format(ex))
 
-        # hook the top of the branch to the fixture's outlet connector
-        top_pipe = first if first is not None else second
-        try:
-            fconn = None
-            for c in get_connectors(fixture):
-                if c.Origin.DistanceTo(o_xyz) < mm2ft(10.0):
-                    fconn = c
-                    break
-            if fconn is not None and not fconn.IsConnected:
-                c_up = _conn_near(top_pipe, o_xyz)
-                if c_up is not None and not c_up.IsConnected:
-                    fconn.ConnectTo(c_up)
-        except Exception:
-            pass
+        # hook the top of the branch to the fixture's outlet connector -
+        # but NOT in grade-first mode: the outlet faces DOWN, and
+        # force-connecting a graded run to it makes Revit yank the pipe
+        # into a kink to align. The run starts AT the outlet and stays
+        # physically unconnected instead (tracking covers it).
+        if pts["mode"] != "drop_last":
+            top_pipe = first if first is not None else second
+            try:
+                fconn = None
+                for c in get_connectors(fixture):
+                    if c.Origin.DistanceTo(o_xyz) < mm2ft(10.0):
+                        fconn = c
+                        break
+                if fconn is not None and not fconn.IsConnected:
+                    c_up = _conn_near(top_pipe, o_xyz)
+                    if c_up is not None and not c_up.IsConnected:
+                        fconn.ConnectTo(c_up)
+            except Exception:
+                pass
 
         # a TEE joins the branch into the main: split the main at the
         # branch point, tee the two halves + the branch together
