@@ -1,7 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Inflow Drop Pipe to Collector - select a main pipe, pick a node FAMILY TYPE and a
-gradient, and every placed, still-unconnected node of that type gets
-piped into the main.
+"""Inflow Drop Pipe to Collector - pipe nodes into a collector run.
+
+WHICH nodes, your choice:
+  - SELECT them: pre-select the collector pipe together with the node
+    instances (or pick the pipe, then pick the nodes when prompted) -
+    exactly those nodes get connected, mixed types welcome;
+  - or a FAMILY TYPE: finish the node pick empty and the dialog's
+    category > family > type cascade (or search) connects every
+    placed, still-unconnected node of that type.
 
 Per node: a drop pipe from its outlet connector (diameter taken from
 THE NODE's own connector, snapped to the main type's routing sizes), a
@@ -29,7 +35,7 @@ from pymep_connect_fixtures import (
     node_categories, node_families, node_types_in, search_node_rows,
     node_dia_mm, node_dia_param_options, CONNECTOR_DIA, DIA_PARAM_NAMES,
     main_gradient, regrade_main, list_pipe_type_options,
-    list_system_type_options, set_pipe_dia,
+    list_system_type_options, set_pipe_dia, _has_point,
 )
 from pymep_config import load_settings, save_settings, get_export_folder
 from pymep_drainage_networks import next_collector_name
@@ -42,6 +48,7 @@ from pymep_log import Logger
 
 import clr
 clr.AddReference("RevitAPI")
+from Autodesk.Revit.DB import FamilyInstance
 from Autodesk.Revit.DB.Plumbing import Pipe
 
 output = script.get_output()
@@ -52,9 +59,12 @@ uidoc = revit.uidoc
 log("### Inflow Drop Pipe to Collector")
 
 # ---------------------------------------------------------------------------
-# 1. The main pipe: pre-selected, else pick it in the view
+# 1. The main pipe and (optionally) the NODES, straight from selection:
+#    pre-select the pipe + node instances together, or pick the pipe
+#    and then pick nodes when prompted (Finish empty -> family type)
 # ---------------------------------------------------------------------------
 main = None
+sel_nodes = []
 for eid in uidoc.Selection.GetElementIds():
     el = doc.GetElement(eid)
     if isinstance(el, Pipe):
@@ -63,10 +73,13 @@ for eid in uidoc.Selection.GetElementIds():
         else:
             forms.alert("Select just ONE pipe (the main run), or nothing "
                         "and pick it when asked.", exitscript=True)
+    elif isinstance(el, FamilyInstance) and _has_point(el):
+        sel_nodes.append(el)
+
+clr.AddReference("RevitAPIUI")
+from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 
 if main is None:
-    clr.AddReference("RevitAPIUI")
-    from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 
     class _PipesOnly(ISelectionFilter):
         def AllowElement(self, e):
@@ -84,6 +97,30 @@ if main is None:
         log.close()
         script.exit()
 
+    # no nodes pre-selected: offer to pick them - Finish with nothing
+    # (or Escape) falls back to the family-type dialog
+    if not sel_nodes:
+
+        class _NodesOnly(ISelectionFilter):
+            def AllowElement(self, e):
+                return (isinstance(e, FamilyInstance)
+                        and not isinstance(e, Pipe) and _has_point(e))
+
+            def AllowReference(self, r, p):
+                return False
+
+        try:
+            refs = uidoc.Selection.PickObjects(
+                ObjectType.Element, _NodesOnly(),
+                "Pick the nodes to connect - Finish with NOTHING "
+                "selected to choose a family type instead")
+            sel_nodes = [doc.GetElement(r.ElementId) for r in refs]
+        except Exception:
+            sel_nodes = []
+
+if sel_nodes:
+    log("Nodes chosen BY SELECTION: **{}**.".format(len(sel_nodes)))
+
 try:
     a, b, _tid, _sid, _lid, main_dia_ft = main_pipe_info(main)
 except Exception as ex:
@@ -95,11 +132,24 @@ except Exception as ex:
 # 2. The node types placed in this model (families with a pipe connector)
 # ---------------------------------------------------------------------------
 rows = node_type_rows(doc)
-if not rows:
+if not rows and not sel_nodes:
     forms.alert("No placed families with a pipe connector in this "
                 "model - nothing to pipe up.", exitscript=True)
 for r in rows:
     r["todo"] = [i for i in r["insts"] if not outlet_is_connected(i)]
+
+
+def _node_label(n):
+    cat, fam, typ = "(no category)", "?", "?"
+    try:
+        sym = n.Symbol
+        typ = safe_name(sym)
+        fam = safe_name(sym.Family)
+        if sym.Category is not None:
+            cat = sym.Category.Name
+    except Exception:
+        pass
+    return "{} : {} : {}".format(cat, fam, typ)
 
 settings = load_settings()
 XAML_PATH = os.path.join(
@@ -161,6 +211,21 @@ class NodesWindow(forms.WPFWindow):
         if settings.get("nodes_main_keep", "low") == "high":
             self.RadMainUpper.IsChecked = True
 
+        if sel_nodes:
+            # nodes chosen BY SELECTION: the family cascade is moot
+            self._loading = False
+            for c in (self.CmbCat, self.CmbFam, self.TxtSearch):
+                c.IsEnabled = False
+            self.CmbType.Items.Clear()
+            self.CmbType.Items.Add("({} node(s) chosen by "
+                                   "selection)".format(len(sel_nodes)))
+            self.CmbType.SelectedIndex = 0
+            self.CmbType.IsEnabled = False
+            self.StatusText.Text = ("Connecting the {} SELECTED "
+                                    "node(s).".format(len(sel_nodes)))
+            self._fill_dia_params()
+            return
+
         self.CmbCat.Items.Clear()
         for c in node_categories(rows):
             self.CmbCat.Items.Add(c)
@@ -208,16 +273,19 @@ class NodesWindow(forms.WPFWindow):
         self._fill_dia_params()
 
     def _fill_dia_params(self):
-        """The diameter-source list for the currently selected type: the
-        outlet connector (when the family has one) plus every numeric
-        parameter with a sample value."""
+        """The diameter-source list for the currently selected type (or
+        the first SELECTED node): the outlet connector (when the family
+        has one) plus every numeric parameter with a sample value."""
         self._dia_opts = []
         self.CmbDiaParam.Items.Clear()
-        i = self.CmbType.SelectedIndex
-        if i < 0 or i >= len(self._shown):
-            return
-        insts = self._shown[i]["insts"]
-        probe = insts[0] if insts else None
+        if sel_nodes:
+            probe = sel_nodes[0]
+        else:
+            i = self.CmbType.SelectedIndex
+            if i < 0 or i >= len(self._shown):
+                return
+            insts = self._shown[i]["insts"]
+            probe = insts[0] if insts else None
         if probe is None:
             return
         _o, conn_dia = fixture_outlet_info(probe)
@@ -303,7 +371,7 @@ class NodesWindow(forms.WPFWindow):
 
     def on_connect(self, sender, args):
         i = self.CmbType.SelectedIndex
-        if i < 0 or i >= len(self._shown):
+        if not sel_nodes and (i < 0 or i >= len(self._shown)):
             self.StatusText.Text = "Pick a node type."
             return
         try:
@@ -363,7 +431,8 @@ class NodesWindow(forms.WPFWindow):
                 return
         pt_i = self.CmbPipeType.SelectedIndex
         st_i = self.CmbSysType.SelectedIndex
-        self.result = {"row": self._shown[i], "slope": slope,
+        self.result = {"row": (None if sel_nodes else self._shown[i]),
+                       "slope": slope,
                        "dia_mode": dia_mode, "dia_param": dia_param,
                        "fixed_dia": fixed_dia, "main_dia": main_dia,
                        "invert_m": invert_m,
@@ -389,11 +458,18 @@ if win.result is None:
     script.exit()
 
 row = win.result["row"]
-label, insts, todo = row["label"], row["insts"], row["todo"]
 slope = win.result["slope"]
 dia_mode = win.result["dia_mode"]
 dia_param = win.result["dia_param"]
-settings["nodes_label"] = label
+if row is not None:
+    # family-type mode: everything unconnected of that type
+    label, insts, todo = row["label"], row["insts"], row["todo"]
+    settings["nodes_label"] = label
+else:
+    # selection mode: exactly the picked nodes
+    label = "{} selected node(s)".format(len(sel_nodes))
+    insts = list(sel_nodes)
+    todo = [n for n in insts if not outlet_is_connected(n)]
 settings["nodes_slope"] = slope
 settings["nodes_dia_param"] = (CONNECTOR_DIA if dia_mode == "conn"
                                else (dia_param or ""))
@@ -409,7 +485,7 @@ except Exception:
 
 pt_id = win.result["pipe_type"][1] if win.result["pipe_type"] else None
 st_id = win.result["sys_type"][1] if win.result["sys_type"] else None
-log("Type **{}**: {} placed, **{}** unconnected to pipe up; gradient "
+log("**{}**: {} in scope, **{}** unconnected to pipe up; gradient "
     "**1:{:g}**; dia from **{}**.".format(
         label, len(insts), len(todo), slope,
         "fixed {:.0f} mm".format(win.result["fixed_dia"])
@@ -424,10 +500,10 @@ log("Branch pipe type: **{}**; system: **{}**; upstream invert: {}."
             "keep as lies" if win.result["invert_m"] is None
             else "**{:.3f} m** (fixed)".format(win.result["invert_m"])))
 if not todo:
-    log("Every node of that type is already connected - nothing to do.")
+    log("Everything in scope is already connected - nothing to do.")
     log.close()
-    forms.alert("Every '{}' node is already connected.".format(label),
-                exitscript=True)
+    forms.alert("Every chosen node ({}) is already "
+                "connected.".format(label), exitscript=True)
 
 # ---------------------------------------------------------------------------
 # 3. Model everything in ONE go: a TransactionGroup wraps the optional
@@ -457,7 +533,9 @@ done = 0
 failed = 0
 fitting_notes = 0
 
-net_name = row["type"]          # e.g. STORMWATER - IN
+# the type name (e.g. STORMWATER - IN) seeds a NEW collector's name;
+# in selection mode the first picked node provides it
+net_name = row["type"] if row is not None else safe_name(todo[0].Symbol)
 base = os.path.join(get_export_folder(doc), "project_files")
 
 # THE COLLECTOR'S IDENTITY: reuse the name already stamped on the
@@ -550,7 +628,8 @@ try:
                     if win.result["pipe_type"] else "",
                     win.result["sys_type"][0]
                     if win.result["sys_type"] else "",
-                    (a, b), label)
+                    (a, b),
+                    row["label"] if row is not None else _node_label(node))
                 rec["collector"] = collector
                 add_branch(base, rec)
             except Exception as ex:
