@@ -307,6 +307,24 @@ def node_direction(inst):
     return None
 
 
+def node_directions(inst):
+    """Candidate plan directions from the node's ROTATION, in priority
+    order: facing, hand, then their opposites. Families draw their
+    direction wire along different local axes, so the caller tries each
+    and keeps the FIRST whose ray actually meets the main - that's the
+    axis the modeller aimed."""
+    out = []
+    for attr in ("FacingOrientation", "HandOrientation"):
+        try:
+            v = getattr(inst, attr)
+            d = (v.X, v.Y)
+            if abs(d[0]) + abs(d[1]) > 1e-6:
+                out.append(d)
+        except Exception:
+            continue
+    return out + [(-d[0], -d[1]) for d in out]
+
+
 def node_drop_pipe(inst):
     """The family's 'Drop Pipe' yes/no (instance first, then type):
     ticked (or absent) = classic drop-first geometry; unticked = grade
@@ -631,7 +649,15 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
     if _mdia and abs(dia_ft - _mdia) <= mm2ft(1.0):
         dia_ft = _mdia
 
-    direction = node_direction(fixture) if use_rotation else None
+    direction = None
+    if use_rotation:
+        # the node's rotation aims the branch: try facing, hand, then
+        # their opposites - the first axis whose ray meets the main is
+        # the one the modeller pointed at it
+        for cand in node_directions(fixture):
+            if ray_hits_main(outlet, cand, a, b) is not None:
+                direction = cand
+                break
     drop_first = node_drop_pipe(fixture) if use_rotation else True
     if not drop_first and invert_m is not None:
         say("  (Drop Pipe is OFF - the run starts AT the outlet, the "
@@ -640,9 +666,11 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
     pts = branch_points(outlet, a, b, slope_n, dia_ft, invert_m,
                         direction=direction, drop_pipe=drop_first)
     if use_rotation:
-        if direction is not None and not pts["aimed"]:
-            say("  (the node's facing ray misses the main - branch "
-                "takes the plan-nearest route)")
+        if pts["aimed"]:
+            say("  branch aimed along the node's rotation")
+        else:
+            say("  (no rotation axis of the node points at the main - "
+                "branch takes the plan-nearest route)")
         if not drop_first:
             say("  Drop Pipe OFF: graded run from the outlet, then a "
                 "drop onto the main")
