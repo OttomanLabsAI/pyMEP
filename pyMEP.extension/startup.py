@@ -27,8 +27,9 @@ PANEL_ORDER = ["pyMEP", "Civil 3D Conversion", "Electrical", "Drainage",
                "Networks", "Topography", "Chamber Drawing Setup",
                "Parameters", "Annotate"]
 
-# Stacked buttons shown BIG with no label (their tooltips still carry
-# the names). Titles normalized to single-space before matching.
+# Stacked buttons shown with no label (their tooltips still carry the
+# names): big icons in a two-high stack, standard size in a three-high
+# one. Titles normalized to single-space before matching.
 ICON_ONLY = set(["Create Pipe Sizes", "Structure to Pipe",
                  "Family at Pipe Top", "Apply Edits", "Network Settings"])
 
@@ -81,14 +82,28 @@ def _reorder_pymep_panels():
     return False
 
 
-def _enlarge_stacked(items):
+def _leaf_count(items):
+    """How many actual buttons live in this container (row breaks and
+    nested panels don't count)."""
+    n = 0
+    for it in items:
+        if getattr(it, "Items", None) is not None:
+            continue
+        if hasattr(it, "Size"):
+            n += 1
+    return n
+
+
+def _enlarge_stacked(items, siblings=0):
     """Recursively find the ICON_ONLY buttons (stacks live inside row
-    panels) and show them big with no label."""
+    panels) and drop their labels. Two-high stacks get BIG icons; a
+    three-high stack keeps the standard size (three large icons do not
+    fit the ribbon row height - the stack would be clipped)."""
     from Autodesk.Windows import RibbonItemSize
     for item in items:
         sub = getattr(item, "Items", None)
         if sub is not None:
-            _enlarge_stacked(sub)
+            _enlarge_stacked(sub, siblings=_leaf_count(sub))
             continue
         try:
             text = " ".join(str(item.Text or "").split())
@@ -99,7 +114,12 @@ def _enlarge_stacked(items):
         try:
             if item.LargeImage is None and item.Image is not None:
                 item.LargeImage = item.Image
-            item.Size = RibbonItemSize.Large
+            if item.Image is None and item.LargeImage is not None:
+                item.Image = item.LargeImage
+            if siblings >= 3:
+                item.Size = RibbonItemSize.Standard
+            else:
+                item.Size = RibbonItemSize.Large
             item.ShowText = False
         except Exception:
             pass
