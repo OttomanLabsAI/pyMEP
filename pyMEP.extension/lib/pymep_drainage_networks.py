@@ -437,7 +437,8 @@ def backfill_network_stamps(doc, base):
             continue
         network = rec.get("collector") or node_network_name(node)
         els = [node]
-        for k in ("down_uid", "sloped_uid", "elbow_uid", "tee_uid"):
+        for k in ("down_uid", "sloped_uid", "stub_uid", "elbow_uid",
+                  "elbow2_uid", "tee_uid"):
             els.append(_by_uid(doc, rec.get(k)))
         pipes = [e for e in els if isinstance(e, Pipe)]
         els += with_connected_fittings(pipes)
@@ -525,10 +526,11 @@ def build_dashboard_data(doc, base, name_filter):
                                   "pipe_type": rec.get("pipe_type") or "",
                                   "sys_type": rec.get("sys_type") or ""}
             segs = []
-            for k in ("down_uid", "sloped_uid", "elbow_uid", "tee_uid"):
+            for k in ("down_uid", "sloped_uid", "stub_uid",
+                      "elbow_uid", "elbow2_uid", "tee_uid"):
                 if rec.get(k):
                     used_uids.add(rec[k])
-            for k in ("down_uid", "sloped_uid"):
+            for k in ("down_uid", "sloped_uid", "stub_uid"):
                 p = _by_uid(doc, rec.get(k))
                 if isinstance(p, Pipe):
                     try:
@@ -899,11 +901,14 @@ def apply_edits(doc, base, edits_data, log=None):
                         new_rec["collector"] = r["collector"]
                     recs[recs.index(r)] = new_rec
                     try:
-                        els = [node, res.get("down"), res.get("sloped"),
-                               res.get("elbow"), res.get("tee"),
+                        els = [node, res.get("down"),
+                               res.get("sloped"), res.get("stub"),
+                               res.get("elbow"), res.get("elbow2"),
+                               res.get("tee"),
                                res.get("new_main_segment")]
                         els += with_connected_fittings(
-                            [res.get("down"), res.get("sloped")])
+                            [res.get("down"), res.get("sloped"),
+                             res.get("stub")])
                         stamp_network(doc, els, r.get("collector")
                                       or node_network_name(node))
                     except Exception:

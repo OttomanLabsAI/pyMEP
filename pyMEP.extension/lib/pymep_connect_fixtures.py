@@ -148,10 +148,19 @@ def branch_points(outlet, main_a, main_b, slope_n, dia_ft, invert_m=None,
     the slope. None keeps the branch end ON the main's centreline as
     it lies. Grade-first starts AT the outlet, so invert_m is ignored.
 
+    An OBLIQUE aim gets its last bit SQUARED: standard tee fittings
+    only place at ~90 degrees, so when the facing ray meets the main
+    more than ~10 degrees off perpendicular, the run elbows just short
+    of it into a short plan-perpendicular STUB (max of 2 diameters and
+    300 mm) and the tee lands square.
+
     Returns a dict:
-      bend (x,y,z)   the corner (under the outlet, or above the main)
+      points         the centreline polyline, outlet first, end last
+      stub (x,y)     plan corner where the squared stub starts (None
+                     when the approach is already square)
+      bend (x,y,z)   the corner next to the vertical piece
       end (x,y,z)    the branch end at the main
-      run_xy_ft      plan length of the graded run
+      run_xy_ft      plan length of the graded run (incl. the stub)
       drop_ft        the vertical piece's length (<=0 = none)
       mode           "drop_first" | "drop_last"
       aimed          True when the facing ray set the end point
@@ -177,15 +186,58 @@ def branch_points(outlet, main_a, main_b, slope_n, dia_ft, invert_m=None,
             t = max(0.0, min(1.0, t))
         mx = ax + t * dx
         my = ay + t * dy
+
+    # oblique approach? square the last bit so the tee can place
+    stub = None
+    if hit is not None:
+        vx, vy = bx - ax, by - ay
+        vl = math.sqrt(vx * vx + vy * vy)
+        ux, uy = mx - ox, my - oy
+        ul = math.sqrt(ux * ux + uy * uy)
+        if vl > 1e-9 and ul > 1e-9:
+            vx, vy = vx / vl, vy / vl
+            ux, uy = ux / ul, uy / ul
+            dot = abs(ux * vx + uy * vy)
+            if dot > 0.17:                       # > ~10 deg off square
+                sin_t = math.sqrt(max(1.0 - dot * dot, 1e-6))
+                perp = max(2.0 * dia_ft, 300.0 / 304.8)
+                s = perp / sin_t
+                if ul > s + MIN_LEN_FT:
+                    px, py = mx - ux * s, my - uy * s
+                    # perpendicular foot of the stub corner on the main
+                    t2 = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) \
+                        / max((bx - ax) ** 2 + (by - ay) ** 2, 1e-12)
+                    t2 = max(0.0, min(1.0, t2))
+                    mx = ax + t2 * (bx - ax)
+                    my = ay + t2 * (by - ay)
+                    t = t2
+                    stub = (px, py)
     mz = az + t * (bz - az)          # main centreline Z at that point
 
-    run = math.sqrt((ox - mx) ** 2 + (oy - my) ** 2)
+    if stub is not None:
+        l_run = math.sqrt((stub[0] - ox) ** 2 + (stub[1] - oy) ** 2)
+        l_stub = math.sqrt((mx - stub[0]) ** 2 + (my - stub[1]) ** 2)
+    else:
+        l_run = math.sqrt((ox - mx) ** 2 + (oy - my) ** 2)
+        l_stub = 0.0
+    run = l_run + l_stub
     fall = (run / slope_n) if (slope_n and slope_n > 0) else 0.0
+
+    def graded(z_start):
+        """the graded plan points with z falling from ``z_start``."""
+        pts = []
+        if stub is not None:
+            z_p = z_start - (l_run / slope_n if slope_n else 0.0)
+            pts.append((stub[0], stub[1], z_p))
+        return pts
 
     if not drop_pipe:
         # grade from the outlet, then drop onto the main
         bend_z = oz - fall
-        return {"bend": (mx, my, bend_z),
+        points = [(ox, oy, oz)] + graded(oz) + \
+            [(mx, my, bend_z), (mx, my, mz)]
+        return {"points": points, "stub": stub,
+                "bend": (mx, my, bend_z),
                 "end": (mx, my, mz),
                 "run_xy_ft": run,
                 "drop_ft": bend_z - mz,
@@ -200,7 +252,10 @@ def branch_points(outlet, main_a, main_b, slope_n, dia_ft, invert_m=None,
         bend_z = invert_m * 1000.0 / 304.8 + dia_ft / 2.0
         end_z = bend_z - fall
 
-    return {"bend": (ox, oy, bend_z),
+    points = [(ox, oy, oz), (ox, oy, bend_z)] + graded(bend_z) + \
+        [(mx, my, end_z)]
+    return {"points": points, "stub": stub,
+            "bend": (ox, oy, bend_z),
             "end": (mx, my, end_z),
             "run_xy_ft": run,
             "drop_ft": oz - bend_z,
@@ -711,42 +766,44 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
 
     t = Transaction(doc, "Connect fixture to main")
     t.Start()
-    first = second = None
     fit_notes = []
+    built = []                       # (leg index, pipe)
     try:
-        # both geometries are outlet -> bend -> end; which leg is the
-        # vertical piece differs, and a vertical leg only exists when
-        # it actually drops DOWN far enough
-        if pts["mode"] == "drop_last":
-            have_first = pts["run_xy_ft"] >= MIN_LEN_FT
-            have_second = pts["drop_ft"] >= MIN_LEN_FT
-        else:
-            have_first = pts["drop_ft"] >= MIN_LEN_FT
-            have_second = pts["run_xy_ft"] >= MIN_LEN_FT
-        if have_first:
-            first = Pipe.Create(doc, sys_id, type_id, lvl_id, o_xyz,
-                                bend)
-        if have_second:
-            start = bend if have_first else o_xyz
-            second = Pipe.Create(doc, sys_id, type_id, lvl_id, start,
-                                 end)
-        if first is None and second is None:
+        # the centreline polyline: outlet -> ... -> end. The vertical
+        # leg only exists when it actually drops DOWN far enough;
+        # skipped (degenerate) legs let the next one carry on from the
+        # last built point.
+        pline = pts["points"]
+        drop_leg = 0 if pts["mode"] == "drop_first" else len(pline) - 2
+        cur = XYZ(*pline[0])
+        for i in range(len(pline) - 1):
+            tgt = XYZ(*pline[i + 1])
+            if i == drop_leg:
+                ok = pts["drop_ft"] >= MIN_LEN_FT
+            else:
+                ok = cur.DistanceTo(tgt) >= MIN_LEN_FT
+            if ok:
+                built.append((i, Pipe.Create(doc, sys_id, type_id,
+                                             lvl_id, cur, tgt)))
+                cur = tgt
+        if not built:
             # fixture directly on the main: single vertical drop
-            first = Pipe.Create(doc, sys_id, type_id, lvl_id, o_xyz,
-                                end)
+            built.append((0, Pipe.Create(doc, sys_id, type_id, lvl_id,
+                                         o_xyz, end)))
         doc.Regenerate()
-        for p in (first, second):
-            if p is not None:
-                _set_dia(p, dia_ft)
+        for _i, p in built:
+            _set_dia(p, dia_ft)
         doc.Regenerate()
 
-        elbow = None
-        if first is not None and second is not None:
-            c1 = _conn_near(first, bend)
-            c2 = _conn_near(second, bend)
+        elbows = []
+        for k in range(len(built) - 1):
+            pa, pb = built[k][1], built[k + 1][1]
+            joint = XYZ(*pline[built[k][0] + 1])   # where the legs meet
+            c1 = _conn_near(pa, joint)
+            c2 = _conn_near(pb, joint)
             if c1 is not None and c2 is not None:
                 try:
-                    elbow = doc.Create.NewElbowFitting(c1, c2)
+                    elbows.append(doc.Create.NewElbowFitting(c1, c2))
                 except Exception as ex:
                     fit_notes.append("elbow not placed ({})".format(ex))
 
@@ -756,7 +813,7 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
         # into a kink to align. The run starts AT the outlet and stays
         # physically unconnected instead (tracking covers it).
         if pts["mode"] != "drop_last":
-            top_pipe = first if first is not None else second
+            top_pipe = built[0][1]
             try:
                 fconn = None
                 for c in get_connectors(fixture):
@@ -774,7 +831,7 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
         # branch point, tee the two halves + the branch together
         new_seg = None
         tee = None
-        end_pipe = second if second is not None else first
+        end_pipe = built[-1][1]
         c_end = _conn_near(end_pipe, end)
         if c_end is not None:
             new_seg, tee = _tee_into_main(doc, c_end, main, end,
@@ -786,13 +843,20 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
 
     for n in fit_notes:
         say("  ! {}".format(n))
-    # tracking keys: "down" = the vertical piece, "sloped" = the graded
-    # run, whichever order they were built in
-    if pts["mode"] == "drop_last":
-        down, sloped = second, first
-    else:
-        down, sloped = first, second
-    return {"down": down, "sloped": sloped, "elbow": elbow, "tee": tee,
+    # tracking keys: "down" = the vertical piece, "sloped" = the first
+    # graded run, "stub" = the squared last bit (oblique aims only)
+    down = sloped = stub_pipe = None
+    for i, p in built:
+        if i == drop_leg:
+            down = p
+        elif sloped is None:
+            sloped = p
+        else:
+            stub_pipe = p
+    return {"down": down, "sloped": sloped, "stub": stub_pipe,
+            "elbow": elbows[0] if elbows else None,
+            "elbow2": elbows[1] if len(elbows) > 1 else None,
+            "tee": tee,
             "end": pts["end"], "mode": pts["mode"],
             "upstream_invert_m": pts["upstream_invert_m"],
             "fitting_misses": len(fit_notes),

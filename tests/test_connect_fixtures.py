@@ -162,17 +162,22 @@ class RayHitsMain(unittest.TestCase):
 class AimedBranch(unittest.TestCase):
 
     def test_direction_sets_the_end(self):
+        # the 45-degree aim would meet the main at x=70; squaring the
+        # last bit pulls the TEE back by the stub (1 ft perpendicular,
+        # 2 x dia) to x=69, with the stub corner at (69, 1)
         out = branch_points_aimed((30.0, 40.0, 20.0), (0.0, 0.0, 10.0),
                                   (100.0, 0.0, 8.0), 100.0, 0.5,
                                   direction=(1.0, -1.0))
         self.assertTrue(out["aimed"])
-        self.assertAlmostEqual(out["end"][0], 70.0, places=9)
+        self.assertAlmostEqual(out["end"][0], 69.0, places=9)
         self.assertAlmostEqual(out["end"][1], 0.0, places=9)
-        # main Z at t=0.7 and the elbow back up the diagonal run
-        self.assertAlmostEqual(out["end"][2], 10.0 - 1.4, places=9)
-        run = math.hypot(70.0 - 30.0, 0.0 - 40.0)
+        self.assertAlmostEqual(out["stub"][0], 69.0, places=9)
+        self.assertAlmostEqual(out["stub"][1], 1.0, places=9)
+        # main Z at t=0.69, and the elbow back up the whole graded run
+        self.assertAlmostEqual(out["end"][2], 10.0 - 1.38, places=9)
+        run = math.hypot(69.0 - 30.0, 1.0 - 40.0) + 1.0
         self.assertAlmostEqual(out["run_xy_ft"], run, places=9)
-        self.assertAlmostEqual(out["bend"][2], 8.6 + run / 100.0,
+        self.assertAlmostEqual(out["bend"][2], 8.62 + run / 100.0,
                                places=9)
 
     def test_missing_ray_falls_back_to_projection(self):
@@ -181,6 +186,48 @@ class AimedBranch(unittest.TestCase):
                                   direction=(0.0, 1.0))
         self.assertFalse(out["aimed"])
         self.assertEqual(out["end"][:2], (30.0, 0.0))
+
+
+class SquaredStub(unittest.TestCase):
+    """Tees only place at ~90 deg, so an oblique aim squares its last
+    bit: elbow short of the main, then a perpendicular stub."""
+    A = (0.0, 0.0, 10.0)
+    B = (100.0, 0.0, 8.0)
+
+    def test_oblique_aim_gets_a_perpendicular_stub(self):
+        out = branch_points_aimed((30.0, 40.0, 20.0), self.A, self.B,
+                                  100.0, 0.5, direction=(1.0, -1.0))
+        self.assertTrue(out["aimed"])
+        self.assertIsNotNone(out["stub"])
+        sx, sy = out["stub"]
+        ex, ey = out["end"][0], out["end"][1]
+        # the stub runs perpendicular to the main (main is along X)
+        self.assertAlmostEqual(sx, ex, places=9)
+        self.assertGreater(abs(sy - ey), 0.9)          # a real stub
+        # 4 points: outlet, elbow under it, stub corner, end
+        self.assertEqual(len(out["points"]), 4)
+        self.assertEqual(out["points"][0], (30.0, 40.0, 20.0))
+        self.assertEqual(out["points"][-1][:2], (ex, ey))
+        # the graded run keeps falling through the stub corner
+        self.assertGreater(out["points"][1][2], out["points"][2][2])
+        self.assertGreater(out["points"][2][2], out["points"][3][2])
+
+    def test_square_aim_has_no_stub(self):
+        out = branch_points_aimed((30.0, 40.0, 20.0), self.A, self.B,
+                                  100.0, 0.5, direction=(0.0, -1.0))
+        self.assertIsNone(out["stub"])
+        self.assertEqual(len(out["points"]), 3)
+
+    def test_projection_fallback_has_no_stub(self):
+        out = branch_points_aimed((30.0, 40.0, 20.0), self.A, self.B,
+                                  100.0, 0.5)
+        self.assertIsNone(out["stub"])
+
+    def test_stub_skipped_when_the_node_is_too_close(self):
+        # only ~0.6 ft of plan run: no room to square it
+        out = branch_points_aimed((30.0, 0.5, 20.0), self.A, self.B,
+                                  100.0, 0.5, direction=(1.0, -1.0))
+        self.assertIsNone(out["stub"])
 
 
 class DropLast(unittest.TestCase):
