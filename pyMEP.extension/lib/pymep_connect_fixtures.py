@@ -97,25 +97,64 @@ def plan_dist_to_segment(p, a, b):
 # ---------------------------------------------------------------------------
 # pure geometry (stdlib only - unit-tested without Revit)
 # ---------------------------------------------------------------------------
-def branch_points(outlet, main_a, main_b, slope_n, dia_ft, invert_m=None):
+def ray_hits_main(outlet, direction, main_a, main_b):
+    """Where a plan RAY from the outlet along ``direction`` (the node's
+    facing) meets the main's plan line: (mx, my, t) with t the main's
+    0..1 parameter (a small overshoot clamps onto the run). None when
+    the ray is parallel, points away, or misses the run - the caller
+    falls back to the plan-nearest point. Pure."""
+    ox, oy = outlet[0], outlet[1]
+    ax, ay = main_a[0], main_a[1]
+    dx, dy = main_b[0] - ax, main_b[1] - ay
+    ex, ey = direction[0], direction[1]
+    el = math.sqrt(ex * ex + ey * ey)
+    if el < 1e-9:
+        return None
+    ex, ey = ex / el, ey / el
+    det = dx * ey - ex * dy
+    if abs(det) < 1e-9:
+        return None                          # parallel to the main
+    rx, ry = ox - ax, oy - ay
+    s = (rx * dy - ry * dx) / det            # distance along the ray
+    t = (rx * ey - ry * ex) / det            # parameter along the main
+    if s < MIN_LEN_FT:
+        return None                          # behind / on top of the node
+    if t < -0.05 or t > 1.05:
+        return None                          # misses the run
+    t = max(0.0, min(1.0, t))
+    return (ax + t * dx, ay + t * dy, t)
+
+
+def branch_points(outlet, main_a, main_b, slope_n, dia_ft, invert_m=None,
+                  direction=None, drop_pipe=True):
     """Where the branch runs, all coordinates internal feet.
 
     outlet / main_a / main_b: (x, y, z) tuples - the fixture outlet and
     the main pipe's centreline endpoints. slope_n: the 1:n ratio (fall =
     run / n; 0 or None = level). dia_ft: branch diameter.
 
-    invert_m None (the default) keeps the upstream invert where the
-    model currently puts it: the branch END sits ON the main's
-    centreline at the plan-nearest point (the main's own Z there,
-    interpolated along its slope) and the elbow derives back UP the
-    branch slope. A number fixes the upstream INVERT (metres, absolute):
-    elbow centreline = invert + D/2, and the end derives DOWN the slope.
+    ``direction`` (plan vector, e.g. the node's FacingOrientation)
+    aims the branch: it meets the main where the facing RAY crosses it,
+    falling back to the plan-nearest point when the ray misses.
+
+    ``drop_pipe`` picks the geometry (the family's 'Drop Pipe' yes/no):
+      True  - DROP FIRST (classic): vertical drop under the outlet,
+              then the graded run to the main;
+      False - GRADE FIRST: the run falls at 1:n straight from the
+              outlet, then a vertical DROP down onto the main.
+
+    invert_m (drop-first only) fixes the upstream INVERT (metres,
+    absolute): elbow centreline = invert + D/2, the end derives DOWN
+    the slope. None keeps the branch end ON the main's centreline as
+    it lies. Grade-first starts AT the outlet, so invert_m is ignored.
 
     Returns a dict:
-      bend (x,y,z)   the elbow point under the fixture
+      bend (x,y,z)   the corner (under the outlet, or above the main)
       end (x,y,z)    the branch end at the main
-      run_xy_ft      plan length of the sloped branch
-      drop_ft        outlet Z minus bend Z (downpipe length; <=0 = none)
+      run_xy_ft      plan length of the graded run
+      drop_ft        the vertical piece's length (<=0 = none)
+      mode           "drop_first" | "drop_last"
+      aimed          True when the facing ray set the end point
       upstream_invert_m   the resulting upstream invert (centreline -
                           D/2), for reporting and dialog defaults
     """
@@ -123,19 +162,36 @@ def branch_points(outlet, main_a, main_b, slope_n, dia_ft, invert_m=None):
     ax, ay, az = main_a
     bx, by, bz = main_b
 
-    dx, dy = bx - ax, by - ay
-    dd = dx * dx + dy * dy
-    if dd < 1e-12:
-        t = 0.0
+    hit = None
+    if direction is not None:
+        hit = ray_hits_main(outlet, direction, main_a, main_b)
+    if hit is not None:
+        mx, my, t = hit
     else:
-        t = ((ox - ax) * dx + (oy - ay) * dy) / dd
-        t = max(0.0, min(1.0, t))
-    mx = ax + t * dx
-    my = ay + t * dy
+        dx, dy = bx - ax, by - ay
+        dd = dx * dx + dy * dy
+        if dd < 1e-12:
+            t = 0.0
+        else:
+            t = ((ox - ax) * dx + (oy - ay) * dy) / dd
+            t = max(0.0, min(1.0, t))
+        mx = ax + t * dx
+        my = ay + t * dy
     mz = az + t * (bz - az)          # main centreline Z at that point
 
     run = math.sqrt((ox - mx) ** 2 + (oy - my) ** 2)
     fall = (run / slope_n) if (slope_n and slope_n > 0) else 0.0
+
+    if not drop_pipe:
+        # grade from the outlet, then drop onto the main
+        bend_z = oz - fall
+        return {"bend": (mx, my, bend_z),
+                "end": (mx, my, mz),
+                "run_xy_ft": run,
+                "drop_ft": bend_z - mz,
+                "mode": "drop_last",
+                "aimed": hit is not None,
+                "upstream_invert_m": (oz - dia_ft / 2.0) * 304.8 / 1000.0}
 
     if invert_m is None:
         end_z = mz
@@ -148,6 +204,8 @@ def branch_points(outlet, main_a, main_b, slope_n, dia_ft, invert_m=None):
             "end": (mx, my, end_z),
             "run_xy_ft": run,
             "drop_ft": oz - bend_z,
+            "mode": "drop_first",
+            "aimed": hit is not None,
             "upstream_invert_m": (bend_z - dia_ft / 2.0) * 304.8 / 1000.0}
 
 
@@ -231,6 +289,39 @@ def list_node_types(doc):
         except Exception:
             continue
     return sorted(groups.values(), key=lambda t: t[0].lower())
+
+
+DROP_PIPE_PARAM = "Drop Pipe"
+
+
+def node_direction(inst):
+    """The node's plan facing direction - its ROTATION aims the branch.
+    None when the instance has no usable facing."""
+    try:
+        f = inst.FacingOrientation
+        v = (f.X, f.Y)
+        if abs(v[0]) + abs(v[1]) > 1e-6:
+            return v
+    except Exception:
+        pass
+    return None
+
+
+def node_drop_pipe(inst):
+    """The family's 'Drop Pipe' yes/no (instance first, then type):
+    ticked (or absent) = classic drop-first geometry; unticked = grade
+    from the outlet first, then drop onto the main."""
+    for el in (inst, getattr(inst, "Symbol", None)):
+        if el is None:
+            continue
+        try:
+            p = el.LookupParameter(DROP_PIPE_PARAM)
+            if p is not None and p.HasValue \
+                    and str(p.StorageType) == "Integer":
+                return p.AsInteger() == 1
+        except Exception:
+            pass
+    return True
 
 
 DIA_PARAM_NAMES = ["DIA", "Diameter", "Nominal Diameter", "dia", "D"]
@@ -499,11 +590,17 @@ def set_pipe_dia(doc, pipe, dia_mm, log=None):
 
 def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
                             invert_m=None, log=None,
-                            pipe_type_id=None, system_type_id=None):
+                            pipe_type_id=None, system_type_id=None,
+                            use_rotation=False):
     """Build one fixture's branch, in ONE transaction. Returns a summary
     dict; raises with everything rolled back when the pipes can't be
     created (a failed FITTING never fails the branch - the pipes stay
-    and the miss is reported)."""
+    and the miss is reported).
+
+    ``use_rotation`` (the node flow): the branch leaves along the
+    node's FACING direction (its rotation) when that ray meets the
+    main, and the family's 'Drop Pipe' yes/no picks drop-first vs
+    grade-first geometry."""
     def say(m):
         if log is not None:
             log(m)
@@ -534,7 +631,21 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
     if _mdia and abs(dia_ft - _mdia) <= mm2ft(1.0):
         dia_ft = _mdia
 
-    pts = branch_points(outlet, a, b, slope_n, dia_ft, invert_m)
+    direction = node_direction(fixture) if use_rotation else None
+    drop_first = node_drop_pipe(fixture) if use_rotation else True
+    if not drop_first and invert_m is not None:
+        say("  (Drop Pipe is OFF - the run starts AT the outlet, the "
+            "typed invert doesn't apply)")
+        invert_m = None
+    pts = branch_points(outlet, a, b, slope_n, dia_ft, invert_m,
+                        direction=direction, drop_pipe=drop_first)
+    if use_rotation:
+        if direction is not None and not pts["aimed"]:
+            say("  (the node's facing ray misses the main - branch "
+                "takes the plan-nearest route)")
+        if not drop_first:
+            say("  Drop Pipe OFF: graded run from the outlet, then a "
+                "drop onto the main")
     bend = XYZ(*pts["bend"])
     end = XYZ(*pts["end"])
     o_xyz = XYZ(*outlet)
@@ -543,35 +654,48 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
         "**{:.3f} m**, drop {:.0f} mm".format(
             ft2mm(outlet[2]) / 1000.0, ft2mm(pts["run_xy_ft"]) / 1000.0,
             pts["upstream_invert_m"], ft2mm(max(pts["drop_ft"], 0.0))))
-    if pts["drop_ft"] < MIN_LEN_FT:
+    if pts["mode"] == "drop_first" and pts["drop_ft"] < MIN_LEN_FT:
         say("  ! the elbow level sits at/above the outlet - no downpipe "
             "(check the invert/slope)")
+    if pts["mode"] == "drop_last" and pts["drop_ft"] < MIN_LEN_FT:
+        say("  ! the graded run bottoms out at/below the main - no "
+            "drop piece")
 
     t = Transaction(doc, "Connect fixture to main")
     t.Start()
-    down = sloped = None
+    first = second = None
     fit_notes = []
     try:
-        have_down = pts["drop_ft"] >= MIN_LEN_FT
-        have_run = pts["run_xy_ft"] >= MIN_LEN_FT
-        if have_down:
-            down = Pipe.Create(doc, sys_id, type_id, lvl_id, o_xyz, bend)
-        if have_run:
-            start = bend if have_down else o_xyz
-            sloped = Pipe.Create(doc, sys_id, type_id, lvl_id, start, end)
-        if down is None and sloped is None:
+        # both geometries are outlet -> bend -> end; which leg is the
+        # vertical piece differs, and a vertical leg only exists when
+        # it actually drops DOWN far enough
+        if pts["mode"] == "drop_last":
+            have_first = pts["run_xy_ft"] >= MIN_LEN_FT
+            have_second = pts["drop_ft"] >= MIN_LEN_FT
+        else:
+            have_first = pts["drop_ft"] >= MIN_LEN_FT
+            have_second = pts["run_xy_ft"] >= MIN_LEN_FT
+        if have_first:
+            first = Pipe.Create(doc, sys_id, type_id, lvl_id, o_xyz,
+                                bend)
+        if have_second:
+            start = bend if have_first else o_xyz
+            second = Pipe.Create(doc, sys_id, type_id, lvl_id, start,
+                                 end)
+        if first is None and second is None:
             # fixture directly on the main: single vertical drop
-            down = Pipe.Create(doc, sys_id, type_id, lvl_id, o_xyz, end)
+            first = Pipe.Create(doc, sys_id, type_id, lvl_id, o_xyz,
+                                end)
         doc.Regenerate()
-        for p in (down, sloped):
+        for p in (first, second):
             if p is not None:
                 _set_dia(p, dia_ft)
         doc.Regenerate()
 
         elbow = None
-        if down is not None and sloped is not None:
-            c1 = _conn_near(down, bend)
-            c2 = _conn_near(sloped, bend)
+        if first is not None and second is not None:
+            c1 = _conn_near(first, bend)
+            c2 = _conn_near(second, bend)
             if c1 is not None and c2 is not None:
                 try:
                     elbow = doc.Create.NewElbowFitting(c1, c2)
@@ -579,7 +703,7 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
                     fit_notes.append("elbow not placed ({})".format(ex))
 
         # hook the top of the branch to the fixture's outlet connector
-        top_pipe = down if down is not None else sloped
+        top_pipe = first if first is not None else second
         try:
             fconn = None
             for c in get_connectors(fixture):
@@ -597,7 +721,7 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
         # branch point, tee the two halves + the branch together
         new_seg = None
         tee = None
-        end_pipe = sloped if sloped is not None else down
+        end_pipe = second if second is not None else first
         c_end = _conn_near(end_pipe, end)
         if c_end is not None:
             new_seg, tee = _tee_into_main(doc, c_end, main, end,
@@ -609,8 +733,14 @@ def connect_fixture_to_main(doc, fixture, main, slope_n, dia_mm,
 
     for n in fit_notes:
         say("  ! {}".format(n))
+    # tracking keys: "down" = the vertical piece, "sloped" = the graded
+    # run, whichever order they were built in
+    if pts["mode"] == "drop_last":
+        down, sloped = second, first
+    else:
+        down, sloped = first, second
     return {"down": down, "sloped": sloped, "elbow": elbow, "tee": tee,
-            "end": pts["end"],
+            "end": pts["end"], "mode": pts["mode"],
             "upstream_invert_m": pts["upstream_invert_m"],
             "fitting_misses": len(fit_notes),
             "new_main_segment": new_seg}

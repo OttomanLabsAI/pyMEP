@@ -605,7 +605,8 @@ try:
             r = connect_fixture_to_main(doc, node, seg, slope, dia_mm,
                                         invert_m=win.result["invert_m"],
                                         log=log, pipe_type_id=pt_id,
-                                        system_type_id=st_id)
+                                        system_type_id=st_id,
+                                        use_rotation=True)
             done += 1
             fitting_notes += r["fitting_misses"]
             if r.get("new_main_segment") is not None:

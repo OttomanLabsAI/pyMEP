@@ -41,6 +41,25 @@ main_gradient = extract("main_gradient")
 regrade_main_ends = extract("regrade_main_ends")
 plan_dist_to_segment = extract("plan_dist_to_segment")
 
+
+def extract_shared(names):
+    """One namespace for functions that call each other (branch_points
+    -> ray_hits_main), with the module constants they lean on."""
+    path = os.path.join(LIB, "pymep_connect_fixtures.py")
+    with open(path) as f:
+        src = f.read()
+    ns = {"math": math, "MIN_LEN_FT": 50.0 / 304.8}
+    for node in ast.parse(src).body:
+        if isinstance(node, ast.FunctionDef) and node.name in names:
+            exec(compile(ast.get_source_segment(src, node), path, "exec"),
+                 ns)
+    return ns
+
+
+_NS = extract_shared(["ray_hits_main", "branch_points"])
+ray_hits_main = _NS["ray_hits_main"]
+branch_points_aimed = _NS["branch_points"]
+
 FT = 304.8 / 1000.0   # m per ft
 
 
@@ -104,6 +123,94 @@ class FixedInvert(unittest.TestCase):
         out = branch_points((30.0, 40.0, 20.0), (0.0, 0.0, 10.0),
                             (100.0, 0.0, 8.0), 100.0, 0.5, invert_m=2.0)
         self.assertEqual(out["end"][:2], (30.0, 0.0))
+
+
+class RayHitsMain(unittest.TestCase):
+    """The node's facing (rotation) aims the branch at the main."""
+    A = (0.0, 0.0, 10.0)
+    B = (100.0, 0.0, 8.0)
+
+    def test_forward_hit(self):
+        # node at (30,40) facing SE at 45 deg: the ray meets y=0 at x=70
+        hit = ray_hits_main((30.0, 40.0, 20.0), (1.0, -1.0), self.A,
+                            self.B)
+        self.assertIsNotNone(hit)
+        self.assertAlmostEqual(hit[0], 70.0, places=9)
+        self.assertAlmostEqual(hit[1], 0.0, places=9)
+        self.assertAlmostEqual(hit[2], 0.7, places=9)
+
+    def test_parallel_and_backwards_miss(self):
+        self.assertIsNone(ray_hits_main((30.0, 40.0, 20.0), (1.0, 0.0),
+                                        self.A, self.B))
+        self.assertIsNone(ray_hits_main((30.0, 40.0, 20.0), (0.0, 1.0),
+                                        self.A, self.B))
+
+    def test_beyond_the_run_misses(self):
+        # facing hits y=0 way past the far end
+        self.assertIsNone(ray_hits_main((30.0, 40.0, 20.0), (3.0, -1.0),
+                                        self.A, self.B))
+
+    def test_small_overshoot_clamps_onto_the_run(self):
+        # hits at x=101.25 (t=1.0125, inside the 5% grace) -> clamped
+        hit = ray_hits_main((98.0, 6.5, 20.0), (0.5, -1.0), self.A,
+                            self.B)
+        self.assertIsNotNone(hit)
+        self.assertAlmostEqual(hit[2], 1.0, places=9)
+        self.assertAlmostEqual(hit[0], 100.0, places=9)
+
+
+class AimedBranch(unittest.TestCase):
+
+    def test_direction_sets_the_end(self):
+        out = branch_points_aimed((30.0, 40.0, 20.0), (0.0, 0.0, 10.0),
+                                  (100.0, 0.0, 8.0), 100.0, 0.5,
+                                  direction=(1.0, -1.0))
+        self.assertTrue(out["aimed"])
+        self.assertAlmostEqual(out["end"][0], 70.0, places=9)
+        self.assertAlmostEqual(out["end"][1], 0.0, places=9)
+        # main Z at t=0.7 and the elbow back up the diagonal run
+        self.assertAlmostEqual(out["end"][2], 10.0 - 1.4, places=9)
+        run = math.hypot(70.0 - 30.0, 0.0 - 40.0)
+        self.assertAlmostEqual(out["run_xy_ft"], run, places=9)
+        self.assertAlmostEqual(out["bend"][2], 8.6 + run / 100.0,
+                               places=9)
+
+    def test_missing_ray_falls_back_to_projection(self):
+        out = branch_points_aimed((30.0, 40.0, 20.0), (0.0, 0.0, 10.0),
+                                  (100.0, 0.0, 8.0), 100.0, 0.5,
+                                  direction=(0.0, 1.0))
+        self.assertFalse(out["aimed"])
+        self.assertEqual(out["end"][:2], (30.0, 0.0))
+
+
+class DropLast(unittest.TestCase):
+    """Drop Pipe OFF: grade from the outlet, then drop onto the main."""
+
+    def test_grade_first_then_drop(self):
+        out = branch_points_aimed((30.0, 40.0, 20.0), (0.0, 0.0, 10.0),
+                                  (100.0, 0.0, 8.0), 100.0, 0.5,
+                                  drop_pipe=False)
+        self.assertEqual(out["mode"], "drop_last")
+        # the corner sits ABOVE the main: outlet z minus run/n
+        self.assertEqual(out["bend"][:2], (30.0, 0.0))
+        self.assertAlmostEqual(out["bend"][2], 20.0 - 40.0 / 100.0,
+                               places=9)
+        # the end is ON the main centreline; the drop spans the gap
+        self.assertAlmostEqual(out["end"][2], 9.4, places=9)
+        self.assertAlmostEqual(out["drop_ft"], 19.6 - 9.4, places=9)
+        # upstream invert = the OUTLET (the run starts there)
+        self.assertAlmostEqual(out["upstream_invert_m"],
+                               (20.0 - 0.25) * FT, places=9)
+
+    def test_invert_ignored_in_drop_last(self):
+        on = branch_points_aimed((30.0, 40.0, 20.0), (0.0, 0.0, 10.0),
+                                 (100.0, 0.0, 8.0), 100.0, 0.5,
+                                 invert_m=5.0, drop_pipe=False)
+        off = branch_points_aimed((30.0, 40.0, 20.0), (0.0, 0.0, 10.0),
+                                  (100.0, 0.0, 8.0), 100.0, 0.5,
+                                  drop_pipe=False)
+        self.assertEqual(on["bend"], off["bend"])
+        self.assertEqual(on["end"], off["end"])
 
 
 class MainGradient(unittest.TestCase):
