@@ -14,7 +14,8 @@ Flow (engine in lib/pymep_update.py):
      folder and the zip are deleted - no superseded archive; older
      versions stay reinstallable via Settings > General >
      Downgrade / reinstall. Any failure restores the old version.
-  4. Offers to reload pyRevit so the new version is live.
+  4. Reloads pyRevit AUTOMATICALLY so the new version is live -
+     accepting the install is the go-ahead.
 
 Settings keys (pyMEP_settings.json): 'github_repo' ("owner/repo"),
 'github_token' (optional - private repos / API rate limits),
@@ -120,19 +121,15 @@ except Exception as ex:
 
 log("### Installed **{}**".format(new_ver or "(no version.txt in zip)"))
 
-if forms.alert(
-        "Installed {}.\n\nReload pyRevit now so the new version is live?"
-        .format(new_ver or "the update"),
-        title="Installed",
-        options=["Reload pyRevit", "Later"]) == "Reload pyRevit":
-    log.close()
-    try:
-        from pyrevit.loader import sessionmgr
-        sessionmgr.reload_pyrevit()
-    except Exception as ex:
-        forms.alert(
-            "Automatic reload failed ({}).\n\nReload manually: pyRevit tab "
-            "> Reload.".format(ex))
-else:
-    log("Reload skipped - use pyRevit tab > Reload when ready.")
-    log.close()
+# accepting the upgrade IS the go-ahead: reload pyRevit straight away
+# so the new version is live - no second question
+log("Reloading pyRevit ...")
+log.close()
+try:
+    from pyrevit.loader import sessionmgr
+    sessionmgr.reload_pyrevit()
+except Exception as ex:
+    forms.alert(
+        "Installed {}, but the automatic reload failed ({}).\n\nReload "
+        "manually: pyRevit tab > Reload.".format(new_ver or "the update",
+                                                 ex))
