@@ -17,6 +17,20 @@ class Logger(object):
 
     def __init__(self, output, name):
         self._output = output
+        # Settings > General > "never show the output window": hide it
+        # while the command runs (it is closed in close()). An error or
+        # traceback shows it again - see __call__.
+        self._hidden = False
+        try:
+            from pymep_config import get_hide_output
+            if output is not None and get_hide_output():
+                self._hidden = True
+                try:
+                    output.hide()
+                except Exception:
+                    pass
+        except Exception:
+            pass
         log_dir = os.path.join(os.environ.get("APPDATA", ""), "pyRevit", "Logs")
         if not os.path.exists(log_dir):
             try: os.makedirs(log_dir)
@@ -41,6 +55,13 @@ class Logger(object):
         try:
             if "Traceback (most recent call last)" in msg:
                 self.keep_open = True
+                if self._hidden and self._output is not None:
+                    # an error beats the "never show it" setting
+                    self._hidden = False
+                    try:
+                        self._output.show()
+                    except Exception:
+                        pass
         except Exception:
             pass
         if self._lf is not None:
@@ -57,14 +78,15 @@ class Logger(object):
             try: self._lf.close()
             except: pass
             self._lf = None
-        # Optionally close the command's output window too
-        # (Settings > General > auto-close). Never when an error/
-        # traceback was logged this run.
+        # Optionally close the command's output window too (Settings >
+        # General: auto-close, or never show it at all - a hidden window
+        # is always closed here so it does not linger). Never when an
+        # error/traceback was logged this run.
         try:
             if not getattr(self, "keep_open", False) and \
                     self._output is not None:
                 from pymep_config import get_auto_close_output
-                if get_auto_close_output():
+                if self._hidden or get_auto_close_output():
                     self._output.close()
         except Exception:
             pass

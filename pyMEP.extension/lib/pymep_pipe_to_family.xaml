@@ -1,0 +1,121 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Family at Pipe Top"
+        Width="500" Height="420" MinWidth="440" MinHeight="300"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Background="White">
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Padding" Value="10,8,10,10"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,6,10,0"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="DialogButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#F4F4F4" Padding="14,10">
+            <StackPanel>
+                <TextBlock FontSize="15" FontWeight="SemiBold"
+                           Text="Family at Pipe Top"/>
+                <TextBlock x:Name="TxtInfo" Style="{StaticResource Hint}"
+                           Text="&#8212;"/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="14,12,14,12">
+            <GroupBox Header="Family to place">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Category"/>
+                    <ComboBox x:Name="CmbCat" Grid.Row="0" Grid.Column="1"
+                              SelectionChanged="on_cat_changed"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Family"/>
+                    <ComboBox x:Name="CmbFam" Grid.Row="1" Grid.Column="1"
+                              SelectionChanged="on_fam_changed"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Type"/>
+                    <ComboBox x:Name="CmbType" Grid.Row="2" Grid.Column="1"/>
+                    <TextBlock Grid.Row="3" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Search"/>
+                    <TextBox x:Name="TxtSearch" Grid.Row="3" Grid.Column="1"
+                             TextChanged="on_search"/>
+                    <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
+                               Style="{StaticResource Hint}"
+                               Text="Search matches every category / family / type at once (clear it to go back to the three lists)."/>
+                </Grid>
+            </GroupBox>
+
+            <GroupBox Header="After placing">
+                <StackPanel>
+                    <CheckBox x:Name="ChkDelete"
+                              Content="Delete the pipe once the family is placed"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="The family lands on the higher end of each selected pipe - the head of a riser, the upstream end of a graded run."/>
+                </StackPanel>
+            </GroupBox>
+
+            <TextBlock x:Name="StatusText" Foreground="#B00020"
+                       TextWrapping="Wrap" Text=""/>
+        </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" Background="#F4F4F4" Padding="14,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnPlace" Content="Place"
+                        Style="{StaticResource DialogButton}" IsDefault="True"
+                        Click="on_place"/>
+                <Button x:Name="BtnCancel" Content="Cancel"
+                        Style="{StaticResource DialogButton}" IsCancel="True"
+                        Click="on_cancel"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
