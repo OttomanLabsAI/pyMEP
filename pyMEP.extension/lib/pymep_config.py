@@ -480,15 +480,26 @@ def save_chamber_dim_pairs(pairs):
     save_settings(s)
 
 
+def _flag(value):
+    """A settings flag that may have been stored as a string."""
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "yes", "1", "on", "y")
+    return bool(value)
+
+
 def get_auto_close_output():
     """True -> every pyMEP button closes its output window when it
     finishes (never when an error/traceback was logged). Settings key
     'auto_close_output'; default False (window stays open)."""
-    s = load_settings()
-    v = s.get("auto_close_output")
-    if isinstance(v, str):
-        return v.strip().lower() in ("true", "yes", "1", "on", "y")
-    return bool(v)
+    return _flag(load_settings().get("auto_close_output"))
+
+
+def get_hide_output():
+    """True -> the output window never shows in the first place: it is
+    hidden as each pyMEP button runs and closed at the end. An error or
+    traceback still pops it open. Settings key 'hide_output'; default
+    False."""
+    return _flag(load_settings().get("hide_output"))
 
 
 # ---------------------------------------------------------------------------

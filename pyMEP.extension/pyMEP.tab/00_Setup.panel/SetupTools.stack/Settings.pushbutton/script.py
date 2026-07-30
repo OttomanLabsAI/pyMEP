@@ -37,7 +37,7 @@ from pymep_config import (
     DEFAULT_PIPE_HOST_LEVEL,
     DEFAULT_ANNOTATE_SUFFIX, DEFAULT_ANNOTATE_PIPE_OFFSET_MM,
     get_landxml_survey_transform, get_annotate_pipe_offset_mm,
-    get_auto_close_output,
+    get_auto_close_output, get_hide_output,
     get_chamber_dim_pairs, save_chamber_dim_pairs,
     DEFAULT_CHAMBER_DIM_PAIRS,
     get_local_version, get_github_repo, get_github_token,
@@ -76,6 +76,7 @@ class SettingsWindow(forms.WPFWindow):
         self.TxtPythonExe.Text = s.get("python_exe", "") or ""
         self.TxtExportOverride.Text = s.get("export_folder_override", "") or ""
         self.ChkAutoClose.IsChecked = get_auto_close_output()
+        self.ChkHideOutput.IsChecked = get_hide_output()
         self._refresh_active_export()
 
         # Ducts
@@ -177,6 +178,7 @@ class SettingsWindow(forms.WPFWindow):
         s["python_exe"] = self.TxtPythonExe.Text.strip()
         s["export_folder_override"] = self.TxtExportOverride.Text.strip()
         s["auto_close_output"] = bool(self.ChkAutoClose.IsChecked)
+        s["hide_output"] = bool(self.ChkHideOutput.IsChecked)
 
         s["duct_type_name"] = self.TxtDuctType.Text.strip()
         s["duct_system_type_name"] = self.TxtDuctSystem.Text.strip()

@@ -30,7 +30,7 @@ PANEL_ORDER = ["pyMEP", "Civil 3D Conversion", "Electrical", "Drainage",
 # Stacked buttons shown BIG with no label (their tooltips still carry
 # the names). Titles normalized to single-space before matching.
 ICON_ONLY = set(["Create Pipe Sizes", "Structure to Pipe",
-                 "Apply Edits", "Network Settings"])
+                 "Family at Pipe Top", "Apply Edits", "Network Settings"])
 
 _state = {"tries": 0}
 

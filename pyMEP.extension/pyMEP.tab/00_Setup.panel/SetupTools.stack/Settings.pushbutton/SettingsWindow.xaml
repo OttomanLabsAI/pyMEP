@@ -116,7 +116,9 @@
                             <StackPanel>
                                 <CheckBox x:Name="ChkAutoClose" Margin="0,4,0,2"
                                           Content="Close each command's output window automatically when it finishes"/>
-                                <TextBlock Text="Windows that logged an error or traceback always stay open." Style="{StaticResource Hint}"/>
+                                <CheckBox x:Name="ChkHideOutput" Margin="0,6,0,2"
+                                          Content="Never show the output window at all"/>
+                                <TextBlock Text="Windows that logged an error or traceback always stay open - 'never show' pops the window back up when something goes wrong." Style="{StaticResource Hint}"/>
                             </StackPanel>
                         </GroupBox>
                     </StackPanel>
