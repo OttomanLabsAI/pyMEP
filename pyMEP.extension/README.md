@@ -272,9 +272,10 @@ remembered between runs. Every branch it builds is TRACKED in the
 project's file store (node, pipes, fittings, settings, the main's
 line).
 
-**Update Nodes** - adapts the tracked branches to where the nodes are
-NOW: unmoved nodes are left alone; moved nodes get their old branch
-deleted, the main healed across the old tee (the two open halves
+**Update Nodes** - adapts the tracked branches to the nodes as they
+are NOW: untouched nodes are left alone; nodes that moved, TURNED
+(rotation re-aims the branch) or had their family's Drop Pipe yes/no
+toggled (drop-first vs grade-first) get their old branch deleted, the main healed across the old tee (the two open halves
 stretched back into one pipe), and the branch rebuilt with the same
 settings against the main as it now lies; deleted nodes get their
 branch removed. One undo step.

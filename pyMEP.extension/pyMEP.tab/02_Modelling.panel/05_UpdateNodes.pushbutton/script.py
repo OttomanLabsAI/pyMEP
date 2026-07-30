@@ -5,10 +5,11 @@ NOW.
 Every branch Inflow Drop Pipe to Collector builds is tracked in the project's file
 store. Hit this after moving (or deleting) nodes:
 
-  - unmoved nodes with an intact branch are left alone;
-  - moved nodes get their old branch deleted, the main healed across
-    the old tee, and the branch REBUILT with the same settings against
-    the main as it now lies;
+  - untouched nodes with an intact branch are left alone;
+  - moved nodes - and nodes that were TURNED or had their family's
+    'Drop Pipe' yes/no toggled - get their old branch deleted, the
+    main healed across the old tee, and the branch REBUILT with the
+    same settings against the node and main as they now are;
   - deleted nodes get their branch removed and the main healed.
 
 Everything runs in one go (a single undo step).
