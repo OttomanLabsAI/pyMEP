@@ -610,43 +610,38 @@ function boot(DATA){
   function closeEdit(){ st.sel=null; edit.classList.remove("on"); updateList(); }
   document.getElementById("eClose").onclick=closeEdit;
   eMain.onchange=function(){
-    stashMain();  /* keep what was typed for the previous main */
+    /* typed values were stashed field-by-field as they changed */
     curMain=parseInt(eMain.value,10)||0;
     mainEditFields(nets.get(st.sel).data,curMain);
   };
 
   function num(el){ var v=parseFloat(el.value); return isFinite(v)&&v>0?v:null; }
-  function stashMain(){
+  /* every TYPED value is an explicit edit - even one equal to what the
+     model showed at launch (change 80 -> 70, apply, type 80 again: the
+     80 must save). Only the field the user touched is stashed. */
+  function stashField(el){
     if (st.sel===null) return;
     var nw=nets.get(st.sel).data;
-    if (!nw.mains.length) return;
-    var m=nw.mains[curMain], p=ensurePending(st.sel);
-    var e={};
-    var d=num(eMDia); if (d&&Math.abs(d-m.dia_mm)>0.5) e.dia_mm=d;
-    var sl=num(eMSlope);
-    if (sl&&(!m.slope_n||Math.abs(sl-m.slope_n)>0.5)) e.slope=sl;
-    e.keep=eMKeep.value;
-    if (eMIEnd.value&&eMInv.value!==""){
-      var iv=parseFloat(eMInv.value);
-      if (isFinite(iv)){ e.invert_end=eMIEnd.value; e.invert_m=iv; }
+    var p=ensurePending(st.sel);
+    if (el===eBDia){ var v1=num(el); if (v1===null) delete p.branch.dia_mm; else p.branch.dia_mm=v1; }
+    else if (el===eBSlope){ var v2=num(el); if (v2===null) delete p.branch.slope; else p.branch.slope=v2; }
+    else if (el===eBPt){ if (el.value) p.branch.pipe_type=el.value; else delete p.branch.pipe_type; }
+    else if (el===eBSt){ if (el.value) p.branch.sys_type=el.value; else delete p.branch.sys_type; }
+    else if (el===eWs){ p.workset=el.value||null; }
+    else if (nw.mains.length){
+      var e=p.mains[curMain]||(p.mains[curMain]={});
+      if (el===eMDia){ var v3=num(el); if (v3===null) delete e.dia_mm; else e.dia_mm=v3; }
+      else if (el===eMSlope){ var v4=num(el); if (v4===null) delete e.slope; else e.slope=v4; }
+      else if (el===eMKeep){ e.keep=el.value; }
+      else {
+        var iv=parseFloat(eMInv.value);
+        if (eMIEnd.value&&isFinite(iv)){ e.invert_end=eMIEnd.value; e.invert_m=iv; }
+        else { delete e.invert_end; delete e.invert_m; }
+      }
+      var ks=Object.keys(e);
+      if (!ks.length||(ks.length===1&&ks[0]==="keep")) delete p.mains[curMain];
     }
-    if (e.dia_mm||e.slope||e.invert_m!==undefined) p.mains[curMain]=e;
-    else delete p.mains[curMain];
-  }
-  function stashAll(){
-    if (st.sel===null) return null;
-    var name=st.sel, nw=nets.get(name).data, s=nw.settings||{};
-    var p=ensurePending(name);
-    var b={};
-    var d=num(eBDia); if (d&&(!s.dia_mm||Math.abs(d-s.dia_mm)>0.5)) b.dia_mm=d;
-    var sl=num(eBSlope); if (sl&&(!s.slope||Math.abs(sl-s.slope)>0.5)) b.slope=sl;
-    if (eBPt.value&&eBPt.value!==(s.pipe_type||"")) b.pipe_type=eBPt.value;
-    if (eBSt.value&&eBSt.value!==(s.sys_type||"")) b.sys_type=eBSt.value;
-    p.branch=b;
-    p.workset=eWs.value||null;
-    stashMain();
-    if (!hasEdits(p)) delete pending[name];
-    return pendingFor(name);
+    if (!hasEdits(p)) delete pending[st.sel];
   }
   /* ---------- undo: a snapshot stack over the pending edits ----------
      a snapshot is pushed only when an action actually CHANGES the
@@ -677,7 +672,6 @@ function boot(DATA){
 
   document.getElementById("ePrev").onclick=function(){
     if (st.sel===null) return;
-    withUndo(stashAll);
     rebuildNet(st.sel); updateList(); updateSave(); autoSave();
   };
   document.getElementById("eRevert").onclick=function(){
@@ -688,7 +682,7 @@ function boot(DATA){
   };
   [eBDia,eBSlope,eBPt,eBSt,eWs,eMDia,eMSlope,eMKeep,eMIEnd,eMInv].forEach(function(el){
     el.addEventListener("change",function(){
-      withUndo(stashAll);
+      withUndo(function(){ stashField(el); });
       updateList(); updateSave(); autoSave();
     });
   });
@@ -806,7 +800,6 @@ function boot(DATA){
   }
   function clock(){ return new Date().toTimeString().slice(0,8); }
   saveBtn.onclick=function(){
-    stashAll();
     var payload=buildPayload();
     if (!payload.edits.length) return;
     writeViaHandle(payload,true).then(function(ok){

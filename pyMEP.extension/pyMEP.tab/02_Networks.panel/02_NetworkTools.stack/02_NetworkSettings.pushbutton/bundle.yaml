@@ -1,2 +1,2 @@
 title: Network Settings
-tooltip: "Configure the Networks dashboard: the filter word that makes a family an input node (families whose FAMILY name contains it; their type name names the network), the folder Apply Edits reads the saved edits file from (blank = Downloads), and whether Apply Edits asks before changing the model."
+tooltip: "Configure the Networks dashboard: the filter word that makes a family an input node (families whose FAMILY name contains it; type names carry system and flow, e.g. STORMWATER - IN - each collector run is numbered automatically), the folder Apply Edits reads the saved edits file from (blank = Downloads), and whether Apply Edits asks before changing the model."

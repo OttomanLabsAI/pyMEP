@@ -250,6 +250,17 @@ def node_network_name(node):
         return ""
 
 
+def network_value(el):
+    """The element's stamped network name, '' when none."""
+    try:
+        p = el.LookupParameter(PARAM_NAME)
+        if p is not None and p.HasValue:
+            return (p.AsString() or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
 def collect_by_network(doc):
     """{network: [elements]} over every pipe / fitting / instance whose
     PARAM_NAME carries a non-empty value - the model-side network map

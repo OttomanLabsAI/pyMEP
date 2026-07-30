@@ -267,10 +267,15 @@ branch removed. One undo step.
 
 ### Networks
 
-Everything a network owns - nodes, branch pipes, fittings (including
-the couplings Revit inserts by itself) and the main's pieces - carries
-its network name in a **`pyMEP_Network`** instance parameter (a shared
-parameter pyMEP binds automatically, under Identity Data). Nodes to
+Networks are COLLECTOR runs. Node type names carry just system and
+flow (`STORMWATER - IN` - no network numbers to keep unique), and
+every collector pipe a series of branches feeds into gets its own
+automatic identity: `STORMWATER - IN - C1`, `C2`, ... (reused from
+what's already stamped or tracked, so numbers stay stable). Everything
+a collector owns - nodes, branch pipes, fittings (including the
+couplings Revit inserts by itself) and the collector's pieces -
+carries that name in a **`pyMEP_Network`** instance parameter (a
+shared parameter pyMEP binds automatically, under Identity Data). Nodes to
 Main, Update Nodes and Apply Edits stamp it on everything they build;
 the dashboard launch backfills older models from the tracking
 registry. The parameter IS the network map: schedule it, filter views

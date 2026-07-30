@@ -49,7 +49,7 @@ from pymep_nodes_track import (
 )
 from pymep_net_param import (
     ensure_network_param, stamp_network, with_connected_fittings,
-    node_network_name, collect_by_network,
+    node_network_name, collect_by_network, network_value,
 )
 
 
@@ -95,6 +95,22 @@ def line_key(line):
     a = tuple(round(float(v), 3) for v in line[0])
     b = tuple(round(float(v), 3) for v in line[1])
     return tuple(sorted((a, b)))
+
+
+def next_collector_name(existing, type_name):
+    """'<type name> - C<n>' with the first FREE n given the collector
+    names already in play - how each collector run gets its own stable
+    identity now that node type names carry no network number
+    ('STORMWATER - IN' is the whole convention). Pure."""
+    n = 0
+    pref = (type_name or "NETWORK").strip() + " - C"
+    for name in existing:
+        if name and name.startswith(pref):
+            try:
+                n = max(n, int(str(name)[len(pref):].strip()))
+            except Exception:
+                continue
+    return "{}{}".format(pref, n + 1)
 
 
 def run_extremes(ends):
@@ -348,23 +364,78 @@ def _set_workset(el, ws_int):
         pass
 
 
+def assign_collectors(doc, base):
+    """Give every registry record its COLLECTOR name - the network
+    identity now that type names carry no number ('STORMWATER - IN').
+    One collector per distinct main line. Reused in order: the name the
+    record already carries, then the stamp already on the main's
+    pieces (old '- N1' values keep working as collector names), then a
+    fresh '<type> - C<n>' allocated in stable line order. The registry
+    is saved when anything was assigned. Returns {line_key: name}."""
+    registry = load_branches(base)
+    recs = registry["branches"]
+    by_line = {}
+    for r in recs:
+        if not r.get("main_line"):
+            continue
+        k = line_key(r["main_line"])
+        e = by_line.setdefault(k, {"types": [], "coll": None, "recs": []})
+        e["recs"].append(r)
+        if r.get("collector") and not e["coll"]:
+            e["coll"] = r["collector"]
+        node = _by_uid(doc, r.get("node_uid"))
+        if node is not None:
+            tn = node_network_name(node)
+            if tn and tn not in e["types"]:
+                e["types"].append(tn)
+    existing = set()
+    for e in by_line.values():
+        if e["coll"]:
+            existing.add(e["coll"])
+    changed = False
+    out = {}
+    for k in sorted(by_line.keys()):
+        e = by_line[k]
+        coll = e["coll"]
+        if not coll:
+            for p in _main_pieces(doc, k[0], k[1]):
+                coll = network_value(p)
+                if coll:
+                    break
+        if not coll:
+            tname = e["types"][0] if e["types"] else "NETWORK"
+            coll = next_collector_name(existing, tname)
+        existing.add(coll)
+        out[k] = coll
+        for r in e["recs"]:
+            if r.get("collector") != coll:
+                r["collector"] = coll
+                changed = True
+    if changed:
+        save_branches(base, registry)
+    return out
+
+
 def backfill_network_stamps(doc, base):
     """Stamp every element the registry knows (nodes, branch pipes,
-    fittings, main pieces) with its network name - how models built
-    before the pyMEP_Network parameter existed catch up. Returns how
-    many elements took the stamp; 0 when there is nothing to do."""
+    fittings, main pieces) with its COLLECTOR name - how models built
+    before the pyMEP_Network parameter (or before collector naming)
+    catch up. Returns how many elements took the stamp; 0 when there
+    is nothing to do."""
     registry = load_branches(base)
     if not registry["branches"]:
         return 0
     # best effort: even when binding isn't possible, stamping is a
     # harmless no-op on elements without the parameter
     ensure_network_param(doc)
+    assign_collectors(doc, base)
+    registry = load_branches(base)
     total = 0
     for rec in registry["branches"]:
         node = _by_uid(doc, rec.get("node_uid"))
         if node is None:
             continue
-        network = node_network_name(node)
+        network = rec.get("collector") or node_network_name(node)
         els = [node]
         for k in ("down_uid", "sloped_uid", "elbow_uid", "tee_uid"):
             els.append(_by_uid(doc, rec.get(k)))
@@ -383,10 +454,17 @@ def build_dashboard_data(doc, base, name_filter):
     element stamped with a pyMEP_Network value - stamped pipes that
     aren't part of a tracked branch or main come out as the network's
     ``extras`` (so manually drawn pipework joins a network by just
-    typing the value). Coordinates go out in metres, X/Y shifted onto a
-    local origin; Z stays absolute. ``base`` is the project_files
-    folder holding node_branches.json."""
+    typing the value). Networks are grouped BY COLLECTOR: each tracked
+    node lands under its record's collector name (STORMWATER - IN -
+    C1); unconnected nodes group under their plain type name.
+    Coordinates go out in metres, X/Y shifted onto a local origin; Z
+    stays absolute. ``base`` is the project_files folder holding
+    node_branches.json."""
     groups = collect_node_groups(doc, name_filter)
+    try:
+        assign_collectors(doc, base)
+    except Exception:
+        pass
     registry = load_branches(base)
     recs_by_uid = {}
     for r in registry["branches"]:
@@ -400,14 +478,20 @@ def build_dashboard_data(doc, base, name_filter):
         return [round(p[0] * FT_TO_M, 3), round(p[1] * FT_TO_M, 3),
                 round(p[2] * FT_TO_M, 3)]
 
-    networks = []
+    entries = {}
+
+    def entry(name):
+        if name not in entries:
+            net = parse_network(name)
+            entries[name] = {"name": net["name"], "system": net["system"],
+                             "flow": net["flow"], "label": net["label"],
+                             "node_uids": [], "nodes": [], "branches": [],
+                             "mains": [], "settings": None, "extras": [],
+                             "_lines": []}
+        return entries[name]
+
     for tname in sorted(groups.keys(), key=lambda s: s.lower()):
-        insts = groups[tname]
-        net = parse_network(tname)
-        nodes, branches, uids = [], [], []
-        line_keys, mains = [], []
-        settings = None
-        for inst in insts:
+        for inst in groups[tname]:
             o, _d = fixture_outlet_info(inst)
             if o is None:
                 try:
@@ -416,27 +500,30 @@ def build_dashboard_data(doc, base, name_filter):
                 except Exception:
                     continue
             uid = inst.UniqueId
-            uids.append(uid)
-            used_uids.add(uid)
             rec = recs_by_uid.get(uid)
+            nw = entry(rec["collector"]
+                       if rec is not None and rec.get("collector")
+                       else tname)
+            nw["node_uids"].append(uid)
+            used_uids.add(uid)
             dia = None
             try:
                 dia = node_dia_mm(inst)
             except Exception:
                 pass
-            nodes.append({"uid": uid, "xyz": m3(o),
-                          "dia_mm": round(dia, 1) if dia else None,
-                          "tracked": rec is not None})
+            nw["nodes"].append({"uid": uid, "xyz": m3(o),
+                                "dia_mm": round(dia, 1) if dia else None,
+                                "tracked": rec is not None})
             xs.append(o[0])
             ys.append(o[1])
             if rec is None:
                 continue
-            if settings is None:
-                settings = {"slope": rec.get("slope"),
-                            "dia_mm": rec.get("dia_mm"),
-                            "invert_m": rec.get("invert_m"),
-                            "pipe_type": rec.get("pipe_type") or "",
-                            "sys_type": rec.get("sys_type") or ""}
+            if nw["settings"] is None:
+                nw["settings"] = {"slope": rec.get("slope"),
+                                  "dia_mm": rec.get("dia_mm"),
+                                  "invert_m": rec.get("invert_m"),
+                                  "pipe_type": rec.get("pipe_type") or "",
+                                  "sys_type": rec.get("sys_type") or ""}
             segs = []
             for k in ("down_uid", "sloped_uid", "elbow_uid", "tee_uid"):
                 if rec.get(k):
@@ -453,16 +540,15 @@ def build_dashboard_data(doc, base, name_filter):
                     xs.extend([pa[0], pb[0]])
                     ys.extend([pa[1], pb[1]])
             if segs:
-                branches.append({"node_uid": uid, "segs": segs})
+                nw["branches"].append({"node_uid": uid, "segs": segs})
             if rec.get("main_line"):
                 k = line_key(rec["main_line"])
-                if k not in line_keys:
-                    line_keys.append(k)
-                    mains.append(rec["main_line"])
+                if k not in nw["_lines"]:
+                    nw["_lines"].append(k)
 
-        main_rows = []
-        for line in mains:
-            la, lb = [tuple(x) for x in line]
+    for nw in entries.values():
+        for k in nw["_lines"]:
+            la, lb = k
             pieces = _main_pieces(doc, la, lb)
             if not pieces:
                 continue
@@ -480,7 +566,7 @@ def build_dashboard_data(doc, base, name_filter):
             dia_ft = _pipe_dia_ft(pieces[0])
             grad = main_gradient(ra, rb)
             hi, lo = (ra, rb) if ra[2] >= rb[2] else (rb, ra)
-            main_rows.append({
+            nw["mains"].append({
                 "line_ft": [list(la), list(lb)],
                 "a": m3(ra), "b": m3(rb),
                 "dia_mm": round(ft2mm(dia_ft), 1),
@@ -498,19 +584,9 @@ def build_dashboard_data(doc, base, name_filter):
                 xs.append(e[0])
                 ys.append(e[1])
 
-        if nodes:
-            networks.append({"name": net["name"], "system": net["system"],
-                             "flow": net["flow"], "label": net["label"],
-                             "node_uids": uids, "nodes": nodes,
-                             "branches": branches, "mains": main_rows,
-                             "settings": settings, "extras": []})
-
     # everything stamped with a pyMEP_Network value that isn't already
     # part of a tracked branch / main becomes the network's EXTRAS -
     # and a stamped value with no nodes becomes its own network
-    by_name = {}
-    for nw in networks:
-        by_name[nw["name"]] = nw
     try:
         stamped = collect_by_network(doc)
     except Exception:
@@ -528,16 +604,14 @@ def build_dashboard_data(doc, base, name_filter):
                          round(ft2mm(_pipe_dia_ft(e)), 1)])
             xs.extend([pa[0], pb[0]])
             ys.extend([pa[1], pb[1]])
-        if net_name in by_name:
-            by_name[net_name]["extras"] = segs
-        elif segs:
-            net = parse_network(net_name)
-            networks.append({"name": net["name"],
-                             "system": net["system"],
-                             "flow": net["flow"], "label": net["label"],
-                             "node_uids": [], "nodes": [],
-                             "branches": [], "mains": [],
-                             "settings": None, "extras": segs})
+        if segs:
+            entry(net_name)["extras"] = segs
+
+    networks = [nw for nw in entries.values()
+                if nw["nodes"] or nw["extras"] or nw["mains"]]
+    networks.sort(key=lambda n: n["name"].lower())
+    for nw in networks:
+        del nw["_lines"]
 
     ox = min(xs) * FT_TO_M if xs else 0.0
     oy = min(ys) * FT_TO_M if ys else 0.0
@@ -821,6 +895,8 @@ def apply_edits(doc, base, edits_data, log=None):
                     new_rec = make_record(node, res, slope, dia_mm,
                                           invert, ptn or "", stn or "",
                                           (la, lb), label)
+                    if r.get("collector"):
+                        new_rec["collector"] = r["collector"]
                     recs[recs.index(r)] = new_rec
                     try:
                         els = [node, res.get("down"), res.get("sloped"),
@@ -828,7 +904,8 @@ def apply_edits(doc, base, edits_data, log=None):
                                res.get("new_main_segment")]
                         els += with_connected_fittings(
                             [res.get("down"), res.get("sloped")])
-                        stamp_network(doc, els, node_network_name(node))
+                        stamp_network(doc, els, r.get("collector")
+                                      or node_network_name(node))
                     except Exception:
                         pass
                     if ws_int is not None and mine:
