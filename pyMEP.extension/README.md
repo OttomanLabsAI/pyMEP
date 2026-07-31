@@ -29,7 +29,7 @@ pyMEP.extension/
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
-    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, one stacked column: Create Pipe Sizes + Structure to Pipe + Family at Pipe Top
+    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, stacked icons: Create Pipe Sizes + Structure to Pipe; Family at Pipe Top (own slot)
     02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
@@ -187,7 +187,7 @@ dialogs are dismissed as they arrive, so a big batch never stops to
 ask. A cylinder that cannot be read is reported and skipped; the rest
 still convert.
 
-**Family at Pipe Top** (third row of the Pipe Tools column) - the inverse of Structure to Pipe: select what the family
+**Family at Pipe Top** (its own button after the Pipe Tools column) - the inverse of Structure to Pipe: select what the family
 should sit on, pick a family type (category > family > type, with a
 search box that matches all three at once) and one instance is placed
 on the top of each. Anything drawn as a line - pipe, conduit, duct,
@@ -499,6 +499,11 @@ Revit builds each panel's layout ONCE per session, so a button added
 to an existing stacked column has nowhere to go until Revit itself is
 restarted - a pyRevit reload is not enough, and the new tool simply
 looks missing. Install Update says so in its report.
+
+Keep pyMEP stacks to TWO buttons. A three-button stack was tried
+repeatedly (with and without resizing, with and without labels, after
+full restarts) and the third row never rendered - the extra tool goes
+in its own panel slot instead.
 
 Revit's ribbon API cannot MOVE a panel in a running session, so a
 pyRevit reload appends any renamed panel at the end of the tab - and
