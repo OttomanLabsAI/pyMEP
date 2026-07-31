@@ -29,7 +29,7 @@ pyMEP.extension/
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
-    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, stacked icons: Create Pipe Sizes + Structure to Pipe; Family at Pipe Top (own slot)
+    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, one stacked column: Create Pipe Sizes + Structure to Pipe + Family at Pipe Top
     02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
@@ -187,9 +187,7 @@ dialogs are dismissed as they arrive, so a big batch never stops to
 ask. A cylinder that cannot be read is reported and skipped; the rest
 still convert.
 
-**Family at Pipe Top** (its own button at the end of the panel; it
-does NOT go in the Pipe Tools stack - Revit renders only two rows
-there, and a third is silently dropped) - the inverse of Structure to Pipe: select what the family
+**Family at Pipe Top** (third row of the Pipe Tools column) - the inverse of Structure to Pipe: select what the family
 should sit on, pick a family type (category > family > type, with a
 search box that matches all three at once) and one instance is placed
 on the top of each. Anything drawn as a line - pipe, conduit, duct,
@@ -495,9 +493,12 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 ## Ribbon order on reload
 
 The same startup pass turns the two-high stacks into big icon-only
-buttons. It leaves a column of three or more alone, and no pyMEP
-stack has three: Revit renders two rows there and drops the third
-button silently, so a third tool gets its own panel slot instead.
+buttons, and leaves a column of three or more alone.
+
+Revit builds each panel's layout ONCE per session, so a button added
+to an existing stacked column has nowhere to go until Revit itself is
+restarted - a pyRevit reload is not enough, and the new tool simply
+looks missing. Install Update says so in its report.
 
 Revit's ribbon API cannot MOVE a panel in a running session, so a
 pyRevit reload appends any renamed panel at the end of the tab - and
