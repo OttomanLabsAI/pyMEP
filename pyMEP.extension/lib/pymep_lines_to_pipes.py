@@ -499,7 +499,7 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, slope_n,
 
     Returns {"pipes", "tees", "elbows", "failed", "notes"}."""
     from pymep_connect_fixtures import _tee_into_main, _conn_near, \
-        set_pipe_dia
+        _set_dia
     from pymep_replace_structure import _quiet
 
     def say(m):
@@ -532,7 +532,7 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, slope_n,
             try:
                 pipe = Pipe.Create(doc, sys_id, type_id, lvl_id, pa, pb)
                 _set_segment(pipe, segment_id)
-                set_pipe_dia(pipe, dia_ft)
+                _set_dia(pipe, dia_ft)
             except Exception as ex:
                 failed += 1
                 say("  ! line {}: pipe not created ({})".format(
