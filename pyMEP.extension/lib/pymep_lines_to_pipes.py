@@ -476,10 +476,26 @@ def _first_level_id(doc):
     return None
 
 
+def _set_segment(pipe, segment_id):
+    """Point one pipe at a specific Pipe Segment (the 'Plastic -
+    Schedule 40' style choice in the instance properties)."""
+    if segment_id is None:
+        return
+    try:
+        from Autodesk.Revit.DB import BuiltInParameter
+        p = pipe.get_Parameter(BuiltInParameter.RBS_PIPE_SEGMENT_PARAM)
+        if p is not None and not p.IsReadOnly:
+            p.Set(segment_id)
+    except Exception:
+        pass
+
+
 def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, slope_n,
-                        invert_m, log=None):
+                        invert_m, log=None, segment_id=None):
     """Create the pipes, tees and elbows of a solved plan in ONE
     transaction (warnings dismissed as they come). Depth/XY are in mm.
+    ``segment_id`` (optional) sets each pipe's Pipe Segment - the
+    material/schedule choice - after creation.
 
     Returns {"pipes", "tees", "elbows", "failed", "notes"}."""
     from pymep_connect_fixtures import _tee_into_main, _conn_near, \
@@ -515,6 +531,7 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, slope_n,
             pb = xyz(r["b"], sol["depths"][r["b"]])
             try:
                 pipe = Pipe.Create(doc, sys_id, type_id, lvl_id, pa, pb)
+                _set_segment(pipe, segment_id)
                 set_pipe_dia(pipe, dia_ft)
             except Exception as ex:
                 failed += 1
