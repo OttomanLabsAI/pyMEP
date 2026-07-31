@@ -31,6 +31,7 @@ from pymep_lines_to_pipes import (
     MM_PER_FT, build_network_pipes, collect_lines, line_style_options,
     solve, workset_options,
 )
+from pymep_pipesizes import existing_segment_sizes_mm, list_pipe_segments
 
 import clr
 clr.AddReference("RevitAPI")
@@ -55,9 +56,13 @@ styles = line_style_options(doc)
 worksets = workset_options(doc)
 _pt_opts = list_pipe_type_options(doc)
 _st_opts = list_system_type_options(doc)
+_seg_opts = list_pipe_segments(doc)
 if not _pt_opts or not _st_opts:
     forms.alert("This model needs at least one pipe type and one piping "
                 "system type.", exitscript=True)
+
+AUTO_TYPE = "(automatic)"
+NO_SEGMENT = "(from pipe type)"
 
 settings = load_settings()
 
@@ -77,25 +82,44 @@ class LinesWindow(forms.WPFWindow):
         self.CmbWorkset.Items.Add(ANY_WORKSET)
         for nm in worksets:
             self.CmbWorkset.Items.Add(nm)
-        for combo, opts, key in ((self.CmbPipeType, _pt_opts,
-                                  "lines_pipe_type"),
-                                 (self.CmbSysType, _st_opts,
-                                  "lines_sys_type")):
-            combo.Items.Clear()
-            for nm, _eid in opts:
-                combo.Items.Add(nm)
-            combo.SelectedIndex = 0
-            want = settings.get(key)
-            for i, (nm, _eid) in enumerate(opts):
-                if nm == want:
-                    combo.SelectedIndex = i
-                    break
+        self.CmbSysType.Items.Clear()
+        for nm, _eid in _st_opts:
+            self.CmbSysType.Items.Add(nm)
+        self.CmbSysType.SelectedIndex = 0
+        want = settings.get("lines_sys_type")
+        for i, (nm, _eid) in enumerate(_st_opts):
+            if nm == want:
+                self.CmbSysType.SelectedIndex = i
+                break
+
+        self.CmbPipeType.Items.Clear()
+        self.CmbPipeType.Items.Add(AUTO_TYPE)
+        for nm, _eid in _pt_opts:
+            self.CmbPipeType.Items.Add(nm)
+        self.CmbPipeType.SelectedIndex = 0
+        want = settings.get("lines_pipe_type")
+        for i, (nm, _eid) in enumerate(_pt_opts):
+            if nm == want:
+                self.CmbPipeType.SelectedIndex = i + 1
+                break
+
+        self.CmbSegment.Items.Clear()
+        self.CmbSegment.Items.Add(NO_SEGMENT)
+        for nm, _seg in _seg_opts:
+            self.CmbSegment.Items.Add(nm)
+        self.CmbSegment.SelectedIndex = 0
+        want = settings.get("lines_segment")
+        for i, (nm, _seg) in enumerate(_seg_opts):
+            if nm == want:
+                self.CmbSegment.SelectedIndex = i + 1
+                break
 
         self.CmbStyle.SelectedItem = settings.get("lines_style") \
             if settings.get("lines_style") in styles else ANY_STYLE
         self.CmbWorkset.SelectedItem = settings.get("lines_workset") \
             if settings.get("lines_workset") in worksets else ANY_WORKSET
-        self.TxtDia.Text = "{:g}".format(
+        self._fill_sizes()
+        self.CmbDia.Text = "{:g}".format(
             float(settings.get("lines_dia_mm", 150.0)))
         self.TxtSlope.Text = "{:g}".format(
             float(settings.get("lines_slope", 200.0)))
@@ -104,6 +128,30 @@ class LinesWindow(forms.WPFWindow):
         self.TxtInfo.Text = "Model lines -> graded pipes"
         self._loading = False
         self._refresh_count()
+
+    def _segment(self):
+        """(name, PipeSegment) of the chosen segment, or None."""
+        i = self.CmbSegment.SelectedIndex
+        if i <= 0 or i > len(_seg_opts):
+            return None
+        return _seg_opts[i - 1]
+
+    def _fill_sizes(self):
+        """The diameter dropdown carries the chosen segment's
+        catalogued sizes."""
+        keep = self.CmbDia.Text
+        self.CmbDia.Items.Clear()
+        seg = self._segment()
+        sizes = existing_segment_sizes_mm(seg[1]) if seg else []
+        for mm in sizes:
+            self.CmbDia.Items.Add("{:g}".format(mm))
+        if keep:
+            self.CmbDia.Text = keep
+
+    def on_segment_changed(self, sender, args):
+        if self._loading:
+            return
+        self._fill_sizes()
 
     def _filters(self):
         style = self.CmbStyle.SelectedItem
@@ -124,7 +172,7 @@ class LinesWindow(forms.WPFWindow):
 
     def on_create(self, sender, args):
         try:
-            dia = float(self.TxtDia.Text)
+            dia = float(self.CmbDia.Text)
             slope = float(self.TxtSlope.Text)
             invert = float(self.TxtInvert.Text)
             if dia <= 0 or slope <= 0:
@@ -140,9 +188,13 @@ class LinesWindow(forms.WPFWindow):
             return
         i_pt = self.CmbPipeType.SelectedIndex
         i_st = self.CmbSysType.SelectedIndex
+        seg = self._segment()
         self.result = {"style": style, "workset": ws, "dia_mm": dia,
                        "slope_n": slope, "invert_m": invert,
-                       "pipe_type": _pt_opts[i_pt],
+                       "pipe_type": (_pt_opts[i_pt - 1] if i_pt > 0
+                                     else _pt_opts[0]),
+                       "auto_type": i_pt == 0,
+                       "segment": seg,
                        "sys_type": _st_opts[i_st]}
         self.Close()
 
@@ -164,7 +216,9 @@ settings["lines_workset"] = opt["workset"] or ANY_WORKSET
 settings["lines_dia_mm"] = opt["dia_mm"]
 settings["lines_slope"] = opt["slope_n"]
 settings["lines_invert_m"] = opt["invert_m"]
-settings["lines_pipe_type"] = opt["pipe_type"][0]
+settings["lines_pipe_type"] = None if opt["auto_type"] \
+    else opt["pipe_type"][0]
+settings["lines_segment"] = opt["segment"][0] if opt["segment"] else None
 settings["lines_sys_type"] = opt["sys_type"][0]
 try:
     save_settings(settings)
@@ -172,9 +226,12 @@ except Exception:
     pass
 
 lines = collect_lines(doc, opt["style"], opt["workset"])
-log("**{}** line(s), dia **{:.0f} mm**, gradient **1:{:g}**, outfall "
-    "invert **{:.3f} m**".format(len(lines), opt["dia_mm"],
-                                 opt["slope_n"], opt["invert_m"]))
+log("**{}** line(s), dia **{:.0f} mm**{}, gradient **1:{:g}**, outfall "
+    "invert **{:.3f} m**".format(
+        len(lines), opt["dia_mm"],
+        " on segment **{}**".format(opt["segment"][0])
+        if opt["segment"] else "",
+        opt["slope_n"], opt["invert_m"]))
 
 # ---------------------------------------------------------------------------
 # the outfall pick
@@ -214,7 +271,9 @@ if not sol["runs"]:
 try:
     res = build_network_pipes(doc, sol, opt["sys_type"][1],
                               opt["pipe_type"][1], opt["dia_mm"],
-                              opt["slope_n"], opt["invert_m"], log=log)
+                              opt["slope_n"], opt["invert_m"], log=log,
+                              segment_id=(opt["segment"][1].Id
+                                          if opt["segment"] else None))
 except Exception as ex:
     import traceback
     log(traceback.format_exc())

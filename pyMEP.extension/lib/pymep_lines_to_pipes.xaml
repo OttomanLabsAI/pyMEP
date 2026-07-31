@@ -94,29 +94,41 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
-                               Text="Pipe type"/>
-                    <ComboBox x:Name="CmbPipeType" Grid.Row="0"
+                               Text="System type"/>
+                    <ComboBox x:Name="CmbSysType" Grid.Row="0"
                               Grid.Column="1"/>
                     <TextBlock Grid.Row="1" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
-                               Text="System type"/>
-                    <ComboBox x:Name="CmbSysType" Grid.Row="1"
-                              Grid.Column="1"/>
+                               Text="Pipe segment"/>
+                    <ComboBox x:Name="CmbSegment" Grid.Row="1"
+                              Grid.Column="1"
+                              SelectionChanged="on_segment_changed"/>
                     <TextBlock Grid.Row="2" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
                                Text="Diameter (mm)"/>
-                    <TextBox x:Name="TxtDia" Grid.Row="2" Grid.Column="1"/>
+                    <ComboBox x:Name="CmbDia" Grid.Row="2" Grid.Column="1"
+                              IsEditable="True"/>
                     <TextBlock Grid.Row="3" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
-                               Text="Gradient 1 :"/>
-                    <TextBox x:Name="TxtSlope" Grid.Row="3" Grid.Column="1"/>
+                               Text="Pipe type"/>
+                    <ComboBox x:Name="CmbPipeType" Grid.Row="3"
+                              Grid.Column="1"/>
                     <TextBlock Grid.Row="4" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
+                               Text="Gradient 1 :"/>
+                    <TextBox x:Name="TxtSlope" Grid.Row="4" Grid.Column="1"/>
+                    <TextBlock Grid.Row="5" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
                                Text="Outfall invert (m)"/>
-                    <TextBox x:Name="TxtInvert" Grid.Row="4" Grid.Column="1"/>
+                    <TextBox x:Name="TxtInvert" Grid.Row="5" Grid.Column="1"/>
+                    <TextBlock Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="2"
+                               Style="{StaticResource Hint}"
+                               Text="The diameter list holds the chosen segment's catalogued sizes (type any other value if you must). Pipe type is only needed when the model has more than one - '(automatic)' uses the first."/>
                 </Grid>
             </GroupBox>
 

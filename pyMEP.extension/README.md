@@ -206,8 +206,11 @@ of family + checkbox is remembered between runs.
 
 **Lines to Pipes** - draw the layout in plan as model lines, then turn
 the lot into a graded pipe network in one run. Filter the lines by line
-style and workset; give a pipe type, system type, diameter, gradient
-1:n and the invert level at the outfall; then click a line near its
+style and workset; pick the system type, the PIPE SEGMENT (the
+material/schedule choice from the pipe properties - e.g. 'Plastic -
+Schedule 40') with the diameter list showing that segment's catalogued
+sizes, optionally a pipe type ('(automatic)' uses the first), the
+gradient 1:n and the invert level at the outfall; then click a line near its
 outfall end. Every line becomes a pipe falling toward that point at
 the gradient (invert convention as everywhere in pyMEP: centreline =
 invert + dia/2). Where a line crosses or ends on another, the branch
