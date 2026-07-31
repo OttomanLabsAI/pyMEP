@@ -86,28 +86,20 @@ def _reorder_pymep_panels():
     return False
 
 
-def _leaf_count(items):
-    """How many actual buttons live in this container (row breaks and
-    nested panels don't count)."""
-    n = 0
-    for it in items:
-        if getattr(it, "Items", None) is not None:
-            continue
-        if hasattr(it, "Size"):
-            n += 1
-    return n
+def _enlarge_stacked(items):
+    """Recursively find the icon-only buttons (stacks live inside row
+    panels) and drop their labels.
 
-
-def _enlarge_stacked(items, siblings=0):
-    """Recursively find the ICON_ONLY buttons (stacks live inside row
-    panels) and drop their labels. Two-high stacks get BIG icons; a
-    three-high stack keeps the standard size (three large icons do not
-    fit the ribbon row height - the stack would be clipped)."""
+    ICON_ONLY buttons are also blown up to the large icon; ICON_ONLY_SMALL
+    ones are left at whatever size the ribbon row gave them. Resizing is
+    what breaks a three-high stack - the row was laid out for three
+    standard buttons, and promoting one to Large pushes the others off
+    the panel - so a three-high column only ever loses its labels."""
     from Autodesk.Windows import RibbonItemSize
     for item in items:
         sub = getattr(item, "Items", None)
         if sub is not None:
-            _enlarge_stacked(sub, siblings=_leaf_count(sub))
+            _enlarge_stacked(sub)
             continue
         try:
             text = " ".join(str(item.Text or "").split())
@@ -120,9 +112,7 @@ def _enlarge_stacked(items, siblings=0):
                 item.LargeImage = item.Image
             if item.Image is None and item.LargeImage is not None:
                 item.Image = item.LargeImage
-            if text in ICON_ONLY_SMALL or siblings >= 3:
-                item.Size = RibbonItemSize.Standard
-            else:
+            if text in ICON_ONLY:
                 item.Size = RibbonItemSize.Large
             item.ShowText = False
         except Exception:

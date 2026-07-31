@@ -493,6 +493,11 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 
 ## Ribbon order on reload
 
+The same startup pass hides the labels of the icon-only buttons. It
+resizes ONLY the two-high Networks stack: a three-high column is laid
+out for three standard buttons, so promoting one to the large icon
+pushes the others off the panel and they vanish.
+
 Revit's ribbon API cannot MOVE a panel in a running session, so a
 pyRevit reload appends any renamed panel at the end of the tab - and
 the Setup panel is renamed on every release (its title carries the
