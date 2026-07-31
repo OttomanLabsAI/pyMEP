@@ -124,6 +124,12 @@ log("### Installed **{}**".format(new_ver or "(no version.txt in zip)"))
 # accepting the upgrade IS the go-ahead: reload pyRevit straight away
 # so the new version is live - no second question
 log("Reloading pyRevit ...")
+# A reload re-runs the scripts, but Revit builds each panel's layout
+# ONCE per session: a button added to an existing stack has nowhere to
+# go until Revit itself restarts. Say so rather than let a new tool
+# look missing.
+log("Note: buttons added to an existing stacked column only appear "
+    "after Revit is fully restarted.")
 log.close()
 try:
     from pyrevit.loader import sessionmgr
