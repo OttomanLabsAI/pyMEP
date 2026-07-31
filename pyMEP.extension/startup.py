@@ -32,10 +32,12 @@ PANEL_ORDER = ["pyMEP", "Civil 3D Conversion", "Electrical", "Drainage",
 # one. Titles normalized to single-space before matching.
 ICON_ONLY = set(["Apply Edits", "Network Settings"])
 
-# Buttons shown SMALL with no label - three of these stack into ONE
-# ribbon column, which two big ones cannot do.
-ICON_ONLY_SMALL = set(["Create Pipe Sizes", "Structure to Pipe",
-                       "Family at Pipe Top"])
+# A THREE-high stack is left completely alone. Its row was laid out for
+# three standard buttons WITH their labels; both resizing an item and
+# hiding its text re-flow that row and push the last button off the
+# panel. The Pipe Tools column keeps its names for that reason - the
+# alternative is a button nobody can click.
+UNTOUCHED_STACK_SIZE = 3
 
 _state = {"tries": 0}
 
@@ -86,34 +88,44 @@ def _reorder_pymep_panels():
     return False
 
 
-def _enlarge_stacked(items):
-    """Recursively find the icon-only buttons (stacks live inside row
-    panels) and drop their labels.
+def _button_count(items):
+    """How many buttons sit in this container. Row breaks are RibbonItems
+    too, so count only the things that carry a label."""
+    n = 0
+    for it in items:
+        if getattr(it, "Items", None) is not None:
+            continue
+        if getattr(it, "Text", None) is not None:
+            n += 1
+    return n
 
-    ICON_ONLY buttons are also blown up to the large icon; ICON_ONLY_SMALL
-    ones are left at whatever size the ribbon row gave them. Resizing is
-    what breaks a three-high stack - the row was laid out for three
-    standard buttons, and promoting one to Large pushes the others off
-    the panel - so a three-high column only ever loses its labels."""
+
+def _enlarge_stacked(items, siblings=0):
+    """Recursively find the ICON_ONLY buttons (stacks live inside row
+    panels) and show them big with no label.
+
+    A column of UNTOUCHED_STACK_SIZE or more is skipped entirely: its
+    row is laid out for that many labelled standard buttons, and both
+    resizing an item and hiding its text re-flow the row and push the
+    last button off the panel."""
     from Autodesk.Windows import RibbonItemSize
     for item in items:
         sub = getattr(item, "Items", None)
         if sub is not None:
-            _enlarge_stacked(sub)
+            _enlarge_stacked(sub, siblings=_button_count(sub))
+            continue
+        if siblings >= UNTOUCHED_STACK_SIZE:
             continue
         try:
             text = " ".join(str(item.Text or "").split())
         except Exception:
             continue
-        if text not in ICON_ONLY and text not in ICON_ONLY_SMALL:
+        if text not in ICON_ONLY:
             continue
         try:
             if item.LargeImage is None and item.Image is not None:
                 item.LargeImage = item.Image
-            if item.Image is None and item.LargeImage is not None:
-                item.Image = item.LargeImage
-            if text in ICON_ONLY:
-                item.Size = RibbonItemSize.Large
+            item.Size = RibbonItemSize.Large
             item.ShowText = False
         except Exception:
             pass
