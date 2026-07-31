@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Family at Pipe Top - place a family instance on the top end of every
-selected pipe, and optionally delete the pipe afterwards.
+"""Family at Pipe Top - place a family instance on top of everything
+selected, and optionally delete those originals afterwards.
 
-The inverse of Structure to Pipe: select the pipes that came in from a
-Civil 3D conversion, pick the family type to sit on them (chamber,
-gully, cover, node), and each pipe gets one instance at its higher end.
-Tick the checkbox to have the pipe removed once its family is placed.
+The inverse of Structure to Pipe: select what came in from a Civil 3D
+conversion - pipes, conduits, ducts, or placed families - pick the
+family type to sit on them (chamber, gully, cover, node), and each one
+gets an instance on its top: the higher end of a line element, the top
+of a family's box. Tick the checkbox to have each original removed once
+its family is placed.
 """
 
 __title__ = "Family at Pipe Top"
@@ -24,7 +26,7 @@ from pymep_config import load_settings, save_settings
 from pymep_log import Logger
 from pymep_revit import safe_name
 from pymep_pipe_to_family import (
-    place_at_tops, placement_summary, search_symbol_rows, selected_pipes,
+    place_at_tops, placement_summary, search_symbol_rows, selected_hosts,
     symbol_categories, symbol_families, symbol_rows, symbol_types_in,
 )
 
@@ -40,13 +42,14 @@ XAML_PATH = os.path.join(
     "pymep_pipe_to_family.xaml")
 
 # ---------------------------------------------------------------------------
-# 1. The selected pipes
+# 1. What was selected to sit on
 # ---------------------------------------------------------------------------
-pipes = selected_pipes(doc, uidoc)
-if not pipes:
-    forms.alert("Select one or more pipes first, then run Family at Pipe "
-                "Top.", exitscript=True)
-log("**{}** pipe(s) selected.".format(len(pipes)))
+hosts = selected_hosts(doc, uidoc)
+if not hosts:
+    forms.alert("Select what the family should sit on first - pipes, "
+                "conduits, ducts or placed families - then run Family at "
+                "Pipe Top.", exitscript=True)
+log("**{}** element(s) selected.".format(len(hosts)))
 
 # ---------------------------------------------------------------------------
 # 2. The family types this model can place
@@ -69,7 +72,7 @@ class TopFamilyWindow(forms.WPFWindow):
         self.result = None
         self._shown = []
         self._loading = True
-        self.TxtInfo.Text = "{} pipe(s) selected".format(len(pipes))
+        self.TxtInfo.Text = "{} element(s) selected".format(len(hosts))
         self.ChkDelete.IsChecked = bool(
             settings.get("topfam_delete", False))
 
@@ -170,12 +173,12 @@ if win.result is None:
     script.exit()
 
 row = win.result["row"]
-delete_pipes = win.result["delete"]
+delete_hosts = win.result["delete"]
 log("Family: **{}**{}".format(
-    row["label"], " (pipes deleted afterwards)" if delete_pipes else ""))
+    row["label"], " (originals deleted afterwards)" if delete_hosts else ""))
 
 settings["topfam_label"] = row["label"]
-settings["topfam_delete"] = delete_pipes
+settings["topfam_delete"] = delete_hosts
 try:
     save_settings(settings)
 except Exception:
@@ -185,7 +188,7 @@ except Exception:
 # 4. Place
 # ---------------------------------------------------------------------------
 try:
-    res = place_at_tops(doc, pipes, row["id"], delete_pipes=delete_pipes,
+    res = place_at_tops(doc, hosts, row["id"], delete_hosts=delete_hosts,
                         log=log)
 except Exception as ex:
     import traceback
@@ -196,9 +199,9 @@ except Exception as ex:
 log("#### Summary")
 log("- Families placed: **{}**".format(res["placed"]))
 if res["deleted"]:
-    log("- Pipes deleted: **{}**".format(res["deleted"]))
+    log("- Originals deleted: **{}**".format(res["deleted"]))
 if res["failed"]:
-    log("- Pipes skipped: **{}**".format(res["failed"]))
+    log("- Skipped: **{}**".format(res["failed"]))
 
 forms.alert(placement_summary(res["placed"], res["deleted"], res["failed"]),
             title="Family at Pipe Top")

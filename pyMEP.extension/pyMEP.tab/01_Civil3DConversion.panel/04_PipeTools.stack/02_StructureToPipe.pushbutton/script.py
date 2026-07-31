@@ -22,7 +22,7 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
 from pyrevit import revit, forms, script
 
 from pymep_replace_structure import (
-    read_cylinder, resolve_pipe_type, replace_with_pipe,
+    read_cylinder, resolve_pipe_type, replace_all_with_pipes,
 )
 from pymep_revit import ft2mm, safe_name
 from pymep_log import Logger
@@ -93,19 +93,20 @@ if forms.alert(msg, title="Structure to Pipe",
     forms.alert("Cancelled - nothing changed.", exitscript=True)
 
 # ---------------------------------------------------------------------------
-# 4. Replace each (each in its own transaction)
+# 4. Replace them ALL in one transaction - one undo step, and Revit's
+#    warning dialogs are dismissed as they arrive, so a big selection
+#    never stops to ask
 # ---------------------------------------------------------------------------
-done = 0
-failed = 0
-for el, info, name in candidates:
-    try:
-        replace_with_pipe(doc, el, pipe_type, log=log)
-        done += 1
-    except Exception as ex:
-        failed += 1
-        import traceback
-        log(traceback.format_exc())
-        log("  ! {} not replaced: {}".format(name, ex))
+try:
+    res = replace_all_with_pipes(doc, [el for el, _i, _n in candidates],
+                                 pipe_type, log=log)
+except Exception as ex:
+    import traceback
+    log(traceback.format_exc())
+    forms.alert("Nothing was replaced - the model is unchanged.\n\n"
+                "{}".format(ex), title="Structure to Pipe", exitscript=True)
+
+done, failed = res["done"], res["failed"]
 
 log("#### Summary")
 log("- Cylinders replaced with pipes: **{}**".format(done))

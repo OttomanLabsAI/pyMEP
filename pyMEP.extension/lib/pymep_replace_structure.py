@@ -20,7 +20,8 @@ clr.AddReference("RevitAPI")
 
 from Autodesk.Revit.DB import (
     BuiltInParameter, ElementId, Transaction, XYZ, Level,
-    FilteredElementCollector,
+    FilteredElementCollector, FailureProcessingResult, FailureSeverity,
+    IFailuresPreprocessor,
 )
 from Autodesk.Revit.DB.Plumbing import Pipe, PipeType, PipingSystemType
 
@@ -164,14 +165,37 @@ def _first_system_type_id(doc):
     return None
 
 
-def replace_with_pipe(doc, inst, pipe_type, log=None):
-    """Replace one cylinder instance with a vertical pipe of the same
-    diameter and length, in ONE transaction. Returns a summary dict, or
-    raises (transaction rolled back, original untouched)."""
-    def say(m):
-        if log is not None:
-            log(m)
+class _SwallowWarnings(IFailuresPreprocessor):
+    """Delete Revit's warning dialogs as they arrive. Errors still stop
+    the transaction - only warnings ('elements have duplicate Mark
+    values', 'pipe is slightly off axis' and friends) are dismissed, so
+    a batch of replacements runs start to finish without a single
+    click."""
 
+    def PreprocessFailures(self, accessor):
+        for f in accessor.GetFailureMessages():
+            if f.GetSeverity() == FailureSeverity.Warning:
+                accessor.DeleteWarning(f)
+        return FailureProcessingResult.Continue
+
+
+def _quiet(t):
+    """Point a transaction at the warning swallower."""
+    try:
+        opts = t.GetFailureHandlingOptions()
+        opts.SetFailuresPreprocessor(_SwallowWarnings())
+        opts.SetClearAfterRollback(True)
+        opts.SetDelayedMiniWarnings(True)
+        t.SetFailureHandlingOptions(opts)
+    except Exception:
+        pass
+
+
+def _build_pipe(doc, inst, pipe_type):
+    """The replacement itself, WITHOUT a transaction of its own: build
+    the pipe, carry the cylinder's data over, delete the cylinder.
+    Returns (summary, old_name, info) or raises. The caller owns the
+    transaction, so many of these can share one."""
     info, reason = read_cylinder(inst)
     if info is None:
         raise ValueError(reason)
@@ -192,38 +216,94 @@ def replace_with_pipe(doc, inst, pipe_type, log=None):
     old_id = inst.Id
     old_name = safe_name(inst)
 
+    pipe = Pipe.Create(doc, sys_id, pipe_type.Id, lvl_id,
+                       XYZ(p0[0], p0[1], p0[2]),
+                       XYZ(p1[0], p1[1], p1[2]))
+    dp = pipe.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM)
+    if dp is not None and not dp.IsReadOnly:
+        dp.Set(info["dia_ft"])
+    for bip_name, val in (("ALL_MODEL_MARK", info["mark"]),
+                          ("ALL_MODEL_INSTANCE_COMMENTS",
+                           info["comments"])):
+        if not val:
+            continue
+        bip = getattr(BuiltInParameter, bip_name, None)
+        if bip is None:
+            continue
+        try:
+            q = pipe.get_Parameter(bip)
+            if q is not None and not q.IsReadOnly:
+                q.Set(val)
+        except Exception:
+            pass
+    doc.Delete(old_id)
+
+    return ({"new_id": pipe.Id, "dia_ft": info["dia_ft"],
+             "height_ft": info["height_ft"]}, old_name, info)
+
+
+def _line(old_name, info):
+    return ("  {} (DIA {:.0f}, H {:.0f} mm) -> pipe {:.0f} mm x {:.0f} mm "
+            "long".format(old_name, ft2mm(info["dia_ft"]),
+                          ft2mm(info["height_ft"]), ft2mm(info["dia_ft"]),
+                          ft2mm(info["height_ft"])))
+
+
+def replace_with_pipe(doc, inst, pipe_type, log=None):
+    """Replace ONE cylinder instance with a vertical pipe of the same
+    diameter and length, in its own transaction. Returns a summary
+    dict, or raises (transaction rolled back, original untouched)."""
     t = Transaction(doc, "Replace structure with pipe")
+    _quiet(t)
     t.Start()
     try:
-        pipe = Pipe.Create(doc, sys_id, pipe_type.Id, lvl_id,
-                           XYZ(p0[0], p0[1], p0[2]),
-                           XYZ(p1[0], p1[1], p1[2]))
-        dp = pipe.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM)
-        if dp is not None and not dp.IsReadOnly:
-            dp.Set(info["dia_ft"])
-        for bip_name, val in (("ALL_MODEL_MARK", info["mark"]),
-                              ("ALL_MODEL_INSTANCE_COMMENTS",
-                               info["comments"])):
-            if not val:
-                continue
-            bip = getattr(BuiltInParameter, bip_name, None)
-            if bip is None:
-                continue
-            try:
-                q = pipe.get_Parameter(bip)
-                if q is not None and not q.IsReadOnly:
-                    q.Set(val)
-            except Exception:
-                pass
-        doc.Delete(old_id)
+        out, old_name, info = _build_pipe(doc, inst, pipe_type)
         t.Commit()
     except Exception:
         t.RollBack()
         raise
 
-    say("  {} (DIA {:.0f}, H {:.0f} mm) -> pipe {:.0f} mm x {:.0f} mm "
-        "long".format(old_name, ft2mm(info["dia_ft"]),
-                      ft2mm(info["height_ft"]), ft2mm(info["dia_ft"]),
-                      ft2mm(info["height_ft"])))
-    return {"new_id": pipe.Id, "dia_ft": info["dia_ft"],
-            "height_ft": info["height_ft"]}
+    if log is not None:
+        log(_line(old_name, info))
+    return out
+
+
+def replace_all_with_pipes(doc, instances, pipe_type, log=None):
+    """Replace EVERY cylinder in ``instances`` in ONE transaction - one
+    undo step, and Revit's warning dialogs are dismissed as they come,
+    so a big selection never stops to ask.
+
+    A cylinder that cannot be read or built is reported and skipped;
+    the rest still land. Returns {"done", "failed", "results"}. Raises
+    only when the whole transaction fails (rolled back, model
+    untouched).
+    """
+    def say(m):
+        if log is not None:
+            log(m)
+
+    results = []
+    failures = []
+
+    t = Transaction(doc, "Replace structures with pipes")
+    _quiet(t)
+    t.Start()
+    try:
+        for inst in instances:
+            name = safe_name(inst)
+            try:
+                out, old_name, info = _build_pipe(doc, inst, pipe_type)
+            except Exception as ex:
+                failures.append((name, str(ex)))
+                say("  ! {} not replaced: {}".format(name, ex))
+                continue
+            results.append(out)
+            say(_line(old_name, info))
+        t.Commit()
+    except Exception:
+        if t.HasStarted() and not t.HasEnded():
+            t.RollBack()
+        raise
+
+    return {"done": len(results), "failed": len(failures),
+            "failures": failures, "results": results}
