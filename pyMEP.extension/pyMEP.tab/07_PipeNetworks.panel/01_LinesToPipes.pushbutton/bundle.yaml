@@ -1,0 +1,2 @@
+title: Lines to Pipes
+tooltip: "Turn model lines into a graded pipe network. Filter the lines by line style and workset, set pipe type, diameter, gradient 1:n and the outfall invert, then click a line near its outfall end - every line becomes a pipe falling toward that point. Lines crossing or ending on another line are teed into it at the level of the run they meet; lines meeting end to end are elbowed; drawing overshoot past a junction is trimmed; a line touching nothing is reported and skipped."

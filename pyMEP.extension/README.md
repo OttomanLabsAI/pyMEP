@@ -32,6 +32,7 @@ pyMEP.extension/
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, stacked icons: Create Pipe Sizes + Structure to Pipe; Family at Pipe Top (own slot)
     02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
+    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
@@ -200,6 +201,23 @@ onto the point, so the family's vertical origin does not matter. Tick
 removed after its family lands (a host whose family did not place is
 always kept). All in one transaction - one undo step - and the choice
 of family + checkbox is remembered between runs.
+
+### Pipe Networks
+
+**Lines to Pipes** - draw the layout in plan as model lines, then turn
+the lot into a graded pipe network in one run. Filter the lines by line
+style and workset; give a pipe type, system type, diameter, gradient
+1:n and the invert level at the outfall; then click a line near its
+outfall end. Every line becomes a pipe falling toward that point at
+the gradient (invert convention as everywhere in pyMEP: centreline =
+invert + dia/2). Where a line crosses or ends on another, the branch
+is teed into the through run at that run's level; where two lines meet
+end to end they are elbowed. The solver is built for real drawings: a
+lateral drawn crossing its main with up to ~2 m of overshoot is
+trimmed at the junction; the same run drawn twice keeps only the
+longer copy; a line that touches nothing on the way to the outfall is
+reported and skipped, never guessed at. Everything happens in one
+transaction with Revit's warning dialogs dismissed as they come.
 
 ### Drainage
 

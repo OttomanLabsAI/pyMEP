@@ -24,8 +24,8 @@ TAB_TITLE = "pyMEP"
 # Same order as pyMEP.tab/bundle.yaml - matched by title prefix so the
 # versioned Setup panel ("pyMEP v1.16.0") matches on plain "pyMEP".
 PANEL_ORDER = ["pyMEP", "Civil 3D Conversion", "Electrical", "Drainage",
-               "Networks", "Topography", "Chamber Drawing Setup",
-               "Parameters", "Annotate"]
+               "Pipe Networks", "Networks", "Topography",
+               "Chamber Drawing Setup", "Parameters", "Annotate"]
 
 # Stacked buttons shown with no label (their tooltips still carry the
 # names): big icons in a two-high stack, standard size in a three-high
