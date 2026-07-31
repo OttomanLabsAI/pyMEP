@@ -2,10 +2,11 @@
 """Unit tests for the Family at Pipe Top decisions (stdlib only, no
 Revit).
 
-The pure parts of lib/pymep_pipe_to_family.py: which end of a pipe is
-the top, how the category > family > type picker lists are shaped, how
-the search matches, and how the result sentence reads. Extracted by AST
-(the module imports the Revit API and cannot import under CPython).
+The pure parts of lib/pymep_pipe_to_family.py: which end of a line
+element is the top, where the top of a placed family's box is, how the
+category > family > type picker lists are shaped, how the search
+matches, and how the result sentence reads. Extracted by AST (the
+module imports the Revit API and cannot import under CPython).
 
 Run:  python3 tests/test_pipe_to_family.py
 """
@@ -34,9 +35,9 @@ def extract(names):
     return [ns[n] for n in names]
 
 
-(top_point, symbol_categories, symbol_families, symbol_types_in,
+(top_point, box_top, symbol_categories, symbol_families, symbol_types_in,
  search_symbol_rows, placement_summary) = extract([
-     "top_point", "symbol_categories", "symbol_families",
+     "top_point", "box_top", "symbol_categories", "symbol_families",
      "symbol_types_in", "search_symbol_rows", "placement_summary"])
 
 
@@ -73,6 +74,22 @@ class TopPoint(unittest.TestCase):
         b = (0.0, 0.0, 0.2000000001)
         self.assertIs(top_point(a, b), b)
         self.assertEqual(top_point(b, a), b)
+
+
+class BoxTop(unittest.TestCase):
+
+    def test_family_gets_its_own_xy_at_the_box_top(self):
+        self.assertEqual(box_top(12.5, -3.0, 1.0, 4.25), (12.5, -3.0, 4.25))
+
+    def test_a_flat_box_gives_the_point_itself(self):
+        self.assertEqual(box_top(0.0, 0.0, 2.0, 2.0), (0.0, 0.0, 2.0))
+
+    def test_an_inverted_box_never_lands_below_the_element(self):
+        self.assertEqual(box_top(1.0, 1.0, 5.0, 3.0), (1.0, 1.0, 5.0))
+
+    def test_coordinates_are_not_rounded(self):
+        self.assertEqual(box_top(123.456789, -987.654321, 0.0, 0.30000001),
+                         (123.456789, -987.654321, 0.30000001))
 
 
 class PickerLists(unittest.TestCase):
@@ -124,10 +141,10 @@ class Summary(unittest.TestCase):
 
     def test_single_placement_reads_singular(self):
         self.assertEqual(placement_summary(1, 0, 0),
-                         "Placed 1 family at pipe tops.")
+                         "Placed 1 family on top.")
 
     def test_deletions_are_reported(self):
-        self.assertIn("4 pipe(s) deleted", placement_summary(4, 4, 0))
+        self.assertIn("4 original(s) deleted", placement_summary(4, 4, 0))
 
     def test_failures_point_at_the_report(self):
         msg = placement_summary(3, 0, 2)

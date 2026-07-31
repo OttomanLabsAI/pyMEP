@@ -1,0 +1,2 @@
+title: Family at Pipe Top
+tooltip: "Place a family on TOP of everything selected - the higher end of a pipe, conduit or duct (the head of a riser, the upstream end of a graded run), or the top of a placed family. Select them, pick the family type (category > family > type, with a search box), and tick the box to delete each original once its family is placed. The inverse of Structure to Pipe: it turns converted pipework back into real chambers, gullies or covers."

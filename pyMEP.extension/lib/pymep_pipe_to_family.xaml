@@ -1,6 +1,6 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Family at Pipe Top"
+        Title="Family on Top"
         Width="500" Height="420" MinWidth="440" MinHeight="300"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False"
@@ -46,7 +46,7 @@
         <Border Grid.Row="0" Background="#F4F4F4" Padding="14,10">
             <StackPanel>
                 <TextBlock FontSize="15" FontWeight="SemiBold"
-                           Text="Family at Pipe Top"/>
+                           Text="Family on Top"/>
                 <TextBlock x:Name="TxtInfo" Style="{StaticResource Hint}"
                            Text="&#8212;"/>
             </StackPanel>
@@ -96,9 +96,9 @@
             <GroupBox Header="After placing">
                 <StackPanel>
                     <CheckBox x:Name="ChkDelete"
-                              Content="Delete the pipe once the family is placed"/>
+                              Content="Delete the original once the family is placed"/>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="The family lands on the higher end of each selected pipe - the head of a riser, the upstream end of a graded run."/>
+                               Text="The family lands on the top of each selected element: the higher end of a pipe, conduit or duct - the head of a riser, the upstream end of a graded run - or the top of a placed family's box."/>
                 </StackPanel>
             </GroupBox>
 

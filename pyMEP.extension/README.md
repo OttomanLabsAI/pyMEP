@@ -29,7 +29,7 @@ pyMEP.extension/
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
-    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, stacked icons: Create Pipe Sizes + Structure to Pipe; Family at Pipe Top (own icon-only column)
+    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, stacked icons (one column): Create Pipe Sizes + Structure to Pipe + Family at Pipe Top
     02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
@@ -167,7 +167,7 @@ neither fits, it offers to place at the internal origin using the
 export's own origin (optionally saving it to Settings). Rectangular duct-bank
 rows are skipped - only circular runs become pipes.
 
-**Create Pipe Sizes** (stacked, big icon - the name lives in the tooltip) - reads a dashboard pipes
+**Create Pipe Sizes** (stacked icon-only - the name lives in the tooltip) - reads a dashboard pipes
 export, lists the distinct circular diameters and adds the missing ones
 to the pipe Segment configured in Settings > Pipes (Place Pipes already
 does this automatically; keep for adding sizes without placing pipes).
@@ -181,20 +181,26 @@ EXACT XY (base Z from the instance bounding box, so the family's
 vertical origin doesn't matter), runs one `H` up, and takes the
 cylinder's System Type, Mark and Comments; the pipe type is the
 Settings default (else the first in the model). The original cylinders
-are deleted. Select one or more and confirm.
+are deleted. Select one or more and confirm - the whole selection is
+converted in ONE transaction (one undo step) and Revit's warning
+dialogs are dismissed as they arrive, so a big batch never stops to
+ask. A cylinder that cannot be read is reported and skipped; the rest
+still convert.
 
-**Family at Pipe Top** (its own column, small icon with no label -
-the name lives in the tooltip)
-- the inverse of Structure to Pipe: select pipes, pick a family type
-(category > family > type, with a search box that matches all three at
-once) and one instance is placed at the TOP end of each pipe - the head
-of a riser, the upstream end of a graded run. Ties go to the pipe's
-start end. The instance lands on the pipe's own reference level and is
-then nudged vertically onto the point, so the family's vertical origin
-does not matter. Tick *Delete the pipe once the family is placed* to
-have each pipe removed after its family lands (a pipe whose family did
-not place is always kept). All in one transaction - one undo step - and
-the choice of family + checkbox is remembered between runs.
+**Family at Pipe Top** (stacked icon-only - the name lives in the
+tooltip) - the inverse of Structure to Pipe: select what the family
+should sit on, pick a family type (category > family > type, with a
+search box that matches all three at once) and one instance is placed
+on the top of each. Anything drawn as a line - pipe, conduit, duct,
+cable tray - gives the higher of its two ends (the head of a riser, the
+upstream end of a graded run; ties go to the start end); a placed
+family gives its own XY at the top of its bounding box. The instance
+lands on the host's own reference level and is then nudged vertically
+onto the point, so the family's vertical origin does not matter. Tick
+*Delete the original once the family is placed* to have each host
+removed after its family lands (a host whose family did not place is
+always kept). All in one transaction - one undo step - and the choice
+of family + checkbox is remembered between runs.
 
 ### Drainage
 
@@ -483,7 +489,7 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `update_downloads_folder` | override the Downloads folder used by Install Update |
 | `auto_close_output` | close each command's output window when it finishes (error reports stay open) |
 | `hide_output` | never show the output window: it is hidden while the command runs and closed at the end (an error or traceback pops it open) |
-| `topfam_label` / `topfam_delete` | Family at Pipe Top: last family type used, and whether the pipe is deleted afterwards |
+| `topfam_label` / `topfam_delete` | Family at Pipe Top: last family type used, and whether the original is deleted afterwards |
 
 ## Ribbon order on reload
 

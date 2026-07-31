@@ -30,12 +30,12 @@ PANEL_ORDER = ["pyMEP", "Civil 3D Conversion", "Electrical", "Drainage",
 # Stacked buttons shown with no label (their tooltips still carry the
 # names): big icons in a two-high stack, standard size in a three-high
 # one. Titles normalized to single-space before matching.
-ICON_ONLY = set(["Create Pipe Sizes", "Structure to Pipe",
-                 "Apply Edits", "Network Settings"])
+ICON_ONLY = set(["Apply Edits", "Network Settings"])
 
-# Standalone buttons shown SMALL with no label: a slim column of their
-# own, standard icon size - not a full-height large button.
-ICON_ONLY_SMALL = set(["Family at Pipe Top"])
+# Buttons shown SMALL with no label - three of these stack into ONE
+# ribbon column, which two big ones cannot do.
+ICON_ONLY_SMALL = set(["Create Pipe Sizes", "Structure to Pipe",
+                       "Family at Pipe Top"])
 
 _state = {"tries": 0}
 
