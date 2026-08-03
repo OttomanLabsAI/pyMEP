@@ -50,6 +50,7 @@ _LIB_DIR = os.path.dirname(
 CUSTOM_XAML_PATH = os.path.join(_LIB_DIR, "pymep_lines_custom.xaml")
 
 ANY_STYLE = "(any line style)"
+PREFIX_STYLES = "(styles starting with the prefix)"
 SLOPE_STYLES = "(all slope-named styles - Pipe 1-n / Custom)"
 
 base = os.path.join(get_export_folder(doc), "project_files")
@@ -66,20 +67,26 @@ log("Last build: **{}** - {} element(s), dia **{:.0f} mm**, outfall "
 # ---------------------------------------------------------------------------
 # 1. The lines as they are NOW, under the recorded filters
 # ---------------------------------------------------------------------------
-rows = collect_lines(doc, None, rec.get("workset"))
-style_sel = rec.get("style") or SLOPE_STYLES
-if style_sel == SLOPE_STYLES:
-    rows = [r for r in rows if parse_style_slope(r[3]) is not None]
-elif style_sel != ANY_STYLE:
-    rows = [r for r in rows if r[3] == style_sel]
+prefix = (rec.get("prefix") or "").strip().lower()
+
+
+def _filter_rows(rows):
+    style_sel = rec.get("style") or PREFIX_STYLES
+    if style_sel == ANY_STYLE:
+        return rows
+    if style_sel in (PREFIX_STYLES, SLOPE_STYLES):
+        if prefix:
+            return [r for r in rows
+                    if (r[3] or "").lower().startswith(prefix)]
+        return [r for r in rows if parse_style_slope(r[3]) is not None]
+    return [r for r in rows if r[3] == style_sel]
+
+
+rows = _filter_rows(collect_lines(doc, None, rec.get("workset")))
 if not rows and rec.get("workset"):
     # the lines may have moved workset since - fall back rather than
     # deleting the network and rebuilding nothing
-    rows = collect_lines(doc, None, None)
-    if style_sel == SLOPE_STYLES:
-        rows = [r for r in rows if parse_style_slope(r[3]) is not None]
-    elif style_sel != ANY_STYLE:
-        rows = [r for r in rows if r[3] == style_sel]
+    rows = _filter_rows(collect_lines(doc, None, None))
     if rows:
         log("The recorded workset filter finds nothing any more - "
             "using the lines regardless of workset.")

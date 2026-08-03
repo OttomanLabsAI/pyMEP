@@ -65,18 +65,24 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
-                               Text="Line style"/>
-                    <ComboBox x:Name="CmbStyle" Grid.Row="0" Grid.Column="1"
-                              SelectionChanged="on_filter_changed"/>
+                               Text="Style prefix"/>
+                    <TextBox x:Name="TxtPrefix" Grid.Row="0" Grid.Column="1"
+                             TextChanged="on_filter_changed"/>
                     <TextBlock Grid.Row="1" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
-                               Text="Workset"/>
-                    <ComboBox x:Name="CmbWorkset" Grid.Row="1" Grid.Column="1"
+                               Text="Line style"/>
+                    <ComboBox x:Name="CmbStyle" Grid.Row="1" Grid.Column="1"
                               SelectionChanged="on_filter_changed"/>
-                    <TextBlock x:Name="TxtCount" Grid.Row="2" Grid.Column="0"
+                    <TextBlock Grid.Row="2" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Workset"/>
+                    <ComboBox x:Name="CmbWorkset" Grid.Row="2" Grid.Column="1"
+                              SelectionChanged="on_filter_changed"/>
+                    <TextBlock x:Name="TxtCount" Grid.Row="3" Grid.Column="0"
                                Grid.ColumnSpan="2"
                                Style="{StaticResource Hint}" Text=""/>
                 </Grid>
