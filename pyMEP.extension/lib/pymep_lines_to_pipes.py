@@ -127,6 +127,34 @@ def fit_plan(lines, width, height, pad=16.0):
     return scale, ox, oy
 
 
+def aim_pick(o_xy, dir_xys, segs, ray_fn, dist_fn):
+    """Which network segment a node belongs to. ``segs`` is
+    [(key, (ax, ay), (bx, by)), ...]; ``dir_xys`` the node's direction
+    candidates in priority order (facing pair first). The first
+    direction whose ray meets any segment wins, nearest hit first;
+    with no hit at all the plan-nearest segment is returned instead.
+    Returns (key, 'aimed' | 'nearest') or (None, None) when there are
+    no segments. ``ray_fn``/``dist_fn`` are ray_hits_main and
+    plan_dist_to_segment (injected so this stays pure and testable)."""
+    for d in dir_xys:
+        best, best_s = None, None
+        for key, a_xy, b_xy in segs:
+            hit = ray_fn(o_xy, d, a_xy, b_xy)
+            if hit is None:
+                continue
+            s = math.hypot(hit[0] - o_xy[0], hit[1] - o_xy[1])
+            if best is None or s < best_s:
+                best, best_s = key, s
+        if best is not None:
+            return best, "aimed"
+    best, best_d = None, None
+    for key, a_xy, b_xy in segs:
+        d = dist_fn(o_xy, a_xy, b_xy)
+        if best is None or d < best_d:
+            best, best_d = key, d
+    return (best, "nearest") if best is not None else (None, None)
+
+
 def _dist(a, b):
     return math.hypot(b[0] - a[0], b[1] - a[1])
 

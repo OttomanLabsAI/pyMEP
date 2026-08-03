@@ -30,7 +30,7 @@ from pymep_connect_fixtures import (
     main_pipe_info, node_dia_mm, node_directions, outlet_is_connected,
     plan_dist_to_segment, ray_hits_main,
 )
-from pymep_lines_to_pipes import load_lines_record
+from pymep_lines_to_pipes import aim_pick, load_lines_record
 
 import clr
 clr.AddReference("RevitAPI")
@@ -113,36 +113,33 @@ log("**{}** node(s), branch gradient **1:{:g}**; pipe type, system and "
 # ---------------------------------------------------------------------------
 # 3. Aim every node along its rotation at the network
 # ---------------------------------------------------------------------------
+# main_pipe_info returns the two ends as (x, y, z) TUPLES
 pipe_lines = []
+unreadable = 0
 for p in pipes:
     try:
         a, b, _t, _s, _l, _d = main_pipe_info(p)
-        pipe_lines.append((p, (a.X, a.Y), (b.X, b.Y)))
-    except Exception:
-        continue
+        pipe_lines.append((p, (a[0], a[1]), (b[0], b[1])))
+    except Exception as ex:
+        unreadable += 1
+        log("- ! a network pipe could not be read ({}) - it cannot "
+            "receive branches".format(ex))
+if unreadable:
+    log("**{}** of {} network pipe(s) unreadable.".format(
+        unreadable, len(pipes)))
+if not pipe_lines:
+    forms.alert("None of the recorded network pipes could be read - "
+                "nothing to aim at. See the report for the reasons.",
+                exitscript=True)
 
 
 def aim_at_network(node, o_xy):
     """(pipe, how): the first network pipe the node's facing ray meets,
     trying the facing pair before the hand pair; else the plan-nearest
     pipe with a note."""
-    for d in node_directions(node):
-        best, best_s = None, None
-        for p, a_xy, b_xy in pipe_lines:
-            hit = ray_hits_main(o_xy, (d.X, d.Y), a_xy, b_xy)
-            if hit is None:
-                continue
-            s = ((hit[0] - o_xy[0]) ** 2 + (hit[1] - o_xy[1]) ** 2) ** 0.5
-            if best is None or s < best_s:
-                best, best_s = p, s
-        if best is not None:
-            return best, "aimed"
-    best, best_d = None, None
-    for p, a_xy, b_xy in pipe_lines:
-        d = plan_dist_to_segment(o_xy, a_xy, b_xy)
-        if best is None or d < best_d:
-            best, best_d = p, d
-    return best, "nearest"
+    dir_xys = [(d.X, d.Y) for d in node_directions(node)]
+    return aim_pick(o_xy, dir_xys, pipe_lines, ray_hits_main,
+                    plan_dist_to_segment)
 
 
 done, failed, skipped = 0, 0, 0
