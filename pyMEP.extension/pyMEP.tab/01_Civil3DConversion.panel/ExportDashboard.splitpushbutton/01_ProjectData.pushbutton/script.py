@@ -42,7 +42,10 @@ if not viewer:
 log("### Civil 3D LandXML Dashboard - project data")
 
 base = os.path.join(get_export_folder(doc), "project_files")
-data = pf.slot_file(base, "dashboard_data")
+# the dashboard opens the STORED COPY - bring it up to date with the
+# file it was stored from first, so a re-exported XML shows its new
+# heights without a manual re-store
+data, freshness = pf.refresh_slot(base, "dashboard_data")
 
 if data is None:
     log("No dashboard data stored for this project yet - opening the "
@@ -52,6 +55,21 @@ if data is None:
     launch_html(viewer)
 else:
     log("Project data: **{}**".format(os.path.basename(data)))
+    if freshness == "refreshed":
+        log("The original file had CHANGED since it was stored - the "
+            "stored copy was refreshed, so the dashboard opens with "
+            "its current content.")
+    elif freshness == "no_source":
+        log("! where this file was stored FROM is unknown (stored by "
+            "an older pyMEP, or the original moved) - the dashboard "
+            "opens the stored copy AS IT WAS STORED. If the XML has "
+            "been re-exported since, store it again in **Setup > "
+            "Project Files** once; from then on it refreshes itself.")
+    elif freshness == "failed":
+        log("! the original changed but could not be re-copied "
+            "(locked or unreadable) - the dashboard opens the OLD "
+            "stored copy. Close whatever holds the file and run this "
+            "again.")
     try:
         launch = write_preload_html(viewer, data, get_export_folder(doc))
         log("Opening the dashboard preloaded with it.")

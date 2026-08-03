@@ -103,7 +103,14 @@ it), copied in and
 addressed by role. First resident: the project's Civil 3D LandXML - the
 Civil 3D LandXML Dashboard opens it by default. Set/replace (file
 picker; the original stays put), open the file, open the folder, or
-remove; other roles slot in as workflows grow.
+remove; other roles slot in as workflows grow. The stored copy FOLLOWS
+its original: where the file was stored from is remembered, and when
+that original has changed since (the XML re-exported with new levels),
+the dashboard launch re-copies it first - so the dashboard always
+shows the file's CURRENT content, no manual re-store. The window
+flags such a file as 'Stored (source newer)'. A file stored by an
+older pyMEP has no recorded original - re-store it once and it
+refreshes itself from then on.
 
 ### Civil 3D Conversion
 
