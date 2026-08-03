@@ -329,11 +329,46 @@ def detect_vertical_anchor(doc, symbol, h_param_name, test_h_m=3.0):
             pass
 
 
-def anchor_z(anchor, rim_m, sump_m, z_m):
+def row_height_m(r):
+    """The chamber height (m) for one row: rim - sump when both ends
+    are known - the top and the base PIN the height, whatever depth_m
+    claims. depth_m is only the fallback when an end is missing, and
+    None means no height can be derived at all (the caller skips the
+    height write and reports it)."""
+    rim = r.get("rim_m")
+    sump = r.get("sump_m")
+    if rim is not None and sump is not None:
+        h = float(rim) - float(sump)
+        if h > 0:
+            return h
+    d = r.get("depth_m")
+    if d is not None:
+        try:
+            d = float(d)
+        except Exception:
+            return None
+        if d > 0:
+            return d
+    return None
+
+
+def anchor_z(anchor, rim_m, sump_m, z_m, height_m=None):
     """The level (m) the family ORIGIN must sit at for one row, given
     where the family's insertion point is vertically: 'base' (grows up)
-    -> sump, 'top' (grows down) -> rim, 'center' -> mid-height. Missing
-    sump falls back to the row's z_m, missing rim to the sump."""
+    -> sump, 'top' (grows down) -> rim, 'center' -> mid-height.
+
+    ``height_m`` (the SAME computed H the height write drives) sharpens
+    the fallbacks when one end is missing: a top-anchored family with no
+    rim sits at sump + H, a base-anchored one with no sump at rim - H,
+    and a centred one at the known end +/- H/2 - so the derived end
+    always lands where the height write puts it. Without a height the
+    legacy fallbacks apply (missing sump -> the row's z_m, missing rim
+    -> the sump)."""
+    if height_m is not None:
+        if rim_m is None and sump_m is not None:
+            rim_m = float(sump_m) + float(height_m)
+        elif sump_m is None and rim_m is not None:
+            sump_m = float(rim_m) - float(height_m)
     sump = sump_m if sump_m is not None else z_m
     rim = rim_m if rim_m is not None else sump
     if anchor == "top":
@@ -341,6 +376,79 @@ def anchor_z(anchor, rim_m, sump_m, z_m):
     if anchor == "center":
         return (float(rim) + float(sump)) / 2.0
     return float(sump)
+
+
+def qa_constant_delta(deltas_mm, spread_mm=5.0):
+    """True when every instance's (top, bottom) bbox error is
+    essentially the SAME pair of numbers - the family's solid is rigid
+    against its origin (a fixed frame or cone below the insertion
+    point), so the family itself needs fixing, not the placement."""
+    if len(deltas_mm) < 2:
+        return False
+    tops = [d[0] for d in deltas_mm]
+    bots = [d[1] for d in deltas_mm]
+    return (max(tops) - min(tops) <= spread_mm
+            and max(bots) - min(bots) <= spread_mm)
+
+
+def probe_height_writable(doc, symbol, h_names):
+    """Can the family's height actually be DRIVEN on an instance?
+    Places a throwaway instance (transaction always rolled back), then
+    looks for a writable Double instance parameter under any of
+    ``h_names``. Returns (ok, name_or_None, reason)."""
+    lvl = None
+    for l in FilteredElementCollector(doc).OfClass(Level):
+        lvl = l
+        break
+    t = Transaction(doc, "Probe chamber height parameter")
+    t.Start()
+    try:
+        try:
+            _activate(doc, symbol)
+        except Exception:
+            pass
+        inst = None
+        if lvl is not None:
+            try:
+                inst = doc.Create.NewFamilyInstance(
+                    XYZ(0, 0, 0), symbol, lvl, StructuralType.NonStructural)
+            except Exception:
+                inst = None
+        if inst is None:
+            inst = doc.Create.NewFamilyInstance(
+                XYZ(0, 0, 0), symbol, StructuralType.NonStructural)
+        found_ro = None
+        for nm in h_names:
+            try:
+                plist = inst.GetParameters(nm)
+            except Exception:
+                plist = None
+            if not plist:
+                continue
+            for p in plist:
+                try:
+                    if str(p.StorageType) != "Double":
+                        continue
+                    if p.IsReadOnly:
+                        found_ro = nm
+                        continue
+                    return (True, nm, "")
+                except Exception:
+                    continue
+        if found_ro:
+            return (False, found_ro,
+                    "'{}' exists on the instance but is read-only or "
+                    "formula-driven".format(found_ro))
+        return (False, None,
+                "no instance parameter named {} on a placed "
+                "instance".format(" / ".join(h_names)))
+    except Exception as ex:
+        return (False, None, "probe failed: {}".format(ex))
+    finally:
+        try:
+            t.RollBack()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -689,6 +797,8 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
         except Exception:
             pass
         return False
+    h_expect = []       # (inst, row, computed H m) - read back after commit
+    h_missing = 0       # rows where no height could be derived at all
     if placed:
         t2 = Transaction(doc, "Dashboard structure params")
         t2.Start()
@@ -753,11 +863,16 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
                                                  r["sump_m"])
                     if nm:
                         _hit(nm)
-                if r.get("depth_m") is not None:
-                    nm = _set_all_named_length_m(inst, H_NAMES,
-                                                 r["depth_m"])
+                # chamber height: rim - sump pins it (depth_m only as
+                # the fallback) - the SAME H anchor_z placed with
+                h_m = row_height_m(r)
+                if h_m is not None:
+                    nm = _set_all_named_length_m(inst, H_NAMES, h_m)
                     if nm:
                         _hit(nm)
+                    h_expect.append((inst, r, h_m))
+                else:
+                    h_missing += 1
                 if r["shape"] == "box":
                     if r.get("length_m") is not None:
                         nm = _set_all_named_length_m(
@@ -797,7 +912,121 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
                     sub.RollBack()
                 except Exception:
                     pass
+        try:
+            doc.Regenerate()
+        except Exception:
+            pass
         t2.Commit()
+
+    # ---- height read-back: a silent no-op write is how bases end up at
+    # the wrong level, so every H is verified LOUDLY ---------------------
+    def _mark_of(r):
+        try:
+            return clean_mark(r["name"])
+        except Exception:
+            return "?"
+
+    if h_expect:
+        tol_ft = mm2ft(1.0)
+        h_ok = 0
+        h_bad = []          # (mark, reason)
+        for (inst, r, h_m) in h_expect:
+            want_ft = mm2ft(h_m * 1000.0)
+            status = "not-found"
+            for nm in H_NAMES:
+                try:
+                    plist = inst.GetParameters(nm)
+                except Exception:
+                    plist = None
+                if not plist:
+                    continue
+                for p in plist:
+                    try:
+                        if str(p.StorageType) != "Double":
+                            continue
+                        if abs(p.AsDouble() - want_ft) <= tol_ft:
+                            status = "ok"
+                            break
+                        status = ("read-only or formula-driven"
+                                  if p.IsReadOnly else
+                                  "value did not stick")
+                    except Exception:
+                        continue
+                if status == "ok":
+                    break
+            if status == "ok":
+                h_ok += 1
+            else:
+                h_bad.append((_mark_of(r), status))
+        _say(log, "Height (H) verified on **{}** of {} instance(s)"
+                  "{}.".format(h_ok, len(h_expect),
+                               "; **{}** row(s) had no rim/sump/depth "
+                               "to derive a height from".format(h_missing)
+                               if h_missing else ""))
+        if h_bad:
+            _say(log, "**{} height write(s) FAILED** - the base of "
+                      "those chambers is wherever the family default "
+                      "puts it:".format(len(h_bad)))
+            for mark, why in h_bad[:10]:
+                _say(log, "  - {}: {}".format(mark, why))
+            if len(h_bad) > 10:
+                _say(log, "  - ... and {} more".format(len(h_bad) - 10))
+    elif h_missing:
+        _say(log, "NOTE: no row carried rim/sump/depth - no heights "
+                  "were written ({} row(s)).".format(h_missing))
+
+    # ---- geometry QA: does the SOLID actually span sump..rim? ----------
+    F2M = 0.3048
+    qa_checked = 0
+    qa_offend = []      # (mark, rim, sump, act_top, act_bot, dt, db)
+    qa_deltas = []
+    for (inst, r, p, pz) in placed:
+        rim, sump = r.get("rim_m"), r.get("sump_m")
+        origin_m = r.get("z_m")
+        if rim is None or sump is None or origin_m is None:
+            continue
+        try:
+            bb = inst.get_BoundingBox(None)
+        except Exception:
+            bb = None
+        if bb is None:
+            continue
+        qa_checked += 1
+        exp_top_ft = pz + (float(rim) - float(origin_m)) / F2M
+        exp_bot_ft = pz + (float(sump) - float(origin_m)) / F2M
+        dt_mm = (bb.Max.Z - exp_top_ft) * F2M * 1000.0
+        db_mm = (bb.Min.Z - exp_bot_ft) * F2M * 1000.0
+        qa_deltas.append((dt_mm, db_mm))
+        if abs(dt_mm) > 10.0 or abs(db_mm) > 10.0:
+            qa_offend.append((_mark_of(r), float(rim), float(sump),
+                              float(rim) + dt_mm / 1000.0,
+                              float(sump) + db_mm / 1000.0,
+                              dt_mm, db_mm))
+    if qa_checked:
+        _say(log, "Geometry QA: **{}** of {} checked instance(s) span "
+                  "sump..rim within 10 mm.".format(
+                      qa_checked - len(qa_offend), qa_checked))
+        if qa_offend:
+            if qa_constant_delta([(d[5], d[6]) for d in qa_offend]) \
+                    and len(qa_offend) == qa_checked:
+                _say(log, "Every instance is off by the SAME amount "
+                          "(top {:+.0f} mm, bottom {:+.0f} mm) - family "
+                          "geometry does not span origin-to-H (fixed "
+                          "frame/cone below origin?). Fix the FAMILY, "
+                          "the placement is consistent.".format(
+                              qa_offend[0][5], qa_offend[0][6]))
+            _say(log, "Offenders (mark: expected rim/sump -> actual "
+                      "top/bottom, delta mm):")
+            for (mark, rim, sump, at, ab, dt, db) in qa_offend[:15]:
+                _say(log, "  - {}: {:.3f}/{:.3f} -> {:.3f}/{:.3f}  "
+                          "(top {:+.0f}, bottom {:+.0f})".format(
+                              mark, rim, sump, at, ab, dt, db))
+            if len(qa_offend) > 15:
+                _say(log, "  - ... and {} more".format(
+                    len(qa_offend) - 15))
+    else:
+        _say(log, "Geometry QA skipped - no row carried both rim and "
+                  "sump.")
 
     if system_type_map and (sys_set or sys_ro):
         if sys_set:
@@ -1334,11 +1563,34 @@ def run_place(shape=None):
         fams[sp] = {"label": fam_label, "symbol": base_symbol,
                     "param_map": param_map, "anchor": anchor}
 
+    # The height parameter must be DRIVABLE before hundreds of chambers
+    # are placed with their family-default height - stop loudly if not.
+    for sp in shapes:
+        pm = fams[sp]["param_map"]
+        h_names = ([pm["H"]] if pm and pm.get("H")
+                   else HEIGHT_PARAM_NAMES)
+        ok, h_nm, why = probe_height_writable(doc, fams[sp]["symbol"],
+                                              h_names)
+        if not ok:
+            forms.alert(
+                "The chamber height cannot be driven on family "
+                "'{}': {}.\n\nNothing was placed - fix the family "
+                "(H must be a writable INSTANCE length parameter) "
+                "or map a different parameter, then run again.".format(
+                    fams[sp]["label"], why),
+                exitscript=True)
+        log("Height parameter ({}): **{}** is instance-writable.".format(
+            fams[sp]["label"], h_nm))
+
     # Rewrite every row's Z to the level the family ORIGIN must sit at,
     # BEFORE solve_points / the offset writer consume z_m downstream.
+    # anchor_z gets the SAME computed height the parameter write drives
+    # (H = rim - sump, depth only as fallback), so the derived end of
+    # the chamber always lands on the other level.
     for r in rows:
         r["z_m"] = anchor_z(fams[r["shape"]]["anchor"],
-                            r["rim_m"], r["sump_m"], r["z_m"])
+                            r["rim_m"], r["sump_m"], r["z_m"],
+                            height_m=row_height_m(r))
     for sp in shapes:
         log("Placement Z basis ({}): origin at **{}** -> offset driven "
             "to **{}**.".format(

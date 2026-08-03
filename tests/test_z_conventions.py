@@ -42,6 +42,9 @@ def extract_function(module_file, func_name):
 placement_rows = extract_function("pymep_dashboard_pipes.py",
                                   "placement_rows")
 anchor_z = extract_function("pymep_dashboard.py", "anchor_z")
+row_height_m = extract_function("pymep_dashboard.py", "row_height_m")
+qa_constant_delta = extract_function("pymep_dashboard.py",
+                                     "qa_constant_delta")
 
 
 def reader_row(dia_mm, sz=7.0, ez=6.5):
@@ -97,6 +100,76 @@ class AnchorToZ(unittest.TestCase):
 
     def test_missing_rim_falls_back_to_sump(self):
         self.assertAlmostEqual(anchor_z("top", None, 7.83, 7.83), 7.83)
+
+
+class RowHeight(unittest.TestCase):
+    """H = rim - sump pins the height; depth_m is only the fallback."""
+
+    def test_rim_minus_sump_beats_depth(self):
+        r = {"rim_m": 12.6, "sump_m": 7.83, "depth_m": 99.0}
+        self.assertAlmostEqual(row_height_m(r), 4.77)
+
+    def test_depth_fallback_when_an_end_is_missing(self):
+        self.assertAlmostEqual(
+            row_height_m({"rim_m": 12.6, "sump_m": None,
+                          "depth_m": 3.2}), 3.2)
+        self.assertAlmostEqual(
+            row_height_m({"rim_m": None, "sump_m": 7.83,
+                          "depth_m": 3.2}), 3.2)
+
+    def test_nothing_derivable_is_none(self):
+        self.assertIsNone(row_height_m({"rim_m": None, "sump_m": None,
+                                        "depth_m": None}))
+        self.assertIsNone(row_height_m({}))
+
+    def test_inverted_ends_fall_back_to_depth(self):
+        # rim BELOW sump is bad data, not a negative chamber
+        r = {"rim_m": 7.0, "sump_m": 9.0, "depth_m": 2.5}
+        self.assertAlmostEqual(row_height_m(r), 2.5)
+
+    def test_zero_depth_is_none(self):
+        self.assertIsNone(row_height_m({"depth_m": 0.0}))
+
+
+class AnchorWithHeight(unittest.TestCase):
+    """The SAME computed H sharpens anchor_z's missing-end fallbacks,
+    so the derived end always lands where the height write puts it."""
+
+    def test_top_anchor_without_rim_sits_at_sump_plus_h(self):
+        self.assertAlmostEqual(
+            anchor_z("top", None, 7.83, 7.83, height_m=3.0), 10.83)
+
+    def test_base_anchor_without_sump_sits_at_rim_minus_h(self):
+        self.assertAlmostEqual(
+            anchor_z("base", 12.6, None, 12.6, height_m=3.0), 9.6)
+
+    def test_center_anchor_with_one_end_and_h(self):
+        self.assertAlmostEqual(
+            anchor_z("center", None, 7.83, 7.83, height_m=3.0), 9.33)
+
+    def test_both_ends_ignore_the_height(self):
+        # rim and sump pin everything; H changes nothing
+        self.assertAlmostEqual(
+            anchor_z("center", 12.6, 7.83, 7.83, height_m=99.0), 10.215)
+
+    def test_legacy_fallbacks_without_height(self):
+        self.assertAlmostEqual(anchor_z("top", None, 7.83, 7.83), 7.83)
+        self.assertAlmostEqual(anchor_z("base", 12.6, None, 9.9), 9.9)
+
+
+class ConstantDelta(unittest.TestCase):
+    """The 'family geometry does not span origin-to-H' detector."""
+
+    def test_same_offset_everywhere_is_constant(self):
+        self.assertTrue(qa_constant_delta(
+            [(250.0, 250.0), (251.0, 249.0), (250.5, 250.2)]))
+
+    def test_varying_offsets_are_not(self):
+        self.assertFalse(qa_constant_delta(
+            [(250.0, 250.0), (12.0, -40.0)]))
+
+    def test_one_instance_proves_nothing(self):
+        self.assertFalse(qa_constant_delta([(250.0, 250.0)]))
 
 
 if __name__ == "__main__":

@@ -122,11 +122,10 @@ for p in pipes:
         continue
 
 
-def aim_at_network(node, o):
+def aim_at_network(node, o_xy):
     """(pipe, how): the first network pipe the node's facing ray meets,
     trying the facing pair before the hand pair; else the plan-nearest
     pipe with a note."""
-    o_xy = (o.X, o.Y)
     for d in node_directions(node):
         best, best_s = None, None
         for p, a_xy, b_xy in pipe_lines:
@@ -151,17 +150,29 @@ fitting_notes = []
 for node in nodes:
     from pymep_revit import safe_name
     label = safe_name(node)
-    outlet, odia = fixture_outlet_info(node)
+    try:
+        outlet, odia = fixture_outlet_info(node)
+    except Exception:
+        outlet = None
     if outlet is None:
         skipped += 1
         log("- **{}**: no outlet connector - skipped".format(label))
         continue
-    if outlet_is_connected(node):
+    try:
+        if outlet_is_connected(node):
+            skipped += 1
+            log("- **{}**: already connected - skipped".format(label))
+            continue
+    except Exception:
+        pass
+    # fixture_outlet_info returns the outlet POINT (x, y, z) in feet
+    o_xy = (outlet[0], outlet[1])
+    try:
+        target, how = aim_at_network(node, o_xy)
+    except Exception as ex:
         skipped += 1
-        log("- **{}**: already connected - skipped".format(label))
+        log("- **{}**: aim failed ({}) - skipped".format(label, ex))
         continue
-    o = outlet.Origin
-    target, how = aim_at_network(node, o)
     if target is None:
         skipped += 1
         log("- **{}**: no network pipe to join - skipped".format(label))
