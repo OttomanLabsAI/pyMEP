@@ -118,7 +118,8 @@
                                Text="Pipe type"/>
                     <ComboBox x:Name="CmbPipeType" Grid.Row="3"
                               Grid.Column="1"/>
-                    <TextBlock Grid.Row="4" Grid.Column="0"
+                    <TextBlock x:Name="LblSlope" Grid.Row="4"
+                               Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
                                Text="Default gradient 1 :"/>
                     <TextBox x:Name="TxtSlope" Grid.Row="4" Grid.Column="1"/>

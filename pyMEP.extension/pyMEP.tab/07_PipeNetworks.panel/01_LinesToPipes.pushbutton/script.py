@@ -71,6 +71,21 @@ NO_SEGMENT = "(from pipe type)"
 settings = load_settings()
 
 
+def slope_breakdown(rows):
+    """(styled, custom, defaulted) counts over the matched lines -
+    where each gradient will come from."""
+    styled = custom = defaulted = 0
+    for r in rows:
+        got = parse_style_slope(r[3])
+        if got == "custom":
+            custom += 1
+        elif got is not None:
+            styled += 1
+        else:
+            defaulted += 1
+    return styled, custom, defaulted
+
+
 def gather_lines(style_sel, workset):
     """The lines the current filter selects. SLOPE_STYLES takes every
     line whose style name parses to a slope OR is a Custom style - the
@@ -201,11 +216,24 @@ class LinesWindow(forms.WPFWindow):
         rows = gather_lines(style, ws)
         n = len(rows)
         if n:
-            named = len(set(r[3] for r in rows if r[3]))
-            self.TxtCount.Text = ("{} straight model line(s) across {} "
-                                  "line style(s) - they become the "
-                                  "network.".format(n, named))
+            styled, custom, defaulted = slope_breakdown(rows)
+            bits = []
+            if styled:
+                bits.append("{} sloped by their style name".format(styled))
+            if custom:
+                bits.append("{} 'Slope Custom' (asked after OK)"
+                            .format(custom))
+            if defaulted:
+                bits.append("{} with NO slope in the style - the "
+                            "default gradient applies".format(defaulted))
+            self.TxtCount.Text = "{} line(s): {}.".format(
+                n, "; ".join(bits))
+            # the default gradient only matters when something uses it
+            self.TxtSlope.IsEnabled = defaulted > 0
+            self.LblSlope.Opacity = 1.0 if defaulted else 0.45
+            self._defaulted = defaulted
             return
+        self._defaulted = 0
         # nothing matches - say WHY, and WHERE the lines actually are
         if ws and gather_lines(style, None):
             homes = sorted(set(
@@ -230,15 +258,26 @@ class LinesWindow(forms.WPFWindow):
     def on_create(self, sender, args):
         try:
             dia = float(self.CmbDia.Text)
-            slope = float(self.TxtSlope.Text)
             invert = float(self.TxtInvert.Text)
-            if dia <= 0 or slope <= 0:
+            if dia <= 0:
                 raise ValueError()
         except Exception:
-            self.StatusText.Text = ("Diameter and the default gradient "
-                                    "must be positive numbers; the "
-                                    "invert is in metres.")
+            self.StatusText.Text = ("The diameter must be a positive "
+                                    "number; the invert is in metres.")
             return
+        # the default gradient is only validated when a line will use it
+        slope = float(settings.get("lines_slope", 200.0) or 200.0)
+        if getattr(self, "_defaulted", 0):
+            try:
+                slope = float(self.TxtSlope.Text)
+                if slope <= 0:
+                    raise ValueError()
+            except Exception:
+                self.StatusText.Text = ("{} line(s) have no slope in "
+                                        "their style name - give them a "
+                                        "positive default gradient."
+                                        .format(self._defaulted))
+                return
         style, ws = self._filters()
         if not gather_lines(style, ws):
             self.StatusText.Text = "No straight model lines match."
