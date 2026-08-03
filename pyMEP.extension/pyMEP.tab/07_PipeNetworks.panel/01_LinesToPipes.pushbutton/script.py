@@ -29,8 +29,9 @@ from pymep_connect_fixtures import (
     list_pipe_type_options, list_system_type_options,
 )
 from pymep_lines_to_pipes import (
-    MM_PER_FT, build_network_pipes, collect_lines, fit_plan,
-    line_style_options, parse_style_slope, solve, workset_options,
+    MM_PER_FT, _workset_name, build_network_pipes, collect_lines,
+    fit_plan, line_style_options, parse_style_slope, solve,
+    workset_options,
 )
 from pymep_pipesizes import existing_segment_sizes_mm, list_pipe_segments
 
@@ -137,6 +138,23 @@ class LinesWindow(forms.WPFWindow):
             self.CmbStyle.SelectedItem = SLOPE_STYLES
         self.CmbWorkset.SelectedItem = settings.get("lines_workset") \
             if settings.get("lines_workset") in worksets else ANY_WORKSET
+
+        # the model may have changed since last run - when the
+        # remembered filters find nothing, relax them instead of
+        # opening on a stale zero
+        style, ws = self._filters()
+        if not gather_lines(style, ws):
+            if ws and gather_lines(style, None):
+                self.CmbWorkset.SelectedItem = ANY_WORKSET
+            elif style not in (SLOPE_STYLES,) and \
+                    gather_lines(SLOPE_STYLES, ws):
+                self.CmbStyle.SelectedItem = SLOPE_STYLES
+            elif gather_lines(SLOPE_STYLES, None):
+                self.CmbStyle.SelectedItem = SLOPE_STYLES
+                self.CmbWorkset.SelectedItem = ANY_WORKSET
+            elif gather_lines(ANY_STYLE, None):
+                self.CmbStyle.SelectedItem = ANY_STYLE
+                self.CmbWorkset.SelectedItem = ANY_WORKSET
         self._fill_sizes()
         self.CmbDia.Text = "{:g}".format(
             float(settings.get("lines_dia_mm", 150.0)))
@@ -188,11 +206,15 @@ class LinesWindow(forms.WPFWindow):
                                   "line style(s) - they become the "
                                   "network.".format(n, named))
             return
-        # nothing matches - say WHY
+        # nothing matches - say WHY, and WHERE the lines actually are
         if ws and gather_lines(style, None):
-            self.TxtCount.Text = ("0 match - lines with that style "
-                                  "exist, but not on workset "
-                                  "'{}'.".format(ws))
+            homes = sorted(set(
+                _workset_name(doc, r[0]) or "(none)"
+                for r in gather_lines(style, None)))
+            self.TxtCount.Text = ("0 match - those lines sit on "
+                                  "workset(s) {}, not '{}'.".format(
+                                      ", ".join("'{}'".format(h)
+                                                for h in homes), ws))
         elif style not in (ANY_STYLE, SLOPE_STYLES) and \
                 collect_lines(doc, None, ws):
             self.TxtCount.Text = ("0 match - no straight model line "
