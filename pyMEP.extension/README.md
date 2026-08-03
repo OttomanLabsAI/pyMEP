@@ -187,6 +187,16 @@ neither fits, it offers to place at the internal origin using the
 export's own origin (optionally saving it to Settings). Rectangular duct-bank
 rows are skipped - only circular runs become pipes.
 
+Both placement windows ask for the VERTICAL DATUM - the level the
+export's site levels are measured ABOVE: a 47.85 m invert lands
+47.85 m over the picked level, so the placed elements' displayed
+elevations read the site values (the same convention as the Lines to
+Pipes work-plane datum). A level named like 'Datum' is preselected
+when the model has one; the pick is remembered and SHARED between
+Place Pipes and Place Structures so chambers and pipes always land on
+one vertical. Choose the '(numeric Z offset from Settings)' option to
+keep the old absolute-Z behaviour.
+
 **Create Pipe Sizes** (stacked, big icon-only - the name lives in the tooltip) - reads a dashboard pipes
 export, lists the distinct circular diameters and adds the missing ones
 to the pipe Segment configured in Settings > Pipes (Place Pipes already

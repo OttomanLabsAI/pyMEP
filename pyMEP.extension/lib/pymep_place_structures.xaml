@@ -148,6 +148,10 @@
                         <ComboBox x:Name="CmbCoords"/>
                         <TextBlock Style="{StaticResource Hint}"
                                    Text="Which survey origin + rotation maps the export's coordinates into this model: the model's own Revit coordinates (Manage &gt; Coordinates - recommended when shared coordinates are established) or the E/N/Z/rotation offsets from pyMEP Settings. Whichever is picked, the other is still tried automatically if the pick lands out of range."/>
+                        <TextBlock Text="Vertical datum - site levels measured above" Style="{StaticResource FieldLabel}"/>
+                        <ComboBox x:Name="CmbDatum"/>
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="The level the export's rim / sump levels sit ABOVE: a 47.85 m sump lands 47.85 m over this level, so elevations display the site values (same convention as Place Pipes and the Lines to Pipes datum). Pick the Settings option to keep the numeric Z offset instead."/>
                     </StackPanel>
                 </GroupBox>
                 <GroupBox Header="Options" Margin="0,12,0,0">

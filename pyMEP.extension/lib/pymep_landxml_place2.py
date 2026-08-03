@@ -109,6 +109,15 @@ def make_survey_fn(e0_m, n0_m, rot_deg, z0_m):
     return fn
 
 
+def datum_off_z_m(level_elev_ft):
+    """The make_survey_fn ``z0_m`` that measures the export's site
+    levels ABOVE a datum level at ``level_elev_ft`` INTERNAL feet:
+    z_internal = level + z_site, so a 47.85 m invert lands 47.85 m
+    over the level and displayed elevations read the site values (the
+    same convention as the Lines to Pipes work-plane datum)."""
+    return -float(level_elev_ft) * 0.3048
+
+
 def model_survey_position(doc):
     """(e0_m, n0_m, rot_deg) for make_survey_fn, from the model's own
     georeference: the survey coordinates of the internal origin plus the

@@ -39,12 +39,40 @@ def extract_function(module_file, func_name):
     raise AssertionError("{} not found in {}".format(func_name, path))
 
 
+def extract_function_with(module_file, func_name, extra_ns):
+    """Like extract_function, but with stubs available as globals."""
+    path = os.path.join(LIB, module_file)
+    with open(path) as f:
+        src = f.read()
+    tree = ast.parse(src)
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            ns = dict(extra_ns)
+            exec(compile(ast.get_source_segment(src, node),
+                         path, "exec"), ns)
+            return ns[func_name]
+    raise AssertionError("{} not found in {}".format(func_name, path))
+
+
 placement_rows = extract_function("pymep_dashboard_pipes.py",
                                   "placement_rows")
 anchor_z = extract_function("pymep_dashboard.py", "anchor_z")
 row_height_m = extract_function("pymep_dashboard.py", "row_height_m")
 qa_constant_delta = extract_function("pymep_dashboard.py",
                                      "qa_constant_delta")
+datum_off_z_m = extract_function("pymep_landxml_place2.py",
+                                 "datum_off_z_m")
+
+
+class _XYZ(object):
+    def __init__(self, x, y, z):
+        self.X, self.Y, self.Z = x, y, z
+
+
+import math as _math                                          # noqa: E402
+make_survey_fn = extract_function_with(
+    "pymep_landxml_place2.py", "make_survey_fn",
+    {"math": _math, "XYZ": _XYZ})
 
 
 def reader_row(dia_mm, sz=7.0, ez=6.5):
@@ -170,6 +198,30 @@ class ConstantDelta(unittest.TestCase):
 
     def test_one_instance_proves_nothing(self):
         self.assertFalse(qa_constant_delta([(250.0, 250.0)]))
+
+
+class DatumLevel(unittest.TestCase):
+    """Place Pipes / Place Structures vertical datum: the picked
+    level's zero is the site datum, so z_internal = level + z_site
+    and displayed elevations read the export's site values."""
+
+    def test_sign_and_units(self):
+        # a datum level at internal -45.667 m
+        lvl_ft = -45.667 / 0.3048
+        self.assertAlmostEqual(datum_off_z_m(lvl_ft), 45.667, places=9)
+
+    def test_site_level_lands_above_the_level(self):
+        lvl_ft = -45.667 / 0.3048
+        fn = make_survey_fn(0.0, 0.0, 0.0, datum_off_z_m(lvl_ft))
+        p = fn(0.0, 0.0, 47.85)
+        self.assertAlmostEqual(p.Z, lvl_ft + 47.85 / 0.3048, places=6)
+        # displayed above the datum level: exactly the site value
+        self.assertAlmostEqual((p.Z - lvl_ft) * 0.3048, 47.85, places=9)
+
+    def test_level_at_internal_zero_keeps_absolute_z(self):
+        fn = make_survey_fn(0.0, 0.0, 0.0, datum_off_z_m(0.0))
+        self.assertAlmostEqual(fn(0.0, 0.0, 10.0).Z, 10.0 / 0.3048,
+                               places=9)
 
 
 if __name__ == "__main__":
