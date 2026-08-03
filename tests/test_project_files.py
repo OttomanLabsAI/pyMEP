@@ -76,5 +76,69 @@ class ProjectFiles(unittest.TestCase):
         self.assertIsNotNone(pf.slot_file(self.base, "dashboard_data"))
 
 
+class RefreshSlot(unittest.TestCase):
+    """The stored copy follows the file it was stored FROM - the
+    dashboard opens through refresh_slot, so a re-exported LandXML
+    shows its new heights without a manual re-store."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.base = os.path.join(self.tmp, "project_files")
+        self.src = os.path.join(self.tmp, "HEL18 utilities.xml")
+        with open(self.src, "w") as f:
+            f.write("<LandXML elevSump='48.51'/>")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _read(self, path):
+        with open(path) as f:
+            return f.read()
+
+    def test_empty_slot(self):
+        self.assertEqual(pf.refresh_slot(self.base, "dashboard_data"),
+                         (None, "empty"))
+
+    def test_unchanged_source_is_fresh(self):
+        dest = pf.store_file(self.base, "dashboard_data", self.src)
+        path, status = pf.refresh_slot(self.base, "dashboard_data")
+        self.assertEqual((path, status), (dest, "fresh"))
+
+    def test_changed_source_refreshes_the_copy(self):
+        dest = pf.store_file(self.base, "dashboard_data", self.src)
+        # the XML is re-exported with new heights (newer + different)
+        with open(self.src, "w") as f:
+            f.write("<LandXML elevSump='47.20' revised='yes'/>")
+        os.utime(self.src, None)
+        path, status = pf.refresh_slot(self.base, "dashboard_data")
+        self.assertEqual((path, status), (dest, "refreshed"))
+        self.assertIn("47.20", self._read(dest))
+        # and once refreshed it reads as fresh again
+        self.assertEqual(pf.refresh_slot(self.base, "dashboard_data"),
+                         (dest, "fresh"))
+
+    def test_legacy_entry_without_source(self):
+        dest = pf.store_file(self.base, "dashboard_data", self.src)
+        reg = pf.load_registry(self.base)
+        del reg["slots"]["dashboard_data"]["source"]
+        pf.save_registry(self.base, reg)
+        self.assertEqual(pf.refresh_slot(self.base, "dashboard_data"),
+                         (dest, "no_source"))
+
+    def test_moved_source_keeps_the_copy(self):
+        dest = pf.store_file(self.base, "dashboard_data", self.src)
+        os.remove(self.src)
+        self.assertEqual(pf.refresh_slot(self.base, "dashboard_data"),
+                         (dest, "no_source"))
+        self.assertTrue(os.path.isfile(dest))
+
+    def test_list_entries_flags_the_stale_copy(self):
+        pf.store_file(self.base, "dashboard_data", self.src)
+        self.assertFalse(pf.list_entries(self.base)[0][4])
+        with open(self.src, "w") as f:
+            f.write("<LandXML elevSump='47.20' revised='yes'/>")
+        self.assertTrue(pf.list_entries(self.base)[0][4])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -43,13 +43,19 @@ class FilesWindow(forms.WPFWindow):
     # ---- list plumbing ----------------------------------------------------
     def _refresh(self):
         rows = ArrayList()
-        for slot, label, name, exists in pf.list_entries(BASE):
+        for slot, label, name, exists, stale in pf.list_entries(BASE):
             h = Hashtable()
             h["slot"] = slot
             h["label"] = label
             h["file"] = name or "(not set)"
-            h["status"] = ("Stored" if exists
-                           else ("MISSING" if name else "-"))
+            if exists and stale:
+                # the original changed since it was copied in - the
+                # dashboard refreshes it on launch, this just says so
+                h["status"] = "Stored (source newer)"
+            elif exists:
+                h["status"] = "Stored"
+            else:
+                h["status"] = "MISSING" if name else "-"
             rows.Add(h)
         self.LstFiles.ItemsSource = rows
         if rows.Count:
