@@ -2,12 +2,13 @@
 """Lines to Pipes - turn the model lines you drew into a graded pipe
 network.
 
-Filter the lines by line style and workset, give a pipe type, size,
-gradient 1:n and the invert level at the outfall, then click a line
-near its outfall end. Every line becomes a pipe falling toward that
-point at the gradient; lines that cross or end on another line are teed
-into it at the level of the run they meet, and lines meeting end to end
-are elbowed.
+Every line is graded at ITS OWN slope, read from its line style name:
+'Pipe 1-80' runs at 1:80, 'Pipe 1-150' at 1:150. A style whose name
+carries no number uses the dialog's default gradient, and a 'Slope
+Custom' style opens a clickable plan of the network asking for each
+custom line's gradient. Lines crossing or ending on another line are
+teed in at the level of the run they meet; end-to-end joints get
+elbows.
 """
 
 __title__ = "Lines to\nPipes"
@@ -28,8 +29,8 @@ from pymep_connect_fixtures import (
     list_pipe_type_options, list_system_type_options,
 )
 from pymep_lines_to_pipes import (
-    MM_PER_FT, build_network_pipes, collect_lines, line_style_options,
-    solve, workset_options,
+    MM_PER_FT, build_network_pipes, collect_lines, fit_plan,
+    line_style_options, parse_style_slope, solve, workset_options,
 )
 from pymep_pipesizes import existing_segment_sizes_mm, list_pipe_segments
 
@@ -45,9 +46,10 @@ uidoc = revit.uidoc
 
 log("### Lines to Pipes")
 
-XAML_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
-    "pymep_lines_to_pipes.xaml")
+_LIB_DIR = os.path.dirname(
+    os.path.abspath(sys.modules["pymep_config"].__file__))
+XAML_PATH = os.path.join(_LIB_DIR, "pymep_lines_to_pipes.xaml")
+CUSTOM_XAML_PATH = os.path.join(_LIB_DIR, "pymep_lines_custom.xaml")
 
 ANY_STYLE = "(any line style)"
 ANY_WORKSET = "(any workset)"
@@ -178,9 +180,9 @@ class LinesWindow(forms.WPFWindow):
             if dia <= 0 or slope <= 0:
                 raise ValueError()
         except Exception:
-            self.StatusText.Text = ("Diameter and gradient must be "
-                                    "positive numbers; the invert is in "
-                                    "metres.")
+            self.StatusText.Text = ("Diameter and the default gradient "
+                                    "must be positive numbers; the "
+                                    "invert is in metres.")
             return
         style, ws = self._filters()
         if not collect_lines(doc, style, ws):
@@ -196,6 +198,154 @@ class LinesWindow(forms.WPFWindow):
                        "auto_type": i_pt == 0,
                        "segment": seg,
                        "sys_type": _st_opts[i_st]}
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.Close()
+
+
+class CustomSlopeWindow(forms.WPFWindow):
+    """A clickable plan of the whole network. Custom lines are orange
+    until a gradient is applied (green); the selected one is blue.
+    result = {line_index: slope_n} for every custom line, or None."""
+
+    GREY = "#B0B0B0"
+    ORANGE = "#D97B2A"
+    GREEN = "#2E7D32"
+    BLUE = "#1565C0"
+
+    def __init__(self, lines_mm, custom_idx):
+        forms.WPFWindow.__init__(self, CUSTOM_XAML_PATH)
+        self.result = None
+        self._lines = lines_mm
+        self._custom = list(custom_idx)
+        self._slopes = {}
+        self._shapes = {}
+        self._selected = None
+        self.TxtInfo.Text = ("{} 'Slope Custom' line(s) need a gradient. "
+                             "Click an orange line, type its 1:n, Apply. "
+                             "Green = done.".format(len(self._custom)))
+        self._update_status()
+
+    def _brush(self, hex_str):
+        from System.Windows.Media import BrushConverter
+        return BrushConverter().ConvertFromString(hex_str)
+
+    def _redraw(self):
+        from System.Windows.Shapes import Line as WpfLine
+        from System.Windows import Input
+        self.CnvPlan.Children.Clear()
+        self._shapes = {}
+        w = self.CnvPlan.ActualWidth or 560
+        h = self.CnvPlan.ActualHeight or 360
+        if w < 40 or h < 40:
+            return
+        scale, ox, oy = fit_plan(self._lines, w, h)
+
+        def cx(p):
+            return p[0] * scale + ox
+
+        def cy(p):
+            return -p[1] * scale + oy
+
+        for i, (a, b) in enumerate(self._lines):
+            ln = WpfLine()
+            ln.X1, ln.Y1 = cx(a), cy(a)
+            ln.X2, ln.Y2 = cx(b), cy(b)
+            if i in self._custom:
+                if i == self._selected:
+                    ln.Stroke = self._brush(self.BLUE)
+                    ln.StrokeThickness = 6.0
+                elif i in self._slopes:
+                    ln.Stroke = self._brush(self.GREEN)
+                    ln.StrokeThickness = 4.0
+                else:
+                    ln.Stroke = self._brush(self.ORANGE)
+                    ln.StrokeThickness = 4.0
+                ln.Cursor = Input.Cursors.Hand
+                ln.MouseLeftButtonDown += self._make_click(i)
+            else:
+                ln.Stroke = self._brush(self.GREY)
+                ln.StrokeThickness = 1.5
+            self.CnvPlan.Children.Add(ln)
+            self._shapes[i] = ln
+
+    def _make_click(self, index):
+        def handler(sender, args):
+            self._select(index)
+        return handler
+
+    def _select(self, index):
+        self._selected = index
+        a, b = self._lines[index]
+        import math as _m
+        length = _m.hypot(b[0] - a[0], b[1] - a[1]) / 1000.0
+        got = self._slopes.get(index)
+        self.TxtCurrent.Text = (
+            "Custom line - {:.1f} m long{}".format(
+                length,
+                " - currently 1:{:g}".format(got) if got else ""))
+        if got:
+            self.TxtCustomSlope.Text = "{:g}".format(got)
+        try:
+            self.TxtCustomSlope.Focus()
+            self.TxtCustomSlope.SelectAll()
+        except Exception:
+            pass
+        self._redraw()
+
+    def _next_pending(self):
+        for i in self._custom:
+            if i not in self._slopes:
+                return i
+        return None
+
+    def _update_status(self):
+        left = len([i for i in self._custom if i not in self._slopes])
+        if left:
+            self.StatusText.Text = ("{} line(s) still need a "
+                                    "gradient.".format(left))
+        else:
+            self.StatusText.Text = ""
+
+    def on_canvas_size(self, sender, args):
+        self._redraw()
+        if self._selected is None:
+            nxt = self._next_pending()
+            if nxt is not None:
+                self._select(nxt)
+
+    def on_apply(self, sender, args):
+        if self._selected is None:
+            self.StatusText.Text = "Click a line in the plan first."
+            return
+        try:
+            n = float(self.TxtCustomSlope.Text)
+            if n <= 0:
+                raise ValueError()
+        except Exception:
+            self.StatusText.Text = "The gradient must be a positive 1:n."
+            return
+        self._slopes[self._selected] = n
+        self._selected = None
+        self.TxtCustomSlope.Text = ""
+        nxt = self._next_pending()
+        if nxt is not None:
+            self._select(nxt)
+        else:
+            self.TxtCurrent.Text = "All custom lines have a gradient."
+            self._redraw()
+        self._update_status()
+
+    def on_ok(self, sender, args):
+        left = [i for i in self._custom if i not in self._slopes]
+        if left:
+            self.StatusText.Text = ("{} line(s) still need a gradient - "
+                                    "click the orange ones.".format(
+                                        len(left)))
+            return
+        self.result = dict(self._slopes)
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -226,12 +376,46 @@ except Exception:
     pass
 
 lines = collect_lines(doc, opt["style"], opt["workset"])
-log("**{}** line(s), dia **{:.0f} mm**{}, gradient **1:{:g}**, outfall "
-    "invert **{:.3f} m**".format(
+log("**{}** line(s), dia **{:.0f} mm**{}, default gradient **1:{:g}**, "
+    "outfall invert **{:.3f} m**".format(
         len(lines), opt["dia_mm"],
         " on segment **{}**".format(opt["segment"][0])
         if opt["segment"] else "",
         opt["slope_n"], opt["invert_m"]))
+
+# ---------------------------------------------------------------------------
+# per-line slopes from the line style names
+# ---------------------------------------------------------------------------
+lines_mm = [(a, b) for _el, a, b, _st in lines]
+slopes = {}
+custom_idx = []
+styled, defaulted = 0, 0
+for i, (_el, _a, _b, style_name) in enumerate(lines):
+    got = parse_style_slope(style_name)
+    if got == "custom":
+        custom_idx.append(i)
+    elif got is not None:
+        slopes[i] = got
+        styled += 1
+    else:
+        slopes[i] = opt["slope_n"]
+        defaulted += 1
+log("Slopes: **{}** from their style name, **{}** at the default "
+    "1:{:g}, **{}** 'Slope Custom'.".format(styled, defaulted,
+                                            opt["slope_n"],
+                                            len(custom_idx)))
+
+if custom_idx:
+    cwin = CustomSlopeWindow(lines_mm, custom_idx)
+    cwin.ShowDialog()
+    if cwin.result is None:
+        log("Custom slopes cancelled - nothing changed.")
+        log.close()
+        script.exit()
+    for i, n in cwin.result.items():
+        slopes[i] = n
+        log("- custom line at ({:.1f}, {:.1f}) m: **1:{:g}**".format(
+            lines_mm[i][0][0] / 1000.0, lines_mm[i][0][1] / 1000.0, n))
 
 # ---------------------------------------------------------------------------
 # the outfall pick
@@ -258,7 +442,7 @@ else:
 # ---------------------------------------------------------------------------
 # solve + build
 # ---------------------------------------------------------------------------
-sol = solve([(a, b) for _el, a, b in lines], pick_mm, opt["slope_n"])
+sol = solve(lines_mm, pick_mm, slopes)
 
 for s in sol["skipped"]:
     log("- {}".format(s))
@@ -271,7 +455,7 @@ if not sol["runs"]:
 try:
     res = build_network_pipes(doc, sol, opt["sys_type"][1],
                               opt["pipe_type"][1], opt["dia_mm"],
-                              opt["slope_n"], opt["invert_m"], log=log,
+                              opt["invert_m"], log=log,
                               segment_id=(opt["segment"][1].Id
                                           if opt["segment"] else None))
 except Exception as ex:

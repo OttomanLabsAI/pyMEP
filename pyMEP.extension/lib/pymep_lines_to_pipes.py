@@ -51,6 +51,59 @@ DEPTH_EPS_MM = 1.0        # grade-linearity check along a through run
 # ---------------------------------------------------------------------------
 # pure geometry (stdlib only - unit-tested without Revit)
 # ---------------------------------------------------------------------------
+def parse_style_slope(name):
+    """The slope a line style NAME carries.
+
+    'Pipe 1-80' -> 80.0 (a run at 1:80); anything containing 'custom'
+    (case-insensitive) -> the string 'custom' (the user is asked per
+    line); no trailing '1-<n>' -> None (the dialog's default gradient
+    applies)."""
+    if not name:
+        return None
+    if "custom" in name.lower():
+        return "custom"
+    import re
+    m = re.search(r"1\s*[-:]\s*(\d+(?:\.\d+)?)\s*$", name)
+    if m:
+        try:
+            v = float(m.group(1))
+            return v if v > 0 else None
+        except Exception:
+            return None
+    return None
+
+
+def normalize_slopes(lines, slopes):
+    """A per-line slope dict whatever the caller gave: a number means
+    every line at that 1:n; a dict is taken as line-index -> n (missing
+    indices get 1.0, i.e. rise == distance)."""
+    if isinstance(slopes, dict):
+        out = {}
+        for i in range(len(lines)):
+            out[i] = float(slopes.get(i, 1.0))
+        return out
+    n = float(slopes)
+    return dict((i, n) for i in range(len(lines)))
+
+
+def fit_plan(lines, width, height, pad=16.0):
+    """Scale + offset that fits the lines' bounding box into a canvas
+    of width x height with ``pad`` clear on every side, Y flipped so
+    north is up. Returns (scale, ox, oy); canvas position of a model
+    point is (x * scale + ox, -y * scale + oy)."""
+    xs = [p[0] for l in lines for p in l]
+    ys = [p[1] for l in lines for p in l]
+    if not xs:
+        return 1.0, pad, pad
+    bw = max(xs) - min(xs) or 1.0
+    bh = max(ys) - min(ys) or 1.0
+    scale = min((width - 2 * pad) / bw, (height - 2 * pad) / bh)
+    ox = pad - min(xs) * scale + ((width - 2 * pad) - bw * scale) / 2.0
+    oy = height - pad + min(ys) * scale - \
+        ((height - 2 * pad) - bh * scale) / 2.0
+    return scale, ox, oy
+
+
 def _dist(a, b):
     return math.hypot(b[0] - a[0], b[1] - a[1])
 
@@ -212,13 +265,17 @@ def nearest_node(net, p):
     return best
 
 
-def assign_depths(net, outfall):
-    """Network distance of every reachable node from the outfall node
-    (Dijkstra over the segments). {node_index: distance}."""
+def assign_depths(net, outfall, slopes=None):
+    """The RISE of every reachable node above the outfall (Dijkstra
+    over the segments, each weighted length / its line's 1:n slope).
+    With ``slopes`` None every line is 1:1, so the result is plain
+    network distance. {node_index: rise}."""
     adj = {}
-    for n0, n1, _li, length in net["segs"]:
-        adj.setdefault(n0, []).append((n1, length))
-        adj.setdefault(n1, []).append((n0, length))
+    for n0, n1, li, length in net["segs"]:
+        n_slope = 1.0 if slopes is None else slopes.get(li, 1.0)
+        w = length / n_slope
+        adj.setdefault(n0, []).append((n1, w))
+        adj.setdefault(n1, []).append((n0, w))
     dist = {outfall: 0.0}
     todo = [(0.0, outfall)]
     while todo:
@@ -234,13 +291,14 @@ def assign_depths(net, outfall):
     return dist
 
 
-def plan_runs(net, depths):
+def plan_runs(net, depths, slopes=None):
     """Chop every line into buildable RUNS and classify the joints.
 
     A run is a maximal stretch of consecutive segments of one line all
-    reachable from the outfall, with the depth changing by exactly the
-    segment length (grade continuity - anything else means a loop fed
-    the line from both sides, and that piece is left out with a note).
+    reachable from the outfall, with the rise changing by exactly the
+    segment length over the line's slope (grade continuity - anything
+    else means a loop fed the line from both sides, and that piece is
+    left out with a note).
 
     Returns {"runs", "tees", "elbows", "notes"} where each run is
       {"line", "nodes": [node, ...], "a", "b"}  (a = shallowest end)
@@ -251,14 +309,16 @@ def plan_runs(net, depths):
     runs = []
     by_line = {}
     for li, seq in net["line_nodes"].items():
+        n_slope = 1.0 if slopes is None else slopes.get(li, 1.0)
         chain = []
         for k in range(len(seq) - 1):
             (t0, n0), (t1, n1) = seq[k], seq[k + 1]
             length = _dist(net["nodes"][n0], net["nodes"][n1])
+            rise = length / n_slope
             ok = (n0 in depths and n1 in depths and
-                  abs(abs(depths[n1] - depths[n0]) - length) <= DEPTH_EPS_MM)
-            present = (n0, n1, li, length) in [
-                (s[0], s[1], s[2], s[3]) for s in net["segs"]]
+                  abs(abs(depths[n1] - depths[n0]) - rise) <= DEPTH_EPS_MM)
+            present = any(s[0] == n0 and s[1] == n1 and s[2] == li
+                          for s in net["segs"])
             if ok and present:
                 chain.append((n0, n1))
             else:
@@ -347,16 +407,20 @@ def plan_runs(net, depths):
             "notes": notes}
 
 
-def solve(lines, pick, slope_n, join_tol=JOIN_TOL_MM,
+def solve(lines, pick, slopes, join_tol=JOIN_TOL_MM,
           overshoot=OVERSHOOT_MM, min_run=MIN_RUN_MM):
     """The full plan: lines (+ the picked outfall point) in, buildable
-    geometry out. All coordinates in the input unit; depths too.
+    geometry out. All coordinates in the input unit. ``slopes`` is one
+    1:n for the whole network or a {line_index: n} dict - every line is
+    graded at ITS OWN slope, and "depths" holds each node's RISE above
+    the outfall (unit as the coordinates).
 
     Returns {"outfall_node", "nodes", "depths", "runs", "tees",
     "elbows", "skipped"} where each run carries "a"/"b" node indices
     (a = shallow), and skipped is a list of human-readable sentences
     covering everything that is NOT built.
     """
+    slopes = normalize_slopes(lines, slopes)
     net = build_network(lines, join_tol, overshoot)
     skipped = []
     for li, kept in net["dup_dropped"]:
@@ -368,7 +432,7 @@ def solve(lines, pick, slope_n, join_tol=JOIN_TOL_MM,
                        .format(li, length))
 
     out = nearest_node(net, pick)
-    depths = assign_depths(net, out)
+    depths = assign_depths(net, out, slopes)
 
     reachable_lines = set()
     for n0, n1, li, _l in net["segs"]:
@@ -379,10 +443,12 @@ def solve(lines, pick, slope_n, join_tol=JOIN_TOL_MM,
             skipped.append("line {} touches nothing on the way to the "
                            "outfall - not piped".format(li))
 
-    plan = plan_runs(net, depths)
+    plan = plan_runs(net, depths, slopes)
     runs = []
     for r in plan["runs"]:
-        length = depths[r["b"]] - depths[r["a"]]
+        length = sum(_dist(net["nodes"][r["nodes"][k]],
+                           net["nodes"][r["nodes"][k + 1]])
+                     for k in range(len(r["nodes"]) - 1))
         if length < min_run:
             skipped.append("line {}: a {:.0f} long piece is too short "
                            "to build - skipped".format(r["line"], length))
@@ -398,10 +464,11 @@ def solve(lines, pick, slope_n, join_tol=JOIN_TOL_MM,
             "skipped": skipped}
 
 
-def node_z_m(depth_mm, invert_m, slope_n):
-    """Invert level (metres) of a node ``depth_mm`` of network distance
-    upstream of the outfall, whose invert is ``invert_m``, at 1:n."""
-    return invert_m + (depth_mm / 1000.0) / float(slope_n)
+def node_z_m(rise_mm, invert_m):
+    """Invert level (metres) of a node ``rise_mm`` above the outfall,
+    whose invert is ``invert_m``. The slope is already inside the rise
+    - solve() accumulates length/n per line."""
+    return invert_m + rise_mm / 1000.0
 
 
 # ---------------------------------------------------------------------------
@@ -424,8 +491,8 @@ def _workset_name(doc, el):
 
 def collect_lines(doc, style=None, workset=None):
     """Straight model lines matching the filters:
-    [(element, (ax_mm, ay_mm), (bx_mm, by_mm)), ...]. Arcs and splines
-    never qualify - a pipe run is straight."""
+    [(element, (ax_mm, ay_mm), (bx_mm, by_mm), style_name), ...]. Arcs
+    and splines never qualify - a pipe run is straight."""
     out = []
     for el in FilteredElementCollector(doc).OfClass(CurveElement):
         if not isinstance(el, ModelLine):
@@ -443,7 +510,8 @@ def collect_lines(doc, style=None, workset=None):
         a = crv.GetEndPoint(0)
         b = crv.GetEndPoint(1)
         out.append((el, (a.X * MM_PER_FT, a.Y * MM_PER_FT),
-                    (b.X * MM_PER_FT, b.Y * MM_PER_FT)))
+                    (b.X * MM_PER_FT, b.Y * MM_PER_FT),
+                    _gstyle_name(el)))
     return out
 
 
@@ -490,11 +558,12 @@ def _set_segment(pipe, segment_id):
         pass
 
 
-def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, slope_n,
-                        invert_m, log=None, segment_id=None):
+def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
+                        log=None, segment_id=None):
     """Create the pipes, tees and elbows of a solved plan in ONE
-    transaction (warnings dismissed as they come). Depth/XY are in mm.
-    ``segment_id`` (optional) sets each pipe's Pipe Segment - the
+    transaction (warnings dismissed as they come). XY and the rises in
+    sol["depths"] are in mm - each line's slope is already inside its
+    rise. ``segment_id`` (optional) sets each pipe's Pipe Segment - the
     material/schedule choice - after creation.
 
     Returns {"pipes", "tees", "elbows", "failed", "notes"}."""
@@ -511,9 +580,9 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, slope_n,
         raise RuntimeError("The model has no levels - cannot create pipes.")
     dia_ft = dia_mm / MM_PER_FT
 
-    def xyz(node, depth_mm):
+    def xyz(node, rise_mm):
         x, y = sol["nodes"][node]
-        z_m = node_z_m(depth_mm, invert_m, slope_n)
+        z_m = node_z_m(rise_mm, invert_m)
         return XYZ(x / MM_PER_FT, y / MM_PER_FT,
                    z_m * 1000.0 / MM_PER_FT + dia_ft / 2.0)
 

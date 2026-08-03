@@ -209,10 +209,15 @@ the lot into a graded pipe network in one run. Filter the lines by line
 style and workset; pick the system type, the PIPE SEGMENT (the
 material/schedule choice from the pipe properties - e.g. 'Plastic -
 Schedule 40') with the diameter list showing that segment's catalogued
-sizes, optionally a pipe type ('(automatic)' uses the first), the
+sizes, optionally a pipe type ('(automatic)' uses the first), a DEFAULT
 gradient 1:n and the invert level at the outfall; then click a line near its
-outfall end. Every line becomes a pipe falling toward that point at
-the gradient (invert convention as everywhere in pyMEP: centreline =
+outfall end. Every line becomes a pipe falling toward that point AT
+ITS OWN gradient, read from its line style name: 'Pipe 1-80' runs at
+1:80, 'Pipe 1-150' at 1:150 ('1:80'-style names work too). A style
+with no number uses the dialog's default gradient. Lines on a 'Slope
+Custom' style open a clickable plan of the whole network first: custom
+lines show orange, click one, type its 1:n, Apply - it turns green and
+the next pending one is selected; OK needs every custom line answered (invert convention as everywhere in pyMEP: centreline =
 invert + dia/2). Where a line crosses or ends on another, the branch
 is teed into the through run at that run's level; where two lines meet
 end to end they are elbowed. The solver is built for real drawings: a
