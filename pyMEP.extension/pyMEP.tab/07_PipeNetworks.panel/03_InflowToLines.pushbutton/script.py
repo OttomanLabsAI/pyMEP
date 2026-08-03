@@ -1,17 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Inflow to Lines - connect node families into the Lines to Pipes
-network, aimed by each node's rotation.
+"""Inflow Nodes -> Collector Pipes - connect node families into the
+Lines to Pipes network, aimed by each node's rotation.
 
-What Inflow Drop Pipe to Collector does against ONE picked main, this
-does against the whole line-built network: every selected node casts a
-ray along its facing direction (family rotation), the first network
-pipe that ray meets is the one it belongs to, and the branch is built
-into exactly that pipe - drop-first or grade-first per the family's
-'Drop Pipe' parameter, oblique approaches squared for the tee, branch
-pipe type and system inherited from the pipe it joins.
+Every selected node casts a ray along its facing direction (family
+rotation), the first network pipe that ray meets is the one it belongs
+to, and the branch is built into exactly that pipe - drop-first or
+grade-first per the family's 'Drop Pipe' parameter, oblique approaches
+squared for the tee, branch pipe type and system inherited from the
+pipe it joins.
 """
 
-__title__ = "Inflow to\nLines"
+__title__ = "Inflow Nodes ->\nCollector Pipes"
 __author__ = "Glent Group"
 
 import sys
@@ -44,7 +43,7 @@ log = Logger(output, "InflowToLines")
 doc = revit.doc
 uidoc = revit.uidoc
 
-log("### Inflow to Lines")
+log("### Inflow Nodes -> Collector Pipes")
 
 # ---------------------------------------------------------------------------
 # 1. The network built by Lines to Pipes
@@ -92,7 +91,7 @@ settings = load_settings()
 slope_txt = forms.ask_for_string(
     default="{:g}".format(float(settings.get("nodes_slope", 100.0))),
     prompt="Branch gradient 1 : n",
-    title="Inflow to Lines")
+    title="Inflow Nodes -> Collector Pipes")
 try:
     slope = float(slope_txt)
     if slope <= 0:
@@ -207,5 +206,5 @@ forms.alert("Connected {} node(s) into the line network.{}{}".format(
     done,
     "\n{} skipped - see the report.".format(skipped) if skipped else "",
     "\n{} failed - see the report.".format(failed) if failed else ""),
-    title="Inflow to Lines")
+    title="Inflow Nodes -> Collector Pipes")
 log.close()

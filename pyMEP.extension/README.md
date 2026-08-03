@@ -30,9 +30,9 @@ pyMEP.extension/
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, big icon-only: Create Pipe Sizes + Structure to Pipe (stack) and Family at Pipe Top (own slot)
-    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools
+    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge Pipes, Connect Fixtures
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
-    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (tracked in-place update) + Inflow to Lines
+    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (tracked in-place update) + Inflow Nodes -> Collector Pipes + Sync Input Nodes
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
@@ -40,7 +40,7 @@ pyMEP.extension/
     08_Electrical.panel/        # Encasement (shown before Drainage on the ribbon)
 ```
 
-9 panels, 32 buttons, every one with its own icon.
+9 panels, 31 buttons, every one with its own icon.
 
 ## Panels
 
@@ -279,8 +279,8 @@ first re-run does one last delete-and-rebuild - ids are stable from
 that run on. Custom-line gradients are remembered per line between
 runs.
 
-**Inflow to Lines** - what Inflow Drop Pipe to Collector does against
-one picked main, against the whole line-built network: select the node
+**Inflow Nodes -> Collector Pipes** - connects node families into the
+whole line-built network: select the node
 families (or pick them), give the branch gradient, and every node
 casts a ray along its FACING direction (family rotation) - the first
 network pipe that ray meets is the one it joins, and the branch is
@@ -291,6 +291,15 @@ pipe it joins, size from the outlet connector / DIA parameter. A node
 whose rotation meets nothing uses the plan-nearest pipe (logged);
 already-connected nodes are skipped. Re-running Lines to Pipes rebuilds the MAINS
 only - run this button again afterwards to reconnect the nodes.
+
+**Sync Input Nodes** - adapts the tracked branches to the nodes as they
+are NOW: untouched nodes are left alone; nodes that moved, TURNED
+(rotation re-aims the branch) or had their family's Drop Pipe yes/no
+toggled (drop-first vs grade-first) get their old branch deleted, the
+main healed across the old tee (the two open halves stretched back
+into one pipe), and the branch rebuilt with the same settings against
+the main as it now lies; deleted nodes get their branch removed. One
+undo step.
 
 ### Drainage
 
@@ -344,55 +353,6 @@ type, system type and level; diameter and slope are remembered between
 runs. A fitting that can't be placed never fails the branch - the
 pipes stay and the miss is reported.
 
-**Inflow Drop Pipe to Collector** - the node-driven sibling of Connect
-Fixtures. Choose the nodes BY SELECTION - pre-select them with the
-collector pipe, or pick them when prompted (any mix of types) - or
-finish the pick empty and drive it by family type:
-Each branch LEAVES ALONG THE NODE'S ROTATION - the facing ray decides
-where it tees into the collector (plan-nearest when the ray misses) -
-and the family's **Drop Pipe** yes/no picks the geometry: ticked (or
-absent), the classic drop-under-the-outlet then graded run; unticked,
-the 1:n run starts straight AT the outlet and a vertical drop lands it
-on the collector (the typed invert doesn't apply there - the outlet
-pins the run). Tee fittings only place at right angles, so a branch
-arriving at an angle SQUARES its last bit: it elbows just short of the
-collector into a short perpendicular stub (2 x diameter, min 300 mm)
-and tees in square - angled branches connect properly instead of
-stopping at the pipe. Update Nodes and Apply Edits re-read rotation and the
-toggle on every rebuild, so turning a node re-aims its branch.
-select (or pick) ONE main pipe, then choose the node family -
-CATEGORY, then FAMILY, then TYPE (EVERY placed point-placed family is
-offered, all categories - a pipe connector is not required, families
-without one such as Generic Model chambers use their location/bounding-
-box bottom as the outlet and their DIA parameter as the size - types
-listed with placed/unconnected counts), or
-type in the SEARCH box to match across all three at once - a 'Dia from'
-picker choosing WHICH family parameter carries the pipe diameter (the
-type's numeric parameters with sample values, or the outlet connector),
-a branch gradient, a FIXED branch diameter override, the branch pipe
-type and system (defaulting to the main's own), and the upstream invert
-(keep it where it currently is, or pin an absolute level). The MAIN gets
-options too: set its DIAMETER (prefilled with the current bore; changing
-it resizes the main before anything connects) and optionally re-grade it
-at its own 1:n, keeping the UPPER or LOWER end where it is. Everything
-models in ONE go - a single undo step. Every still-unconnected node of that type gets a
-drop pipe from its outlet - diameter taken from THE NODE's own connector,
-snapped to the main type's routing sizes - a bend, a run falling at 1:n
-to meet the main as it lies, and a TEE JUNCTION into the main (segment
-tracking across the splits, same engine as Connect Fixtures).
-Already-connected nodes are left alone; family type and gradient are
-remembered between runs. Every branch it builds is TRACKED in the
-project's file store (node, pipes, fittings, settings, the main's
-line).
-
-**Update Nodes** - adapts the tracked branches to the nodes as they
-are NOW: untouched nodes are left alone; nodes that moved, TURNED
-(rotation re-aims the branch) or had their family's Drop Pipe yes/no
-toggled (drop-first vs grade-first) get their old branch deleted, the main healed across the old tee (the two open halves
-stretched back into one pipe), and the branch rebuilt with the same
-settings against the main as it now lies; deleted nodes get their
-branch removed. One undo step.
-
 ### Networks
 
 Networks are COLLECTOR runs. Node type names carry just system and
@@ -404,7 +364,7 @@ a collector owns - nodes, branch pipes, fittings (including the
 couplings Revit inserts by itself) and the collector's pieces -
 carries that name in a **`pyMEP_Network`** instance parameter (a
 shared parameter pyMEP binds automatically, under Identity Data). Nodes to
-Main, Update Nodes and Apply Edits stamp it on everything they build;
+Main, Sync Input Nodes and Apply Edits stamp it on everything they build;
 the dashboard launch backfills older models from the tracking
 registry. The parameter IS the network map: schedule it, filter views
 by it, and ADD any manually drawn pipe to a network by just typing the
@@ -438,7 +398,7 @@ the configured folder (default: Downloads) and adapts the model to it:
 mains resized, re-graded and set to the typed end invert, worksets
 moved, and every tracked branch teeing into a touched main
 delete-healed-rebuilt against the main as it now lies (the same
-machinery as Update Nodes) - one undo step. The applied save's
+machinery as Sync Input Nodes) - one undo step. The applied save's
 timestamp is remembered, so the same save never applies twice - while
 the edits file itself stays in place for the dashboard to keep
 writing to. Asks first unless the confirm toggle is off.
