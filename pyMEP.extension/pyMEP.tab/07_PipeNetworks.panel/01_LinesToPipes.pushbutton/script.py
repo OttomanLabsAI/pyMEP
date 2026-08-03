@@ -23,16 +23,17 @@ import os
 
 from pyrevit import revit, forms, script
 
-from pymep_config import load_settings, save_settings
+from pymep_config import get_export_folder, load_settings, save_settings
 from pymep_log import Logger
 from pymep_connect_fixtures import (
     list_pipe_type_options, list_system_type_options,
 )
 from pymep_lines_to_pipes import (
     MM_PER_FT, _workset_name, build_network_pipes, collect_lines,
-    fit_plan, line_style_options, parse_style_slope, solve,
-    workset_options,
+    fit_plan, line_style_options, load_lines_record, parse_style_slope,
+    save_lines_record, solve, workset_options,
 )
+from pymep_lines_custom_ui import ask_custom_slopes
 from pymep_pipesizes import existing_segment_sizes_mm, list_pipe_segments
 
 import clr
@@ -499,14 +500,23 @@ log("Slopes: **{}** from their style name, **{}** at the default "
                                             opt["slope_n"],
                                             len(custom_idx)))
 
+# slopes remembered from an earlier build pre-fill the plan window
+_prev = load_lines_record(os.path.join(get_export_folder(doc),
+                                       "project_files"))
+_prev_custom = _prev.get("custom_slopes", {}) or {}
 if custom_idx:
-    cwin = CustomSlopeWindow(lines_mm, custom_idx)
-    cwin.ShowDialog()
-    if cwin.result is None:
+    preset = {}
+    for i in custom_idx:
+        uid = lines[i][0].UniqueId
+        if uid in _prev_custom:
+            preset[i] = float(_prev_custom[uid])
+    got = ask_custom_slopes(CUSTOM_XAML_PATH, lines_mm, custom_idx,
+                            preset=preset)
+    if got is None:
         log("Custom slopes cancelled - nothing changed.")
         log.close()
         script.exit()
-    for i, n in cwin.result.items():
+    for i, n in got.items():
         slopes[i] = n
         log("- custom line at ({:.1f}, {:.1f}) m: **1:{:g}**".format(
             lines_mm[i][0][0] / 1000.0, lines_mm[i][0][1] / 1000.0, n))
@@ -557,6 +567,37 @@ except Exception as ex:
     log(traceback.format_exc())
     forms.alert("Nothing was built - the model is unchanged.\n\n"
                 "{}".format(ex), title="Lines to Pipes", exitscript=True)
+
+# record the build so Update Pipes can delete + rebuild it later
+try:
+    import datetime
+    base = os.path.join(get_export_folder(doc), "project_files")
+    custom_by_uid = {}
+    for i in custom_idx:
+        if i in slopes:
+            custom_by_uid[lines[i][0].UniqueId] = slopes[i]
+    uids = []
+    for el in res.get("elements", []):
+        try:
+            uids.append(el.UniqueId)
+        except Exception:
+            pass
+    save_lines_record(base, {
+        "style": opt["style"], "workset": opt["workset"],
+        "dia_mm": opt["dia_mm"], "invert_m": opt["invert_m"],
+        "slope_default": opt["slope_n"],
+        "pipe_type": opt["pipe_type"][0], "auto_type": opt["auto_type"],
+        "sys_type": opt["sys_type"][0],
+        "segment": opt["segment"][0] if opt["segment"] else None,
+        "pick_mm": [pick_mm[0], pick_mm[1]],
+        "custom_slopes": custom_by_uid,
+        "element_uids": uids,
+        "when": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    log("Build recorded for **Update Pipes** ({} element(s))."
+        .format(len(uids)))
+except Exception as ex:
+    log("! build record not saved ({}) - Update Pipes will not track "
+        "this run".format(ex))
 
 log("#### Summary")
 log("- Pipes created: **{}**".format(res["pipes"]))

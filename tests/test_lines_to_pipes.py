@@ -24,7 +24,8 @@ LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                    "..", "pyMEP.extension", "lib")
 SRC_PATH = os.path.join(LIB, "pymep_lines_to_pipes.py")
 
-ns = {"math": math}
+import json
+ns = {"math": math, "json": json, "os": os}
 _src = io.open(SRC_PATH, encoding="utf-8").read()
 for node in ast.parse(_src).body:
     if isinstance(node, ast.FunctionDef):
@@ -242,6 +243,41 @@ class FitPlan(unittest.TestCase):
         y0 = -0.0 * scale + oy
         y_top = -20000.0 * scale + oy
         self.assertLess(y_top, y0)
+
+
+class BuildRecord(unittest.TestCase):
+    """load/save of the Update Pipes registry (plain json file)."""
+
+    def setUp(self):
+        import tempfile
+        self.base = tempfile.mkdtemp()
+
+    def test_round_trip(self):
+        rec = {"dia_mm": 150.0, "invert_m": 5.0,
+               "pick_mm": [318290.0, 63620.0],
+               "custom_slopes": {"uid-1": 40.0},
+               "element_uids": ["a", "b", "c"], "when": "now"}
+        ns["save_lines_record"](self.base, rec)
+        got = ns["load_lines_record"](self.base)
+        self.assertEqual(got["element_uids"], ["a", "b", "c"])
+        self.assertEqual(got["custom_slopes"], {"uid-1": 40.0})
+        self.assertEqual(got["pick_mm"], [318290.0, 63620.0])
+
+    def test_missing_file_is_empty_dict(self):
+        self.assertEqual(ns["load_lines_record"](self.base), {})
+
+    def test_corrupt_file_is_empty_dict(self):
+        import os
+        with open(os.path.join(self.base, "lines_network.json"),
+                  "w") as f:
+            f.write("{not json")
+        self.assertEqual(ns["load_lines_record"](self.base), {})
+
+    def test_save_creates_the_folder(self):
+        import os
+        deep = os.path.join(self.base, "sub", "deeper")
+        ns["save_lines_record"](deep, {"x": 1})
+        self.assertEqual(ns["load_lines_record"](deep), {"x": 1})
 
 
 if __name__ == "__main__":

@@ -28,7 +28,9 @@ The invert convention matches the rest of pyMEP: ``invert_m`` is the
 TRUE invert - pipe centreline = invert + dia/2. IronPython 2.7 safe.
 """
 
+import json
 import math
+import os
 
 import clr
 clr.AddReference("RevitAPI")
@@ -42,6 +44,7 @@ from Autodesk.Revit.DB.Plumbing import Pipe
 from pymep_revit import safe_name
 
 MM_PER_FT = 304.8
+LINES_REGISTRY = "lines_network.json"
 JOIN_TOL_MM = 50.0        # how close counts as touching
 OVERSHOOT_MM = 2000.0     # terminal stub past a junction = drawing overshoot
 MIN_RUN_MM = 160.0        # runs shorter than this cannot be built
@@ -51,6 +54,26 @@ DEPTH_EPS_MM = 1.0        # grade-linearity check along a through run
 # ---------------------------------------------------------------------------
 # pure geometry (stdlib only - unit-tested without Revit)
 # ---------------------------------------------------------------------------
+def load_lines_record(base):
+    """The stored Lines-to-Pipes build record, or {} when there is
+    none (or it is unreadable)."""
+    try:
+        with open(os.path.join(base, LINES_REGISTRY), "r") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {}
+
+
+def save_lines_record(base, record):
+    if not os.path.isdir(base):
+        os.makedirs(base)
+    with open(os.path.join(base, LINES_REGISTRY), "w") as f:
+        json.dump(record, f, indent=2, sort_keys=True)
+
+
 def parse_style_slope(name):
     """The slope a line style NAME carries.
 
@@ -588,6 +611,7 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
 
     pipes_by_line = {}
     pieces_by_line = {}
+    created = []
     made, fitted, failed = 0, 0, 0
     notes = []
 
@@ -608,6 +632,7 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
                     r["line"], ex))
                 continue
             made += 1
+            created.append(pipe)
             pipes_by_line.setdefault(r["line"], []).append((r, pipe))
             pieces_by_line.setdefault(r["line"], []).append(pipe)
 
@@ -650,8 +675,10 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
             other, fit = _tee_into_main(doc, c_end, host, p, notes)
             if other is not None:
                 pieces_by_line[tee["host_line"]].append(other)
+                created.append(other)
             if fit is not None:
                 fitted += 1
+                created.append(fit)
 
         for el in sol["elbows"]:
             p = xyz(el["node"], sol["depths"][el["node"]])
@@ -666,7 +693,7 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
                              .format(el["node"]))
                 continue
             try:
-                doc.Create.NewElbowFitting(c1, c2)
+                created.append(doc.Create.NewElbowFitting(c1, c2))
                 fitted += 1
             except Exception as ex:
                 notes.append("elbow at node {} not placed ({})".format(
@@ -679,4 +706,4 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
         raise
 
     return {"pipes": made, "fittings": fitted, "failed": failed,
-            "notes": notes}
+            "notes": notes, "elements": created}
