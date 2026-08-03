@@ -550,12 +550,28 @@ def node_z_m(rise_mm, invert_m):
 # ---------------------------------------------------------------------------
 # Revit API access
 # ---------------------------------------------------------------------------
+INVERT_MARKER_PARAM = "Invert Level"
+
+
 def _marker_z_ft(doc, el, loc_z_ft):
-    """A marker's invert elevation in feet: its Level's PROJECT
-    elevation (the number the level displays - NOT its distance from
-    Revit's internal origin, which can differ by tens of metres in a
-    shared-coordinates model) plus the 'Elevation from Level'
-    parameter. The location point Z is only the fallback."""
+    """A marker's invert elevation in feet.
+
+    First choice: the family's own 'Invert Level' parameter - the user
+    types the invert straight into the marker and the family can sit
+    flat on its level (a zero value means not filled in and falls
+    through). Fallback: the Level's PROJECT elevation (the number the
+    level displays - NOT its distance from Revit's internal origin)
+    plus 'Elevation from Level'. The location point Z is the last
+    resort."""
+    try:
+        prm = el.LookupParameter(INVERT_MARKER_PARAM)
+        if prm is not None and prm.HasValue and \
+                str(prm.StorageType) == "Double":
+            v = prm.AsDouble()
+            if abs(v) > 1e-9:
+                return v
+    except Exception:
+        pass
     lvl_elev = None
     try:
         lvl = doc.GetElement(el.LevelId)
