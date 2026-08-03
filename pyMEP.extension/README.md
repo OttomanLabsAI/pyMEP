@@ -32,7 +32,7 @@ pyMEP.extension/
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, big icon-only: Create Pipe Sizes + Structure to Pipe (stack) and Family at Pipe Top (own slot)
     02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
-    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes + Update Pipes
+    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes + Update Pipes + Inflow to Lines
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
@@ -243,6 +243,19 @@ only NEW 'Slope Custom' lines are asked for, in the same clickable
 plan. If the recorded workset filter no longer matches anything the
 workset is ignored (with a note) rather than deleting the network and
 rebuilding nothing.
+
+**Inflow to Lines** - what Inflow Drop Pipe to Collector does against
+one picked main, against the whole line-built network: select the node
+families (or pick them), give the branch gradient, and every node
+casts a ray along its FACING direction (family rotation) - the first
+network pipe that ray meets is the one it joins, and the branch is
+built into exactly that pipe with the full node engine: drop-first or
+grade-first per the family's 'Drop Pipe' parameter, oblique approaches
+squared for the tee, branch pipe type and system inherited from the
+pipe it joins, size from the outlet connector / DIA parameter. A node
+whose rotation meets nothing uses the plan-nearest pipe (logged);
+already-connected nodes are skipped. Update Pipes rebuilds the MAINS
+only - re-run this button afterwards to reconnect the nodes.
 
 ### Drainage
 

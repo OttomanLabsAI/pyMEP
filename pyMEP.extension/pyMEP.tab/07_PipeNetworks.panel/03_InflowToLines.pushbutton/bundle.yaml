@@ -1,0 +1,2 @@
+title: Inflow to Lines
+tooltip: "Connect node families into the Lines to Pipes network, aimed by rotation: each selected node casts a ray along its facing direction, the first network pipe that ray meets is the one it joins, and the branch is built into exactly that pipe - drop-first or grade-first per the family's 'Drop Pipe' parameter, oblique approaches squared for the tee, pipe type and system inherited from the pipe it joins. Select the nodes (or pick them), give the branch gradient, done."
