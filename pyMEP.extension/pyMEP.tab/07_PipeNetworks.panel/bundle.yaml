@@ -2,3 +2,4 @@ title: Pipe Networks
 layout:
   - 01_LinesToPipes
   - 02_UpdatePipes
+  - 03_InflowToLines
