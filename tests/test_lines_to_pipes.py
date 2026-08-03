@@ -291,6 +291,59 @@ class InvertMarkers(unittest.TestCase):
         self.assertAlmostEqual(sol["depths"][east], 10100.0, places=6)
 
 
+class AimPick(unittest.TestCase):
+    """Node-to-pipe association for Inflow to Lines, run against the
+    REAL ray/distance helpers from pymep_connect_fixtures - a stub
+    with the wrong shape is how this feature shipped broken twice."""
+
+    @classmethod
+    def setUpClass(cls):
+        cf_path = os.path.join(LIB, "pymep_connect_fixtures.py")
+        src = io.open(cf_path, encoding="utf-8").read()
+        cfns = {"math": math, "MIN_LEN_FT": 50.0 / 304.8}
+        for node in ast.parse(src).body:
+            if isinstance(node, ast.FunctionDef) and node.name in (
+                    "ray_hits_main", "plan_dist_to_segment"):
+                exec(compile(ast.get_source_segment(src, node), cf_path,
+                             "exec"), cfns)
+        # staticmethod: a bare function stored on the class would
+        # bind as a method and swallow ``self`` as its first argument
+        cls.ray = staticmethod(cfns["ray_hits_main"])
+        cls.dist = staticmethod(cfns["plan_dist_to_segment"])
+
+    # two parallel mains (in feet): near at y=10, far at y=30
+    SEGS = [("near", (0.0, 10.0), (100.0, 10.0)),
+            ("far", (0.0, 30.0), (100.0, 30.0))]
+
+    def test_facing_hit_wins_over_nearness(self):
+        # node at y=20 between the mains, FACING the far one
+        key, how = ns["aim_pick"]((50.0, 20.0), [(0.0, 1.0), (0.0, -1.0)],
+                                  self.SEGS, self.ray, self.dist)
+        self.assertEqual((key, how), ("far", "aimed"))
+
+    def test_first_direction_with_a_hit_decides(self):
+        key, how = ns["aim_pick"]((50.0, 20.0), [(0.0, -1.0), (0.0, 1.0)],
+                                  self.SEGS, self.ray, self.dist)
+        self.assertEqual((key, how), ("near", "aimed"))
+
+    def test_nearest_hit_wins_within_one_direction(self):
+        # aiming up from BELOW both mains: the near one is hit first
+        key, how = ns["aim_pick"]((50.0, 0.0), [(0.0, 1.0)],
+                                  self.SEGS, self.ray, self.dist)
+        self.assertEqual((key, how), ("near", "aimed"))
+
+    def test_no_hit_falls_back_to_plan_nearest(self):
+        # aiming along x hits nothing (parallel) -> nearest by distance
+        key, how = ns["aim_pick"]((50.0, 12.0), [(1.0, 0.0)],
+                                  self.SEGS, self.ray, self.dist)
+        self.assertEqual((key, how), ("near", "nearest"))
+
+    def test_no_segments_is_none(self):
+        key, how = ns["aim_pick"]((0.0, 0.0), [(0.0, 1.0)], [],
+                                  self.ray, self.dist)
+        self.assertEqual((key, how), (None, None))
+
+
 class BuildRecord(unittest.TestCase):
     """load/save of the Update Pipes registry (plain json file)."""
 
