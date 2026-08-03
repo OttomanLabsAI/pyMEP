@@ -36,8 +36,8 @@ import clr
 clr.AddReference("RevitAPI")
 
 from Autodesk.Revit.DB import (
-    CurveElement, FilteredElementCollector, Level, Line, ModelLine,
-    Transaction, XYZ,
+    CurveElement, FamilyInstance, FilteredElementCollector, Level, Line,
+    ModelLine, Transaction, XYZ,
 )
 from Autodesk.Revit.DB.Plumbing import Pipe
 
@@ -288,19 +288,28 @@ def nearest_node(net, p):
     return best
 
 
-def assign_depths(net, outfall, slopes=None):
+def assign_depths(net, outfall, slopes=None, init=None):
     """The RISE of every reachable node above the outfall (Dijkstra
     over the segments, each weighted length / its line's 1:n slope).
     With ``slopes`` None every line is 1:1, so the result is plain
-    network distance. {node_index: rise}."""
+    network distance. {node_index: rise}.
+
+    ``init`` ({node: starting_value}) seeds SEVERAL sources at their
+    own levels - used when Invert Level marker families set absolute
+    inverts at more than one outfall; every node then gets the lowest
+    level any source can feed it at."""
     adj = {}
     for n0, n1, li, length in net["segs"]:
         n_slope = 1.0 if slopes is None else slopes.get(li, 1.0)
         w = length / n_slope
         adj.setdefault(n0, []).append((n1, w))
         adj.setdefault(n1, []).append((n0, w))
-    dist = {outfall: 0.0}
-    todo = [(0.0, outfall)]
+    if init:
+        dist = dict(init)
+        todo = [(d, n) for n, d in init.items()]
+    else:
+        dist = {outfall: 0.0}
+        todo = [(0.0, outfall)]
     while todo:
         todo.sort()
         d, n = todo.pop(0)
@@ -431,17 +440,22 @@ def plan_runs(net, depths, slopes=None):
 
 
 def solve(lines, pick, slopes, join_tol=JOIN_TOL_MM,
-          overshoot=OVERSHOOT_MM, min_run=MIN_RUN_MM):
+          overshoot=OVERSHOOT_MM, min_run=MIN_RUN_MM, sources=None):
     """The full plan: lines (+ the picked outfall point) in, buildable
     geometry out. All coordinates in the input unit. ``slopes`` is one
     1:n for the whole network or a {line_index: n} dict - every line is
     graded at ITS OWN slope, and "depths" holds each node's RISE above
     the outfall (unit as the coordinates).
 
+    ``sources`` ([((x, y), z), ...], same units) overrides the pick:
+    each source pins its nearest network node at the ABSOLUTE level z
+    (an Invert Level marker family), and "depths" then holds absolute
+    levels - build with invert 0.
+
     Returns {"outfall_node", "nodes", "depths", "runs", "tees",
-    "elbows", "skipped"} where each run carries "a"/"b" node indices
-    (a = shallow), and skipped is a list of human-readable sentences
-    covering everything that is NOT built.
+    "elbows", "skipped", "source_nodes"} where each run carries
+    "a"/"b" node indices (a = shallow), and skipped is a list of
+    human-readable sentences covering everything that is NOT built.
     """
     slopes = normalize_slopes(lines, slopes)
     net = build_network(lines, join_tol, overshoot)
@@ -454,8 +468,19 @@ def solve(lines, pick, slopes, join_tol=JOIN_TOL_MM,
                        "looks like drawing overshoot - dropped"
                        .format(li, length))
 
-    out = nearest_node(net, pick)
-    depths = assign_depths(net, out, slopes)
+    source_nodes = []
+    if sources:
+        init = {}
+        for (sx, sy), z in sources:
+            n = nearest_node(net, (sx, sy))
+            if n is not None and (n not in init or z < init[n]):
+                init[n] = float(z)
+        source_nodes = sorted(init)
+        out = min(init, key=lambda k: init[k]) if init else None
+        depths = assign_depths(net, out, slopes, init=init)
+    else:
+        out = nearest_node(net, pick)
+        depths = assign_depths(net, out, slopes)
 
     reachable_lines = set()
     for n0, n1, li, _l in net["segs"]:
@@ -484,7 +509,7 @@ def solve(lines, pick, slopes, join_tol=JOIN_TOL_MM,
     elbows = [e for e in plan["elbows"]]
     return {"outfall_node": out, "nodes": net["nodes"], "depths": depths,
             "runs": runs, "tees": tees, "elbows": elbows,
-            "skipped": skipped}
+            "skipped": skipped, "source_nodes": source_nodes}
 
 
 def node_z_m(rise_mm, invert_m):
@@ -497,6 +522,60 @@ def node_z_m(rise_mm, invert_m):
 # ---------------------------------------------------------------------------
 # Revit API access
 # ---------------------------------------------------------------------------
+def _marker_z_ft(doc, el, loc_z_ft):
+    """A marker's invert elevation in feet: its Level's elevation plus
+    the 'Elevation from Level' parameter - the two values the family
+    actually carries. The location point Z is only the fallback."""
+    lvl_elev = None
+    try:
+        lvl = doc.GetElement(el.LevelId)
+        if lvl is not None:
+            lvl_elev = lvl.Elevation
+    except Exception:
+        pass
+    offset = None
+    for name in ("Elevation from Level", "Offset from Host", "Offset",
+                 "Elevation"):
+        try:
+            prm = el.LookupParameter(name)
+            if prm is not None and prm.HasValue and \
+                    str(prm.StorageType) == "Double":
+                offset = prm.AsDouble()
+                break
+        except Exception:
+            continue
+    if lvl_elev is not None and offset is not None:
+        return lvl_elev + offset
+    return loc_z_ft
+
+
+def find_invert_markers(doc, name_hint="invert"):
+    """Placed marker families that pin an outfall level: any family
+    instance whose FAMILY name contains ``name_hint`` (the user's
+    'Node - Invert Level' generic model). Returns
+    [(element, (x_mm, y_mm), z_mm), ...] where z = the Level's
+    elevation + 'Elevation from Level' - the invert the network takes
+    at that point."""
+    out = []
+    for el in FilteredElementCollector(doc).OfClass(FamilyInstance):
+        try:
+            fam = el.Symbol.Family.Name
+        except Exception:
+            continue
+        if name_hint not in (fam or "").lower():
+            continue
+        try:
+            p = el.Location.Point
+        except Exception:
+            continue
+        if p is None:
+            continue
+        z_ft = _marker_z_ft(doc, el, p.Z)
+        out.append((el, (p.X * MM_PER_FT, p.Y * MM_PER_FT),
+                    z_ft * MM_PER_FT))
+    return out
+
+
 def _gstyle_name(el):
     try:
         return el.LineStyle.Name

@@ -29,8 +29,8 @@ from pymep_connect_fixtures import (
 )
 from pymep_lines_custom_ui import ask_custom_slopes
 from pymep_lines_to_pipes import (
-    build_network_pipes, collect_lines, load_lines_record,
-    parse_style_slope, save_lines_record, solve,
+    build_network_pipes, collect_lines, find_invert_markers,
+    load_lines_record, parse_style_slope, save_lines_record, solve,
 )
 from pymep_pipesizes import list_pipe_segments
 from pymep_replace_structure import _quiet
@@ -175,7 +175,22 @@ except Exception:
 log("Old network removed: **{}** element(s).".format(gone))
 
 pick = rec.get("pick_mm") or [0.0, 0.0]
-sol = solve(lines_mm, (float(pick[0]), float(pick[1])), slopes)
+sources = None
+invert_m = float(rec.get("invert_m", 0.0))
+markers = find_invert_markers(doc)
+if markers:
+    sources = []
+    for el, (mx, my), mz in markers:
+        sources.append(((mx, my), mz))
+        log("- Invert Level node at ({:.1f}, {:.1f}) m -> invert "
+            "**{:.3f} m**".format(mx / 1000.0, my / 1000.0,
+                                  mz / 1000.0))
+    invert_m = 0.0
+elif rec.get("use_markers"):
+    log("! the last build used Invert Level nodes but none are placed "
+        "now - falling back to the recorded outfall point and invert")
+sol = solve(lines_mm, (float(pick[0]), float(pick[1])), slopes,
+            sources=sources)
 for m in sol["skipped"]:
     log("- {}".format(m))
 log("**{}** run(s), **{}** tee(s), **{}** elbow(s) to build.".format(
@@ -187,7 +202,7 @@ if not sol["runs"]:
 try:
     res = build_network_pipes(doc, sol, st_id, pt_id,
                               float(rec.get("dia_mm", 150.0)),
-                              float(rec.get("invert_m", 0.0)), log=log,
+                              invert_m, log=log,
                               segment_id=(seg.Id if seg is not None
                                           else None))
 except Exception as ex:
@@ -213,6 +228,7 @@ try:
         except Exception:
             pass
     rec.update({"custom_slopes": custom_by_uid, "element_uids": uids,
+                "use_markers": bool(markers),
                 "when": datetime.datetime.now().strftime(
                     "%Y-%m-%d %H:%M:%S")})
     save_lines_record(base, rec)

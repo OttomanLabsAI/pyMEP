@@ -245,6 +245,52 @@ class FitPlan(unittest.TestCase):
         self.assertLess(y_top, y0)
 
 
+class InvertMarkers(unittest.TestCase):
+    """Multi-source solving: Invert Level marker families pin absolute
+    levels; depths become absolute, one Dijkstra from all sources."""
+
+    def test_single_source_gives_absolute_levels(self):
+        # marker at the trunk's west end pins 51324 mm; 30 m at 1:200
+        # rises 150 mm to the east end
+        sol = solve([TRUNK], (0.0, 0.0), 200.0,
+                    sources=[((0.0, 0.0), 51324.0)])
+        far = None
+        for i, (x, y) in enumerate(sol["nodes"]):
+            if abs(x - 30000.0) < 1.0:
+                far = i
+        self.assertAlmostEqual(sol["depths"][far], 51474.0, places=6)
+        self.assertAlmostEqual(
+            sol["depths"][sol["outfall_node"]], 51324.0, places=6)
+
+    def test_two_islands_each_take_their_own_marker(self):
+        sol = solve([TRUNK, LONER], (0.0, 0.0), 100.0,
+                    sources=[((0.0, 0.0), 10000.0),
+                             ((50000.0, 50000.0), 20000.0)])
+        lone_top = None
+        for i, (x, y) in enumerate(sol["nodes"]):
+            if abs(y - 60000.0) < 1.0:
+                lone_top = i
+        # the 10 m loner rises 100 mm above ITS marker, not the trunk's
+        self.assertAlmostEqual(sol["depths"][lone_top], 20100.0,
+                               places=6)
+        # both lines build - the loner is no longer 'not piped'
+        self.assertEqual(sorted(r["line"] for r in sol["runs"]), [0, 1])
+        self.assertEqual(len(sol["source_nodes"]), 2)
+
+    def test_lowest_feed_wins_when_sources_compete(self):
+        # markers at both trunk ends; every node takes the lower level
+        sol = solve([TRUNK], (0.0, 0.0), 100.0,
+                    sources=[((0.0, 0.0), 10000.0),
+                             ((30000.0, 0.0), 10100.0)])
+        east = None
+        for i, (x, y) in enumerate(sol["nodes"]):
+            if abs(x - 30000.0) < 1.0:
+                east = i
+        # via the west source the east end would sit at 10300; its own
+        # marker pins it lower, at 10100
+        self.assertAlmostEqual(sol["depths"][east], 10100.0, places=6)
+
+
 class BuildRecord(unittest.TestCase):
     """load/save of the Update Pipes registry (plain json file)."""
 
