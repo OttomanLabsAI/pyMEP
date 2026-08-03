@@ -133,7 +133,13 @@ or Isolate Net from a popup) re-ticks their schedule row in the same
 click. The footer flags a network named like '... (3)' as a Civil 3D
 COPY - if levels were edited on the live network, such an export
 carries the copy's OLD levels, which is the usual reason the dashboard
-'does not show the new heights'. One export button -
+'does not show the new heights'. Chamber solids span cover level down
+to the UNDERSIDE of the floor slab when the style desc names one
+('... wall 150 floor' = 150 mm below the sump) - matching the DWG's
+3D body, which reads floor-thickness deeper than the Sump Level
+parameter; the popup shows both ('Sump level' and 'Floor u/s'), and
+the model export carries `floor_m` alongside the unchanged hydraulic
+`sump_m`. One export button -
 **Export model** - writes the `MODEL-*.json` the placement buttons
 below consume: everything currently turned ON in the dashboard,
 structures AND pipes in one file (turn layers off first to export a
