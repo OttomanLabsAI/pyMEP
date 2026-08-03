@@ -32,7 +32,7 @@ pyMEP.extension/
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, big icon-only: Create Pipe Sizes + Structure to Pipe (stack) and Family at Pipe Top (own slot)
     02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
-    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes + Update Pipes + Inflow to Lines
+    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (tracked rebuild) + Inflow to Lines
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
@@ -230,18 +230,11 @@ trimmed at the junction; the same run drawn twice keeps only the
 longer copy; a line that touches nothing on the way to the outfall is
 reported and skipped, never guessed at. Everything happens in one
 transaction with Revit's warning dialogs dismissed as they come.
-
-**Update Pipes** - re-run the last Lines to Pipes build against the
-lines as they are NOW. Every build records its inputs (filters, sizes,
-invert, outfall point, custom gradients) and every element it created
-in `<exports>/<model>/project_files/lines_network.json`; Update Pipes
-deletes those elements (only those, and only the ones still alive),
-re-reads the lines - moved, redrawn, added, removed - and rebuilds
-with the same inputs. Remembered custom gradients are kept per line;
-only NEW 'Slope Custom' lines are asked for, in the same clickable
-plan. If the recorded workset filter no longer matches anything the
-workset is ignored (with a note) rather than deleting the network and
-rebuilding nothing.
+Every build is TRACKED (project_files/lines_network.json): re-running
+Lines to Pipes first deletes the elements the previous run created -
+only those, and only the ones still alive - then rebuilds from the
+lines as they are now, so it UPDATES the network instead of doubling
+it. Custom-line gradients are remembered per line between runs.
 
 **Inflow to Lines** - what Inflow Drop Pipe to Collector does against
 one picked main, against the whole line-built network: select the node
@@ -253,8 +246,8 @@ grade-first per the family's 'Drop Pipe' parameter, oblique approaches
 squared for the tee, branch pipe type and system inherited from the
 pipe it joins, size from the outlet connector / DIA parameter. A node
 whose rotation meets nothing uses the plan-nearest pipe (logged);
-already-connected nodes are skipped. Update Pipes rebuilds the MAINS
-only - re-run this button afterwards to reconnect the nodes.
+already-connected nodes are skipped. Re-running Lines to Pipes rebuilds the MAINS
+only - run this button again afterwards to reconnect the nodes.
 
 ### Drainage
 

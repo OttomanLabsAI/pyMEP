@@ -36,10 +36,12 @@ from pymep_lines_to_pipes import (
 )
 from pymep_lines_custom_ui import ask_custom_slopes
 from pymep_pipesizes import existing_segment_sizes_mm, list_pipe_segments
+from pymep_replace_structure import _quiet
 
 import clr
 clr.AddReference("RevitAPI")
 clr.AddReference("RevitAPIUI")
+from Autodesk.Revit.DB import Transaction
 from Autodesk.Revit.UI.Selection import ObjectType
 
 output = script.get_output()
@@ -446,6 +448,36 @@ else:
         crv = pick_el.GeometryCurve
         p = crv.GetEndPoint(0)
         pick_mm = (p.X * MM_PER_FT, p.Y * MM_PER_FT)
+
+# ---------------------------------------------------------------------------
+# tracked rebuild: the elements the LAST run created are removed first,
+# so re-running replaces the network instead of doubling it
+# ---------------------------------------------------------------------------
+old_uids = _prev.get("element_uids", []) or []
+if old_uids:
+    t_old = Transaction(doc, "Lines to Pipes - remove previous network")
+    _quiet(t_old)
+    t_old.Start()
+    gone = 0
+    try:
+        for uid in old_uids:
+            try:
+                el = doc.GetElement(uid)
+            except Exception:
+                el = None
+            if el is not None:
+                try:
+                    doc.Delete(el.Id)
+                    gone += 1
+                except Exception:
+                    pass
+        t_old.Commit()
+    except Exception:
+        if t_old.HasStarted() and not t_old.HasEnded():
+            t_old.RollBack()
+        raise
+    log("Previous build removed: **{}** element(s) (tracked in the "
+        "build record).".format(gone))
 
 # ---------------------------------------------------------------------------
 # solve + build
