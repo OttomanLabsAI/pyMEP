@@ -30,13 +30,15 @@ PANEL_ORDER = ["pyMEP", "Civil 3D Conversion", "Electrical", "Drainage",
 # Stacked buttons shown with no label (their tooltips still carry the
 # names): big icons in a two-high stack, standard size in a three-high
 # one. Titles normalized to single-space before matching.
-ICON_ONLY = set(["Apply Edits", "Network Settings"])
+# Buttons shown as a BIG icon with no label (like the Networks stack) -
+# the name lives in the tooltip. Works in two-high stacks and
+# standalone slots alike.
+ICON_ONLY = set(["Apply Edits", "Network Settings", "Create Pipe Sizes",
+                 "Structure to Pipe", "Family at Pipe Top"])
 
-# A THREE-high stack is left completely alone. Its row was laid out for
-# three standard buttons WITH their labels; both resizing an item and
-# hiding its text re-flow that row and push the last button off the
-# panel. The Pipe Tools column keeps its names for that reason - the
-# alternative is a button nobody can click.
+# A THREE-high stack is left completely alone - restyling its items
+# re-flows the row and pushes the last button off the panel. (No pyMEP
+# stack is three high; this is a guard, not a layout choice.)
 UNTOUCHED_STACK_SIZE = 3
 
 _state = {"tries": 0}
