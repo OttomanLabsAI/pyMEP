@@ -30,8 +30,9 @@ from pymep_connect_fixtures import (
 )
 from pymep_lines_to_pipes import (
     MM_PER_FT, _workset_name, build_network_pipes, collect_lines,
-    fit_plan, line_style_options, load_lines_record, parse_style_slope,
-    save_lines_record, solve, workset_options,
+    find_invert_markers, fit_plan, line_style_options,
+    load_lines_record, parse_style_slope, save_lines_record, solve,
+    workset_options,
 )
 from pymep_lines_custom_ui import ask_custom_slopes
 from pymep_pipesizes import existing_segment_sizes_mm, list_pipe_segments
@@ -176,8 +177,13 @@ class LinesWindow(forms.WPFWindow):
             float(settings.get("lines_dia_mm", 150.0)))
         self.TxtSlope.Text = "{:g}".format(
             float(settings.get("lines_slope", 200.0)))
-        self.TxtInvert.Text = "{:g}".format(
-            float(settings.get("lines_invert_m", 0.0)))
+        if markers:
+            self.TxtInvert.Text = "(from {} Invert Level node(s))".format(
+                len(markers))
+            self.TxtInvert.IsEnabled = False
+        else:
+            self.TxtInvert.Text = "{:g}".format(
+                float(settings.get("lines_invert_m", 0.0)))
         self.TxtInfo.Text = "Model lines -> graded pipes"
         self._loading = False
         self._refresh_count()
@@ -259,7 +265,7 @@ class LinesWindow(forms.WPFWindow):
     def on_create(self, sender, args):
         try:
             dia = float(self.CmbDia.Text)
-            invert = float(self.TxtInvert.Text)
+            invert = 0.0 if markers else float(self.TxtInvert.Text)
             if dia <= 0:
                 raise ValueError()
         except Exception:
@@ -460,7 +466,8 @@ settings["lines_style"] = opt["style"]
 settings["lines_workset"] = opt["workset"] or ANY_WORKSET
 settings["lines_dia_mm"] = opt["dia_mm"]
 settings["lines_slope"] = opt["slope_n"]
-settings["lines_invert_m"] = opt["invert_m"]
+if not markers:
+    settings["lines_invert_m"] = opt["invert_m"]
 settings["lines_pipe_type"] = None if opt["auto_type"] \
     else opt["pipe_type"][0]
 settings["lines_segment"] = opt["segment"][0] if opt["segment"] else None
@@ -522,31 +529,40 @@ if custom_idx:
             lines_mm[i][0][0] / 1000.0, lines_mm[i][0][1] / 1000.0, n))
 
 # ---------------------------------------------------------------------------
-# the outfall pick
+# the outfall: Invert Level marker nodes when placed, else one pick
 # ---------------------------------------------------------------------------
-try:
-    ref = uidoc.Selection.PickObject(
-        ObjectType.Element,
-        "Click a line NEAR ITS OUTFALL END - pipes fall toward it")
-except Exception:
-    log("Pick cancelled - nothing changed.")
-    log.close()
-    script.exit()
-
-pick_el = doc.GetElement(ref.ElementId)
-gp = ref.GlobalPoint
-if gp is not None:
-    pick_mm = (gp.X * MM_PER_FT, gp.Y * MM_PER_FT)
+sources = None
+pick_mm = None
+if markers:
+    sources = []
+    for el, (mx, my), mz in markers:
+        sources.append(((mx, my), mz))
+        log("- Invert Level node at ({:.1f}, {:.1f}) m -> invert "
+            "**{:.3f} m** (Level + Elevation from Level)".format(
+                mx / 1000.0, my / 1000.0, mz / 1000.0))
+    pick_mm = list(sources[0][0])
 else:
-    # no point on the reference - fall back to the picked line's start
-    crv = pick_el.GeometryCurve
-    p = crv.GetEndPoint(0)
-    pick_mm = (p.X * MM_PER_FT, p.Y * MM_PER_FT)
+    try:
+        ref = uidoc.Selection.PickObject(
+            ObjectType.Element,
+            "Click a line NEAR ITS OUTFALL END - pipes fall toward it")
+    except Exception:
+        log("Pick cancelled - nothing changed.")
+        log.close()
+        script.exit()
+    pick_el = doc.GetElement(ref.ElementId)
+    gp = ref.GlobalPoint
+    if gp is not None:
+        pick_mm = (gp.X * MM_PER_FT, gp.Y * MM_PER_FT)
+    else:
+        crv = pick_el.GeometryCurve
+        p = crv.GetEndPoint(0)
+        pick_mm = (p.X * MM_PER_FT, p.Y * MM_PER_FT)
 
 # ---------------------------------------------------------------------------
 # solve + build
 # ---------------------------------------------------------------------------
-sol = solve(lines_mm, pick_mm, slopes)
+sol = solve(lines_mm, pick_mm, slopes, sources=sources)
 
 for s in sol["skipped"]:
     log("- {}".format(s))
@@ -559,7 +575,8 @@ if not sol["runs"]:
 try:
     res = build_network_pipes(doc, sol, opt["sys_type"][1],
                               opt["pipe_type"][1], opt["dia_mm"],
-                              opt["invert_m"], log=log,
+                              0.0 if markers else opt["invert_m"],
+                              log=log,
                               segment_id=(opt["segment"][1].Id
                                           if opt["segment"] else None))
 except Exception as ex:
@@ -590,6 +607,7 @@ try:
         "sys_type": opt["sys_type"][0],
         "segment": opt["segment"][0] if opt["segment"] else None,
         "pick_mm": [pick_mm[0], pick_mm[1]],
+        "use_markers": bool(markers),
         "custom_slopes": custom_by_uid,
         "element_uids": uids,
         "when": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
