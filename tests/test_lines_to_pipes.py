@@ -367,6 +367,71 @@ class AimPick(unittest.TestCase):
         self.assertEqual((key, how), (None, None))
 
 
+class MarkerZ(unittest.TestCase):
+    """The marker family's invert resolution order: its own 'Invert
+    Level' parameter first, Level + Elevation from Level next, the
+    location point last."""
+
+    class P(object):
+        def __init__(self, v):
+            self.HasValue = v is not None
+            self.StorageType = "Double"
+            self._v = v
+
+        def AsDouble(self):
+            return self._v
+
+    class El(object):
+        def __init__(self, params, level_id="LID"):
+            self._p = params
+            self.LevelId = level_id
+
+        def LookupParameter(self, nm):
+            return self._p.get(nm)
+
+    class Doc(object):
+        def __init__(self, lvl):
+            self._lvl = lvl
+
+        def GetElement(self, _id):
+            return self._lvl
+
+    class Lvl(object):
+        def __init__(self, proj):
+            self.ProjectElevation = proj
+            self.Elevation = proj + 150.0   # internal differs - must NOT win
+
+    def test_invert_level_param_wins(self):
+        el = self.El({"Invert Level": self.P(169.7),
+                      "Elevation from Level": self.P(5.0)})
+        doc = self.Doc(self.Lvl(0.0))
+        self.assertAlmostEqual(
+            ns["_marker_z_ft"](doc, el, 999.0), 169.7)
+
+    def test_zero_invert_falls_back_to_level_plus_offset(self):
+        el = self.El({"Invert Level": self.P(0.0),
+                      "Elevation from Level": self.P(5.0)})
+        doc = self.Doc(self.Lvl(10.0))
+        self.assertAlmostEqual(
+            ns["_marker_z_ft"](doc, el, 999.0), 15.0)
+
+    def test_project_elevation_not_internal(self):
+        el = self.El({"Elevation from Level": self.P(5.0)})
+        doc = self.Doc(self.Lvl(0.0))
+        # internal is proj + 150; the answer must use proj (0) + 5
+        self.assertAlmostEqual(
+            ns["_marker_z_ft"](doc, el, 999.0), 5.0)
+
+    def test_location_z_as_last_resort(self):
+        el = self.El({}, level_id=None)
+
+        class NoDoc(object):
+            def GetElement(self, _id):
+                return None
+        self.assertAlmostEqual(
+            ns["_marker_z_ft"](NoDoc(), el, 42.0), 42.0)
+
+
 class BuildRecord(unittest.TestCase):
     """load/save of the Update Pipes registry (plain json file)."""
 
