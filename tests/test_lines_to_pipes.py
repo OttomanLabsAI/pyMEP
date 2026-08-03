@@ -338,6 +338,29 @@ class AimPick(unittest.TestCase):
                                   self.SEGS, self.ray, self.dist)
         self.assertEqual((key, how), ("near", "nearest"))
 
+    def test_real_node_directions_feed_straight_in(self):
+        # the exact chain the button runs: node_directions -> aim_pick,
+        # no reshaping anywhere ('tuple has no attribute X' shipped
+        # THREE times from reshaping guesses)
+        import types
+        cf_path = os.path.join(LIB, "pymep_connect_fixtures.py")
+        src = io.open(cf_path, encoding="utf-8").read()
+        nd_ns = {}
+        for node in ast.parse(src).body:
+            if isinstance(node, ast.FunctionDef) and \
+                    node.name == "node_directions":
+                exec(compile(ast.get_source_segment(src, node), cf_path,
+                             "exec"), nd_ns)
+        inst = types.SimpleNamespace(
+            FacingOrientation=types.SimpleNamespace(X=0.0, Y=1.0, Z=0.0),
+            HandOrientation=types.SimpleNamespace(X=1.0, Y=0.0, Z=0.0))
+        dirs = nd_ns["node_directions"](inst)
+        self.assertEqual(dirs, [(0.0, 1.0), (-0.0, -1.0),
+                                (1.0, 0.0), (-1.0, -0.0)])
+        key, how = ns["aim_pick"]((50.0, 20.0), dirs, self.SEGS,
+                                  self.ray, self.dist)
+        self.assertEqual((key, how), ("far", "aimed"))
+
     def test_no_segments_is_none(self):
         key, how = ns["aim_pick"]((0.0, 0.0), [(0.0, 1.0)], [],
                                   self.ray, self.dist)
