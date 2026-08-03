@@ -143,7 +143,7 @@ def aim_at_network(node, o_xy):
 
 
 done, failed, skipped = 0, 0, 0
-fitting_notes = []
+fit_miss = 0
 for node in nodes:
     from pymep_revit import safe_name
     label = safe_name(node)
@@ -184,7 +184,8 @@ for node in nodes:
                                     invert_m=None, log=log,
                                     use_rotation=True)
         done += 1
-        fitting_notes += r.get("fitting_misses", [])
+        # fitting_misses is a COUNT (len of the engine's notes)
+        fit_miss += r.get("fitting_misses", 0)
     except Exception as ex:
         failed += 1
         import traceback
@@ -197,8 +198,8 @@ if skipped:
     log("- Skipped: **{}**".format(skipped))
 if failed:
     log("- Failed: **{}**".format(failed))
-for n in fitting_notes:
-    log("- {}".format(n))
+if fit_miss:
+    log("- Fitting notes: **{}** (see above)".format(fit_miss))
 log("Note: re-running Lines to Pipes rebuilds the MAINS only - run "
     "this button again afterwards to reconnect the nodes.")
 

@@ -354,8 +354,14 @@ runs. A fitting that can't be placed never fails the branch - the
 pipes stay and the miss is reported.
 
 **Inflow Drop Pipe to Collector** - the node-driven sibling of Connect
-Fixtures. Choose the nodes BY SELECTION - pre-select them with the
-collector pipe, or pick them when prompted (any mix of types) - or
+Fixtures. THE COLLECTOR FINDS ITSELF: each node's facing ray picks the
+first pipe it meets anywhere in the model (plan-nearest when the ray
+misses), and every aimed pipe keeps - or is given - its own collector
+network name. Pre-select ONE pipe together with the nodes to FORCE it
+as every branch's collector instead; only then do the main resize /
+re-grade options apply. Choose the nodes BY SELECTION - pre-select
+them (with or without the forced collector pipe), or pick them when
+prompted (any mix of types) - or
 finish the pick empty and drive it by family type:
 Each branch LEAVES ALONG THE NODE'S ROTATION - the facing ray decides
 where it tees into the collector (plan-nearest when the ray misses) -
