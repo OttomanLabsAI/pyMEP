@@ -30,7 +30,7 @@ pyMEP.extension/
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, big icon-only: Create Pipe Sizes + Structure to Pipe (stack) and Family at Pipe Top (own slot)
-    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge Pipes, Connect Fixtures
+    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge Pipes, Connect Fixtures, Inflow Drop Pipe to Collector
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
     07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (tracked in-place update) + Inflow Nodes -> Collector Pipes + Sync Input Nodes
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
@@ -40,7 +40,7 @@ pyMEP.extension/
     08_Electrical.panel/        # Encasement (shown before Drainage on the ribbon)
 ```
 
-9 panels, 31 buttons, every one with its own icon.
+9 panels, 32 buttons, every one with its own icon.
 
 ## Panels
 
@@ -352,6 +352,47 @@ elbow invert for every fixture instead. Branches take the main's pipe
 type, system type and level; diameter and slope are remembered between
 runs. A fitting that can't be placed never fails the branch - the
 pipes stay and the miss is reported.
+
+**Inflow Drop Pipe to Collector** - the node-driven sibling of Connect
+Fixtures. Choose the nodes BY SELECTION - pre-select them with the
+collector pipe, or pick them when prompted (any mix of types) - or
+finish the pick empty and drive it by family type:
+Each branch LEAVES ALONG THE NODE'S ROTATION - the facing ray decides
+where it tees into the collector (plan-nearest when the ray misses) -
+and the family's **Drop Pipe** yes/no picks the geometry: ticked (or
+absent), the classic drop-under-the-outlet then graded run; unticked,
+the 1:n run starts straight AT the outlet and a vertical drop lands it
+on the collector (the typed invert doesn't apply there - the outlet
+pins the run). Tee fittings only place at right angles, so a branch
+arriving at an angle SQUARES its last bit: it elbows just short of the
+collector into a short perpendicular stub (2 x diameter, min 300 mm)
+and tees in square - angled branches connect properly instead of
+stopping at the pipe. Sync Input Nodes and Apply Edits re-read rotation and the
+toggle on every rebuild, so turning a node re-aims its branch.
+select (or pick) ONE main pipe, then choose the node family -
+CATEGORY, then FAMILY, then TYPE (EVERY placed point-placed family is
+offered, all categories - a pipe connector is not required, families
+without one such as Generic Model chambers use their location/bounding-
+box bottom as the outlet and their DIA parameter as the size - types
+listed with placed/unconnected counts), or
+type in the SEARCH box to match across all three at once - a 'Dia from'
+picker choosing WHICH family parameter carries the pipe diameter (the
+type's numeric parameters with sample values, or the outlet connector),
+a branch gradient, a FIXED branch diameter override, the branch pipe
+type and system (defaulting to the main's own), and the upstream invert
+(keep it where it currently is, or pin an absolute level). The MAIN gets
+options too: set its DIAMETER (prefilled with the current bore; changing
+it resizes the main before anything connects) and optionally re-grade it
+at its own 1:n, keeping the UPPER or LOWER end where it is. Everything
+models in ONE go - a single undo step. Every still-unconnected node of that type gets a
+drop pipe from its outlet - diameter taken from THE NODE's own connector,
+snapped to the main type's routing sizes - a bend, a run falling at 1:n
+to meet the main as it lies, and a TEE JUNCTION into the main (segment
+tracking across the splits, same engine as Connect Fixtures).
+Already-connected nodes are left alone; family type and gradient are
+remembered between runs. Every branch it builds is TRACKED in the
+project's file store (node, pipes, fittings, settings, the main's
+line).
 
 ### Networks
 
