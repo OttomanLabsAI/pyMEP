@@ -32,7 +32,7 @@ from pymep_lines_to_pipes import (
     MM_PER_FT, _workset_name, build_network_pipes, collect_lines,
     find_invert_markers, fit_plan, line_style_options,
     load_lines_record, parse_style_slope, save_lines_record, solve,
-    workset_options,
+    workplane_z_ft, workset_options,
 )
 from pymep_lines_custom_ui import ask_custom_slopes
 from pymep_pipesizes import existing_segment_sizes_mm, list_pipe_segments
@@ -407,6 +407,21 @@ if custom_idx:
 sources = None
 pick_mm = None
 if markers:
+    # the LINES' work plane is the datum the typed inverts sit above -
+    # grab it and resolve every marker against it
+    datum_ft = None
+    for _el, _a, _b, _st in lines:
+        datum_ft = workplane_z_ft(_el)
+        if datum_ft is not None:
+            break
+    if datum_ft is not None:
+        log("Datum from the lines' work plane: internal **{:.3f} m** - "
+            "typed inverts are measured above it.".format(
+                datum_ft * MM_PER_FT / 1000.0))
+    else:
+        log("! the lines expose no work plane - marker levels fall "
+            "back to each marker's own level")
+    markers = find_invert_markers(doc, datum_z_ft=datum_ft)
     sources = []
     for el, (mx, my), mz in markers:
         sources.append(((mx, my), mz))

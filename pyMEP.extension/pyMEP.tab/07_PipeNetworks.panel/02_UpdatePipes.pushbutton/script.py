@@ -31,6 +31,7 @@ from pymep_lines_custom_ui import ask_custom_slopes
 from pymep_lines_to_pipes import (
     build_network_pipes, collect_lines, find_invert_markers,
     load_lines_record, parse_style_slope, save_lines_record, solve,
+    workplane_z_ft,
 )
 from pymep_pipesizes import list_pipe_segments
 from pymep_replace_structure import _quiet
@@ -184,7 +185,12 @@ log("Old network removed: **{}** element(s).".format(gone))
 pick = rec.get("pick_mm") or [0.0, 0.0]
 sources = None
 invert_m = float(rec.get("invert_m", 0.0))
-markers = find_invert_markers(doc)
+datum_ft = None
+for _el, _a, _b, _st in rows:
+    datum_ft = workplane_z_ft(_el)
+    if datum_ft is not None:
+        break
+markers = find_invert_markers(doc, datum_z_ft=datum_ft)
 if markers:
     sources = []
     for el, (mx, my), mz in markers:

@@ -553,7 +553,21 @@ def node_z_m(rise_mm, invert_m):
 INVERT_MARKER_PARAM = "Invert Level"
 
 
-def _marker_z_ft(doc, el, loc_z_ft):
+def workplane_z_ft(el):
+    """The internal elevation of a model line's work plane (the lines
+    are drawn ON the datum level - 'Level : Datum Level' in their
+    properties), or None. This is the authoritative datum the typed
+    marker inverts are measured above."""
+    try:
+        sp = el.SketchPlane
+        if sp is not None:
+            return sp.GetPlane().Origin.Z
+    except Exception:
+        pass
+    return None
+
+
+def _marker_z_ft(doc, el, loc_z_ft, datum_z_ft=None):
     """A marker's invert elevation in feet.
 
     First choice: the family's own 'Invert Level' parameter - the user
@@ -569,18 +583,20 @@ def _marker_z_ft(doc, el, loc_z_ft):
                 str(prm.StorageType) == "Double":
             v = prm.AsDouble()
             if abs(v) > 1e-9:
-                # the typed invert is measured ABOVE THE MARKER'S LEVEL
-                # (the project datum) - and pipe elevations display
-                # relative to their reference level too, so adding the
-                # level's INTERNAL elevation makes the pipe's displayed
-                # invert read exactly the typed number
-                base = 0.0
-                try:
-                    lvl = doc.GetElement(el.LevelId)
-                    if lvl is not None:
-                        base = lvl.Elevation
-                except Exception:
-                    pass
+                # the typed invert is measured ABOVE THE DATUM - the
+                # work plane the lines are drawn on when known (the
+                # authoritative base), else the marker's own level.
+                # Pipe elevations display relative to that same level,
+                # so the displayed invert reads the typed number.
+                base = datum_z_ft
+                if base is None:
+                    base = 0.0
+                    try:
+                        lvl = doc.GetElement(el.LevelId)
+                        if lvl is not None:
+                            base = lvl.Elevation
+                    except Exception:
+                        pass
                 return base + v
     except Exception:
         pass
@@ -610,7 +626,7 @@ def _marker_z_ft(doc, el, loc_z_ft):
     return loc_z_ft
 
 
-def find_invert_markers(doc, name_hint="invert"):
+def find_invert_markers(doc, name_hint="invert", datum_z_ft=None):
     """Placed marker families that pin an outfall level: any family
     instance whose FAMILY name contains ``name_hint`` (the user's
     'Node - Invert Level' generic model). Returns
@@ -631,7 +647,7 @@ def find_invert_markers(doc, name_hint="invert"):
             continue
         if p is None:
             continue
-        z_ft = _marker_z_ft(doc, el, p.Z)
+        z_ft = _marker_z_ft(doc, el, p.Z, datum_z_ft)
         out.append((el, (p.X * MM_PER_FT, p.Y * MM_PER_FT),
                     z_ft * MM_PER_FT))
     return out
