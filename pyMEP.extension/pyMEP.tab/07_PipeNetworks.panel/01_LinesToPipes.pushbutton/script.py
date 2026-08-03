@@ -55,6 +55,8 @@ XAML_PATH = os.path.join(_LIB_DIR, "pymep_lines_to_pipes.xaml")
 CUSTOM_XAML_PATH = os.path.join(_LIB_DIR, "pymep_lines_custom.xaml")
 
 ANY_STYLE = "(any line style)"
+PREFIX_STYLES = "(styles starting with the prefix)"
+# the pre-v1.99 sentinel, still possible in stored settings
 SLOPE_STYLES = "(all slope-named styles - Pipe 1-n / Custom)"
 ANY_WORKSET = "(any workset)"
 
@@ -89,14 +91,19 @@ def slope_breakdown(rows):
     return styled, custom, defaulted
 
 
-def gather_lines(style_sel, workset):
-    """The lines the current filter selects. SLOPE_STYLES takes every
-    line whose style name parses to a slope OR is a Custom style - the
-    whole slope-named network in one go."""
+def gather_lines(style_sel, workset, prefix=None):
+    """The lines the current filter selects. PREFIX_STYLES takes every
+    line whose style name STARTS WITH the prefix ('Slope' matches
+    'Slope 1-80', 'Slope Custom', ...) - the whole named network in one
+    go; an empty prefix falls back to any style whose name parses."""
     rows = collect_lines(doc, None, workset)
     if style_sel == ANY_STYLE:
         return rows
-    if style_sel == SLOPE_STYLES:
+    if style_sel in (PREFIX_STYLES, SLOPE_STYLES):
+        p = (prefix or "").strip().lower()
+        if p:
+            return [r for r in rows
+                    if (r[3] or "").lower().startswith(p)]
         return [r for r in rows if parse_style_slope(r[3]) is not None]
     return [r for r in rows if r[3] == style_sel]
 
@@ -109,7 +116,7 @@ class LinesWindow(forms.WPFWindow):
         self._loading = True
 
         self.CmbStyle.Items.Clear()
-        self.CmbStyle.Items.Add(SLOPE_STYLES)
+        self.CmbStyle.Items.Add(PREFIX_STYLES)
         self.CmbStyle.Items.Add(ANY_STYLE)
         for nm in styles:
             self.CmbStyle.Items.Add(nm)
@@ -149,11 +156,15 @@ class LinesWindow(forms.WPFWindow):
                 self.CmbSegment.SelectedIndex = i + 1
                 break
 
+        self.TxtPrefix.Text = settings.get("lines_prefix", "Slope") \
+            or "Slope"
         want = settings.get("lines_style")
-        if want in styles or want in (ANY_STYLE, SLOPE_STYLES):
+        if want == SLOPE_STYLES:
+            want = PREFIX_STYLES
+        if want in styles or want in (ANY_STYLE, PREFIX_STYLES):
             self.CmbStyle.SelectedItem = want
         else:
-            self.CmbStyle.SelectedItem = ANY_STYLE
+            self.CmbStyle.SelectedItem = PREFIX_STYLES
         self.CmbWorkset.SelectedItem = settings.get("lines_workset") \
             if settings.get("lines_workset") in worksets else ANY_WORKSET
 
@@ -161,16 +172,17 @@ class LinesWindow(forms.WPFWindow):
         # remembered filters find nothing, relax them instead of
         # opening on a stale zero
         style, ws = self._filters()
-        if not gather_lines(style, ws):
-            if ws and gather_lines(style, None):
+        pfx = self._prefix()
+        if not gather_lines(style, ws, pfx):
+            if ws and gather_lines(style, None, pfx):
                 self.CmbWorkset.SelectedItem = ANY_WORKSET
-            elif style not in (SLOPE_STYLES,) and \
-                    gather_lines(SLOPE_STYLES, ws):
-                self.CmbStyle.SelectedItem = SLOPE_STYLES
-            elif gather_lines(SLOPE_STYLES, None):
-                self.CmbStyle.SelectedItem = SLOPE_STYLES
+            elif style != PREFIX_STYLES and \
+                    gather_lines(PREFIX_STYLES, ws, pfx):
+                self.CmbStyle.SelectedItem = PREFIX_STYLES
+            elif gather_lines(PREFIX_STYLES, None, pfx):
+                self.CmbStyle.SelectedItem = PREFIX_STYLES
                 self.CmbWorkset.SelectedItem = ANY_WORKSET
-            elif gather_lines(ANY_STYLE, None):
+            elif gather_lines(ANY_STYLE, None, pfx):
                 self.CmbStyle.SelectedItem = ANY_STYLE
                 self.CmbWorkset.SelectedItem = ANY_WORKSET
         self._fill_sizes()
@@ -216,12 +228,18 @@ class LinesWindow(forms.WPFWindow):
     def _filters(self):
         style = self.CmbStyle.SelectedItem
         ws = self.CmbWorkset.SelectedItem
-        return (str(style) if style is not None else SLOPE_STYLES,
+        return (str(style) if style is not None else PREFIX_STYLES,
                 None if ws in (None, ANY_WORKSET) else str(ws))
+
+    def _prefix(self):
+        try:
+            return self.TxtPrefix.Text
+        except Exception:
+            return "Slope"
 
     def _refresh_count(self):
         style, ws = self._filters()
-        rows = gather_lines(style, ws)
+        rows = gather_lines(style, ws, self._prefix())
         n = len(rows)
         if n:
             styled, custom, defaulted = slope_breakdown(rows)
@@ -243,10 +261,10 @@ class LinesWindow(forms.WPFWindow):
             return
         self._defaulted = 0
         # nothing matches - say WHY, and WHERE the lines actually are
-        if ws and gather_lines(style, None):
+        if ws and gather_lines(style, None, self._prefix()):
             homes = sorted(set(
                 _workset_name(doc, r[0]) or "(none)"
-                for r in gather_lines(style, None)))
+                for r in gather_lines(style, None, self._prefix())))
             self.TxtCount.Text = ("0 match - those lines sit on "
                                   "workset(s) {}, not '{}'.".format(
                                       ", ".join("'{}'".format(h)
@@ -287,167 +305,20 @@ class LinesWindow(forms.WPFWindow):
                                         .format(self._defaulted))
                 return
         style, ws = self._filters()
-        if not gather_lines(style, ws):
+        if not gather_lines(style, ws, self._prefix()):
             self.StatusText.Text = "No straight model lines match."
             return
         i_pt = self.CmbPipeType.SelectedIndex
         i_st = self.CmbSysType.SelectedIndex
         seg = self._segment()
         self.result = {"style": style, "workset": ws, "dia_mm": dia,
+                       "prefix": self._prefix(),
                        "slope_n": slope, "invert_m": invert,
                        "pipe_type": (_pt_opts[i_pt - 1] if i_pt > 0
                                      else _pt_opts[0]),
                        "auto_type": i_pt == 0,
                        "segment": seg,
                        "sys_type": _st_opts[i_st]}
-        self.Close()
-
-    def on_cancel(self, sender, args):
-        self.result = None
-        self.Close()
-
-
-class CustomSlopeWindow(forms.WPFWindow):
-    """A clickable plan of the whole network. Custom lines are orange
-    until a gradient is applied (green); the selected one is blue.
-    result = {line_index: slope_n} for every custom line, or None."""
-
-    GREY = "#B0B0B0"
-    ORANGE = "#D97B2A"
-    GREEN = "#2E7D32"
-    BLUE = "#1565C0"
-
-    def __init__(self, lines_mm, custom_idx):
-        forms.WPFWindow.__init__(self, CUSTOM_XAML_PATH)
-        self.result = None
-        self._lines = lines_mm
-        self._custom = list(custom_idx)
-        self._slopes = {}
-        self._shapes = {}
-        self._selected = None
-        self.TxtInfo.Text = ("{} 'Slope Custom' line(s) need a gradient. "
-                             "Click an orange line, type its 1:n, Apply. "
-                             "Green = done.".format(len(self._custom)))
-        self._update_status()
-
-    def _brush(self, hex_str):
-        from System.Windows.Media import BrushConverter
-        return BrushConverter().ConvertFromString(hex_str)
-
-    def _redraw(self):
-        from System.Windows.Shapes import Line as WpfLine
-        from System.Windows import Input
-        self.CnvPlan.Children.Clear()
-        self._shapes = {}
-        w = self.CnvPlan.ActualWidth or 560
-        h = self.CnvPlan.ActualHeight or 360
-        if w < 40 or h < 40:
-            return
-        scale, ox, oy = fit_plan(self._lines, w, h)
-
-        def cx(p):
-            return p[0] * scale + ox
-
-        def cy(p):
-            return -p[1] * scale + oy
-
-        for i, (a, b) in enumerate(self._lines):
-            ln = WpfLine()
-            ln.X1, ln.Y1 = cx(a), cy(a)
-            ln.X2, ln.Y2 = cx(b), cy(b)
-            if i in self._custom:
-                if i == self._selected:
-                    ln.Stroke = self._brush(self.BLUE)
-                    ln.StrokeThickness = 6.0
-                elif i in self._slopes:
-                    ln.Stroke = self._brush(self.GREEN)
-                    ln.StrokeThickness = 4.0
-                else:
-                    ln.Stroke = self._brush(self.ORANGE)
-                    ln.StrokeThickness = 4.0
-                ln.Cursor = Input.Cursors.Hand
-                ln.MouseLeftButtonDown += self._make_click(i)
-            else:
-                ln.Stroke = self._brush(self.GREY)
-                ln.StrokeThickness = 1.5
-            self.CnvPlan.Children.Add(ln)
-            self._shapes[i] = ln
-
-    def _make_click(self, index):
-        def handler(sender, args):
-            self._select(index)
-        return handler
-
-    def _select(self, index):
-        self._selected = index
-        a, b = self._lines[index]
-        import math as _m
-        length = _m.hypot(b[0] - a[0], b[1] - a[1]) / 1000.0
-        got = self._slopes.get(index)
-        self.TxtCurrent.Text = (
-            "Custom line - {:.1f} m long{}".format(
-                length,
-                " - currently 1:{:g}".format(got) if got else ""))
-        if got:
-            self.TxtCustomSlope.Text = "{:g}".format(got)
-        try:
-            self.TxtCustomSlope.Focus()
-            self.TxtCustomSlope.SelectAll()
-        except Exception:
-            pass
-        self._redraw()
-
-    def _next_pending(self):
-        for i in self._custom:
-            if i not in self._slopes:
-                return i
-        return None
-
-    def _update_status(self):
-        left = len([i for i in self._custom if i not in self._slopes])
-        if left:
-            self.StatusText.Text = ("{} line(s) still need a "
-                                    "gradient.".format(left))
-        else:
-            self.StatusText.Text = ""
-
-    def on_canvas_size(self, sender, args):
-        self._redraw()
-        if self._selected is None:
-            nxt = self._next_pending()
-            if nxt is not None:
-                self._select(nxt)
-
-    def on_apply(self, sender, args):
-        if self._selected is None:
-            self.StatusText.Text = "Click a line in the plan first."
-            return
-        try:
-            n = float(self.TxtCustomSlope.Text)
-            if n <= 0:
-                raise ValueError()
-        except Exception:
-            self.StatusText.Text = "The gradient must be a positive 1:n."
-            return
-        self._slopes[self._selected] = n
-        self._selected = None
-        self.TxtCustomSlope.Text = ""
-        nxt = self._next_pending()
-        if nxt is not None:
-            self._select(nxt)
-        else:
-            self.TxtCurrent.Text = "All custom lines have a gradient."
-            self._redraw()
-        self._update_status()
-
-    def on_ok(self, sender, args):
-        left = [i for i in self._custom if i not in self._slopes]
-        if left:
-            self.StatusText.Text = ("{} line(s) still need a gradient - "
-                                    "click the orange ones.".format(
-                                        len(left)))
-            return
-        self.result = dict(self._slopes)
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -464,6 +335,7 @@ if win.result is None:
 
 opt = win.result
 settings["lines_style"] = opt["style"]
+settings["lines_prefix"] = opt["prefix"]
 settings["lines_workset"] = opt["workset"] or ANY_WORKSET
 settings["lines_dia_mm"] = opt["dia_mm"]
 settings["lines_slope"] = opt["slope_n"]
@@ -478,7 +350,7 @@ try:
 except Exception:
     pass
 
-lines = gather_lines(opt["style"], opt["workset"])
+lines = gather_lines(opt["style"], opt["workset"], opt["prefix"])
 log("**{}** line(s), dia **{:.0f} mm**{}, default gradient **1:{:g}**, "
     "outfall invert **{:.3f} m**".format(
         len(lines), opt["dia_mm"],
@@ -608,6 +480,7 @@ try:
         "sys_type": opt["sys_type"][0],
         "segment": opt["segment"][0] if opt["segment"] else None,
         "pick_mm": [pick_mm[0], pick_mm[1]],
+        "prefix": opt["prefix"],
         "use_markers": bool(markers),
         "custom_slopes": custom_by_uid,
         "element_uids": uids,
