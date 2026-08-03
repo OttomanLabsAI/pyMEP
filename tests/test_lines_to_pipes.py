@@ -38,6 +38,9 @@ for node in ast.parse(_src).body:
             pass
 
 _intersect = ns["_intersect"]
+parse_style_slope = ns["parse_style_slope"]
+normalize_slopes = ns["normalize_slopes"]
+fit_plan = ns["fit_plan"]
 drop_duplicates = ns["drop_duplicates"]
 build_network = ns["build_network"]
 assign_depths = ns["assign_depths"]
@@ -167,15 +170,78 @@ class Solve(unittest.TestCase):
 
 class InvertMath(unittest.TestCase):
 
-    def test_invert_rises_with_distance_over_n(self):
-        self.assertAlmostEqual(node_z_m(40000.0, 10.0, 200.0), 10.2)
+    def test_invert_is_outfall_plus_rise(self):
+        # 40 m at 1:200 accumulates a 200 mm rise
+        self.assertAlmostEqual(node_z_m(200.0, 10.0), 10.2)
 
     def test_outfall_sits_at_the_given_invert(self):
-        self.assertAlmostEqual(node_z_m(0.0, 3.25, 100.0), 3.25)
+        self.assertAlmostEqual(node_z_m(0.0, 3.25), 3.25)
 
-    def test_steeper_gradient_rises_faster(self):
-        self.assertGreater(node_z_m(10000.0, 0.0, 40.0),
-                           node_z_m(10000.0, 0.0, 300.0))
+
+class StyleSlope(unittest.TestCase):
+
+    def test_pipe_one_dash_n_names(self):
+        for name, n in (("Pipe 1-8", 8.0), ("Pipe 1-80", 80.0),
+                        ("Pipe 1-100", 100.0), ("Pipe 1-300", 300.0)):
+            self.assertEqual(parse_style_slope(name), n)
+
+    def test_custom_is_flagged_not_parsed(self):
+        self.assertEqual(parse_style_slope("Slope Custom"), "custom")
+        self.assertEqual(parse_style_slope("PIPE CUSTOM"), "custom")
+
+    def test_unnumbered_styles_get_none(self):
+        for name in ("Pipe", "Thin Lines", "<Lines>", "", None):
+            self.assertIsNone(parse_style_slope(name))
+
+    def test_colon_and_spacing_variants(self):
+        self.assertEqual(parse_style_slope("Pipe 1 - 60"), 60.0)
+        self.assertEqual(parse_style_slope("Pipe 1:150"), 150.0)
+
+    def test_decimal_slope(self):
+        self.assertEqual(parse_style_slope("Pipe 1-2.5"), 2.5)
+
+
+class PerLineSlopes(unittest.TestCase):
+
+    def test_scalar_becomes_uniform(self):
+        self.assertEqual(normalize_slopes([TRUNK, LATERAL], 80.0),
+                         {0: 80.0, 1: 80.0})
+
+    def test_dict_passes_through_with_default_one(self):
+        got = normalize_slopes([TRUNK, LATERAL, CORNER], {0: 80.0, 2: 40.0})
+        self.assertEqual(got, {0: 80.0, 1: 1.0, 2: 40.0})
+
+    def test_each_line_rises_at_its_own_slope(self):
+        # trunk 1:200, lateral 1:40 - lateral's top end climbs 12 m/40
+        # above the junction, the junction 10 m/200 above the outfall
+        sol = solve([TRUNK, LATERAL], (0.0, 0.0), {0: 200.0, 1: 40.0})
+        top = None
+        for i, (x, y) in enumerate(sol["nodes"]):
+            if abs(y - 12000.0) < 1.0:
+                top = i
+        self.assertIsNotNone(top)
+        self.assertAlmostEqual(sol["depths"][top],
+                               10000.0 / 200.0 + 12000.0 / 40.0, places=6)
+
+
+class FitPlan(unittest.TestCase):
+
+    def test_network_lands_inside_the_canvas(self):
+        scale, ox, oy = fit_plan([TRUNK, LATERAL, CORNER], 560.0, 360.0)
+        for a, b in (TRUNK, LATERAL, CORNER):
+            for p in (a, b):
+                cx = p[0] * scale + ox
+                cy = -p[1] * scale + oy
+                self.assertGreaterEqual(cx, 15.9)
+                self.assertLessEqual(cx, 560.1 - 15.9)
+                self.assertGreaterEqual(cy, 15.9)
+                self.assertLessEqual(cy, 360.1 - 15.9)
+
+    def test_north_is_up(self):
+        scale, ox, oy = fit_plan([TRUNK, CORNER], 400.0, 400.0)
+        y0 = -0.0 * scale + oy
+        y_top = -20000.0 * scale + oy
+        self.assertLess(y_top, y0)
 
 
 if __name__ == "__main__":

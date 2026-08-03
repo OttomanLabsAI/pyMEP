@@ -120,7 +120,7 @@
                               Grid.Column="1"/>
                     <TextBlock Grid.Row="4" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
-                               Text="Gradient 1 :"/>
+                               Text="Default gradient 1 :"/>
                     <TextBox x:Name="TxtSlope" Grid.Row="4" Grid.Column="1"/>
                     <TextBlock Grid.Row="5" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
@@ -128,7 +128,7 @@
                     <TextBox x:Name="TxtInvert" Grid.Row="5" Grid.Column="1"/>
                     <TextBlock Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="2"
                                Style="{StaticResource Hint}"
-                               Text="The diameter list holds the chosen segment's catalogued sizes (type any other value if you must). Pipe type is only needed when the model has more than one - '(automatic)' uses the first."/>
+                               Text="The diameter list holds the chosen segment's catalogued sizes (type any other value if you must). Pipe type is only needed when the model has more than one - '(automatic)' uses the first. Each line's gradient comes from its LINE STYLE name: 'Pipe 1-80' runs at 1:80. Styles with no number use the default gradient; 'Slope Custom' lines are asked for one by one in a plan view after OK."/>
                 </Grid>
             </GroupBox>
 

@@ -1,0 +1,80 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Custom slopes"
+        Width="640" Height="600" MinWidth="560" MinHeight="480"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Background="White">
+    <Window.Resources>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="DialogButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#F4F4F4" Padding="14,10">
+            <StackPanel>
+                <TextBlock FontSize="15" FontWeight="SemiBold"
+                           Text="Slope Custom lines"/>
+                <TextBlock x:Name="TxtInfo" Style="{StaticResource Hint}"
+                           Text="Click an orange line in the plan, type its gradient, Apply. Green = done."/>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="1" Margin="14,12,14,4" BorderBrush="#CCCCCC"
+                BorderThickness="1" Background="#FAFAFA">
+            <Canvas x:Name="CnvPlan" ClipToBounds="True"
+                    SizeChanged="on_canvas_size"/>
+        </Border>
+
+        <Grid Grid.Row="2" Margin="14,6,14,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="90"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="TxtCurrent" VerticalAlignment="Center"
+                       TextWrapping="Wrap"
+                       Text="No line selected - click one in the plan."/>
+            <TextBlock Grid.Column="1" VerticalAlignment="Center"
+                       Margin="10,0,8,0" Text="Gradient 1 :"/>
+            <TextBox x:Name="TxtCustomSlope" Grid.Column="2" Height="24"
+                     VerticalContentAlignment="Center"/>
+            <Button x:Name="BtnApply" Grid.Column="3" Content="Apply"
+                    Style="{StaticResource DialogButton}"
+                    Click="on_apply"/>
+        </Grid>
+
+        <Border Grid.Row="3" Background="#F4F4F4" Padding="14,10">
+            <Grid>
+                <TextBlock x:Name="StatusText" Foreground="#B00020"
+                           VerticalAlignment="Center" Text=""/>
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button x:Name="BtnOk" Content="OK"
+                            Style="{StaticResource DialogButton}"
+                            IsDefault="True" Click="on_ok"/>
+                    <Button x:Name="BtnCancel" Content="Cancel"
+                            Style="{StaticResource DialogButton}"
+                            IsCancel="True" Click="on_cancel"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
