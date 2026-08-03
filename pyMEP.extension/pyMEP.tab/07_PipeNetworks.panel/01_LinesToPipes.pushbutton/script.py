@@ -156,8 +156,8 @@ class LinesWindow(forms.WPFWindow):
                 self.CmbSegment.SelectedIndex = i + 1
                 break
 
-        self.TxtPrefix.Text = settings.get("lines_prefix", "Slope") \
-            or "Slope"
+        self.TxtPrefix.Text = settings.get("lines_prefix", "Pipes") \
+            or "Pipes"
         want = settings.get("lines_style")
         if want == SLOPE_STYLES:
             want = PREFIX_STYLES
@@ -235,7 +235,7 @@ class LinesWindow(forms.WPFWindow):
         try:
             return self.TxtPrefix.Text
         except Exception:
-            return "Slope"
+            return "Pipes"
 
     def _refresh_count(self):
         style, ws = self._filters()
