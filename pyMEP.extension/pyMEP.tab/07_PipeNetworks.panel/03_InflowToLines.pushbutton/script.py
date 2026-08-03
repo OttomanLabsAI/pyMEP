@@ -137,9 +137,10 @@ def aim_at_network(node, o_xy):
     """(pipe, how): the first network pipe the node's facing ray meets,
     trying the facing pair before the hand pair; else the plan-nearest
     pipe with a note."""
-    dir_xys = [(d.X, d.Y) for d in node_directions(node)]
-    return aim_pick(o_xy, dir_xys, pipe_lines, ray_hits_main,
-                    plan_dist_to_segment)
+    # node_directions already yields (x, y) tuples - feed them
+    # straight through, no reshaping
+    return aim_pick(o_xy, node_directions(node), pipe_lines,
+                    ray_hits_main, plan_dist_to_segment)
 
 
 done, failed, skipped = 0, 0, 0
