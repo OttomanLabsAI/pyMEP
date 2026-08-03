@@ -32,7 +32,7 @@ pyMEP.extension/
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, big icon-only: Create Pipe Sizes + Structure to Pipe (stack) and Family at Pipe Top (own slot)
     02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
-    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (tracked rebuild) + Inflow to Lines
+    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (tracked in-place update) + Inflow to Lines
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
@@ -230,11 +230,25 @@ trimmed at the junction; the same run drawn twice keeps only the
 longer copy; a line that touches nothing on the way to the outfall is
 reported and skipped, never guessed at. Everything happens in one
 transaction with Revit's warning dialogs dismissed as they come.
-Every build is TRACKED (project_files/lines_network.json): re-running
-Lines to Pipes first deletes the elements the previous run created -
-only those, and only the ones still alive - then rebuilds from the
-lines as they are now, so it UPDATES the network instead of doubling
-it. Custom-line gradients are remembered per line between runs.
+Placed 'Node - Invert Level' marker families (any family whose name
+contains 'invert') replace the outfall pick entirely: each node pins
+the level typed into its 'Invert Level' parameter (measured above the
+LINES' work plane) at its spot as the network's HIGH point - the
+node is the inlet, and the pipes FALL AWAY from it along the node's
+direction at their line gradients. Several nodes split the network
+between them; where two could feed the same run the higher feed wins
+and the clash is reported, not fudged.
+Every build is TRACKED (project_files/lines_network.json), and
+re-running is an IN-PLACE update: each existing pipe is re-graded by
+re-setting its location curve, so the element ids survive and TAGS IN
+DRAWINGS KEEP THEIR HOSTS. Only the fittings are deleted and rebuilt
+(a connected tee blocks a curve change); pipes whose line is gone or
+now splits differently are swept afterwards; a pipe that will not
+take its new geometry is replaced with a fresh one and logged. A
+record written by an older pyMEP has no per-line pipe map, so the
+first re-run does one last delete-and-rebuild - ids are stable from
+that run on. Custom-line gradients are remembered per line between
+runs.
 
 **Inflow to Lines** - what Inflow Drop Pipe to Collector does against
 one picked main, against the whole line-built network: select the node

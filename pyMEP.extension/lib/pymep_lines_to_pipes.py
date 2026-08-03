@@ -316,16 +316,21 @@ def nearest_node(net, p):
     return best
 
 
-def assign_depths(net, outfall, slopes=None, init=None):
+def assign_depths(net, outfall, slopes=None, init=None, descend=False):
     """The RISE of every reachable node above the outfall (Dijkstra
     over the segments, each weighted length / its line's 1:n slope).
     With ``slopes`` None every line is 1:1, so the result is plain
     network distance. {node_index: rise}.
 
     ``init`` ({node: starting_value}) seeds SEVERAL sources at their
-    own levels - used when Invert Level marker families set absolute
-    inverts at more than one outfall; every node then gets the lowest
-    level any source can feed it at."""
+    own levels - used when Invert Level marker families pin absolute
+    levels at more than one node.
+
+    ``descend`` flips the seeds from low points to HIGH points: levels
+    FALL away from every source by length/slope instead of rising (the
+    Invert Level node is the network's head - water enters there and
+    falls away along the node's direction), and where two sources
+    reach the same node the higher feed wins."""
     adj = {}
     for n0, n1, li, length in net["segs"]:
         n_slope = 1.0 if slopes is None else slopes.get(li, 1.0)
@@ -333,6 +338,8 @@ def assign_depths(net, outfall, slopes=None, init=None):
         adj.setdefault(n0, []).append((n1, w))
         adj.setdefault(n1, []).append((n0, w))
     if init:
+        if descend:
+            init = dict((n, -d) for n, d in init.items())
         dist = dict(init)
         todo = [(d, n) for n, d in init.items()]
     else:
@@ -348,6 +355,8 @@ def assign_depths(net, outfall, slopes=None, init=None):
             if nd < dist.get(m, 1e30) - 1e-9:
                 dist[m] = nd
                 todo.append((nd, m))
+    if init and descend:
+        dist = dict((n, -d) for n, d in dist.items())
     return dist
 
 
@@ -477,8 +486,11 @@ def solve(lines, pick, slopes, join_tol=JOIN_TOL_MM,
 
     ``sources`` ([((x, y), z), ...], same units) overrides the pick:
     each source pins its nearest network node at the ABSOLUTE level z
-    (an Invert Level marker family), and "depths" then holds absolute
-    levels - build with invert 0.
+    (an Invert Level marker family). The marker is the HIGH point -
+    the network FALLS away from it (the node is the inlet; its
+    direction shows which way the run drops), so "depths" holds
+    absolute levels that DESCEND from every marker - build with
+    invert 0.
 
     Returns {"outfall_node", "nodes", "depths", "runs", "tees",
     "elbows", "skipped", "source_nodes"} where each run carries
@@ -501,11 +513,12 @@ def solve(lines, pick, slopes, join_tol=JOIN_TOL_MM,
         init = {}
         for (sx, sy), z in sources:
             n = nearest_node(net, (sx, sy))
-            if n is not None and (n not in init or z < init[n]):
+            if n is not None and (n not in init or z > init[n]):
                 init[n] = float(z)
         source_nodes = sorted(init)
-        out = min(init, key=lambda k: init[k]) if init else None
-        depths = assign_depths(net, out, slopes, init=init)
+        out = max(init, key=lambda k: init[k]) if init else None
+        depths = assign_depths(net, out, slopes, init=init,
+                               descend=True)
     else:
         out = nearest_node(net, pick)
         depths = assign_depths(net, out, slopes)
@@ -627,12 +640,12 @@ def _marker_z_ft(doc, el, loc_z_ft, datum_z_ft=None):
 
 
 def find_invert_markers(doc, name_hint="invert", datum_z_ft=None):
-    """Placed marker families that pin an outfall level: any family
+    """Placed marker families that pin a HEAD level: any family
     instance whose FAMILY name contains ``name_hint`` (the user's
     'Node - Invert Level' generic model). Returns
-    [(element, (x_mm, y_mm), z_mm), ...] where z = the Level's
-    elevation + 'Elevation from Level' - the invert the network takes
-    at that point."""
+    [(element, (x_mm, y_mm), z_mm), ...] where z = the typed invert
+    over the datum (else Level + 'Elevation from Level') - the HIGH
+    point the network falls away from at that spot."""
     out = []
     for el in FilteredElementCollector(doc).OfClass(FamilyInstance):
         try:
@@ -738,14 +751,21 @@ def _set_segment(pipe, segment_id):
 
 
 def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
-                        log=None, segment_id=None):
-    """Create the pipes, tees and elbows of a solved plan in ONE
-    transaction (warnings dismissed as they come). XY and the rises in
-    sol["depths"] are in mm - each line's slope is already inside its
-    rise. ``segment_id`` (optional) sets each pipe's Pipe Segment - the
-    material/schedule choice - after creation.
+                        log=None, segment_id=None, reuse=None):
+    """Create OR UPDATE the pipes, tees and elbows of a solved plan in
+    ONE transaction (warnings dismissed as they come). XY and the rises
+    in sol["depths"] are in mm - each line's slope is already inside
+    its rise. ``segment_id`` (optional) sets each pipe's Pipe Segment.
 
-    Returns {"pipes", "tees", "elbows", "failed", "notes"}."""
+    ``reuse`` ({line_index: [existing Pipe elements]}) makes this an
+    IN-PLACE update: each run takes a pipe from its line's pool and
+    RE-SETS its location curve instead of creating a new element - the
+    element id survives, so tags in drawings keep their host. Pool
+    pipes that cannot be re-curved fall back to a fresh pipe (logged).
+
+    Returns {"pipes", "updated", "fittings", "failed", "notes",
+    "elements", "pieces_by_line", "fitting_elements",
+    "reused_elements"}."""
     from pymep_connect_fixtures import _tee_into_main, _conn_near, \
         _set_dia
     from pymep_replace_structure import _quiet
@@ -768,7 +788,9 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
     pipes_by_line = {}
     pieces_by_line = {}
     created = []
-    made, fitted, failed = 0, 0, 0
+    fitting_elements = []
+    reused_elements = []
+    made, updated, fitted, failed = 0, 0, 0, 0
     notes = []
 
     t = Transaction(doc, "Lines to Pipes")
@@ -778,17 +800,35 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
         for r in sol["runs"]:
             pa = xyz(r["a"], sol["depths"][r["a"]])
             pb = xyz(r["b"], sol["depths"][r["b"]])
-            try:
-                pipe = Pipe.Create(doc, sys_id, type_id, lvl_id, pa, pb)
-                _set_segment(pipe, segment_id)
-                _set_dia(pipe, dia_ft)
-            except Exception as ex:
-                failed += 1
-                say("  ! line {}: pipe not created ({})".format(
-                    r["line"], ex))
-                continue
-            made += 1
-            created.append(pipe)
+            pipe = None
+            pool = (reuse or {}).get(r["line"]) or []
+            while pool:
+                cand = pool.pop(0)
+                try:
+                    cand.Location.Curve = Line.CreateBound(pa, pb)
+                    _set_segment(cand, segment_id)
+                    _set_dia(cand, dia_ft)
+                    pipe = cand
+                    updated += 1
+                    reused_elements.append(cand)
+                    break
+                except Exception as ex:
+                    notes.append("line {}: an existing pipe would not "
+                                 "take the new geometry ({}) - replaced "
+                                 "with a fresh one".format(r["line"], ex))
+            if pipe is None:
+                try:
+                    pipe = Pipe.Create(doc, sys_id, type_id, lvl_id,
+                                       pa, pb)
+                    _set_segment(pipe, segment_id)
+                    _set_dia(pipe, dia_ft)
+                except Exception as ex:
+                    failed += 1
+                    say("  ! line {}: pipe not created ({})".format(
+                        r["line"], ex))
+                    continue
+                made += 1
+                created.append(pipe)
             pipes_by_line.setdefault(r["line"], []).append((r, pipe))
             pieces_by_line.setdefault(r["line"], []).append(pipe)
 
@@ -835,6 +875,7 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
             if fit is not None:
                 fitted += 1
                 created.append(fit)
+                fitting_elements.append(fit)
 
         for el in sol["elbows"]:
             p = xyz(el["node"], sol["depths"][el["node"]])
@@ -849,7 +890,9 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
                              .format(el["node"]))
                 continue
             try:
-                created.append(doc.Create.NewElbowFitting(c1, c2))
+                fit = doc.Create.NewElbowFitting(c1, c2)
+                created.append(fit)
+                fitting_elements.append(fit)
                 fitted += 1
             except Exception as ex:
                 notes.append("elbow at node {} not placed ({})".format(
@@ -861,5 +904,8 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
             t.RollBack()
         raise
 
-    return {"pipes": made, "fittings": fitted, "failed": failed,
-            "notes": notes, "elements": created}
+    return {"pipes": made, "updated": updated, "fittings": fitted,
+            "failed": failed, "notes": notes, "elements": created,
+            "pieces_by_line": pieces_by_line,
+            "fitting_elements": fitting_elements,
+            "reused_elements": reused_elements}
