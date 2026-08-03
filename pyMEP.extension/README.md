@@ -127,7 +127,13 @@ inverts by flowDir) and the buried-utilities networks are rendered in 3D.
 The landing screen also asks how the XML's pipe diameters are stored - mm
 (default, the Civil 3D convention) or m - and whether null structures
 start hidden (default yes; they load as their own NULL STRUCTURES layer
-you can toggle back on in the Networks list). One export button -
+you can toggle back on in the Networks list). Hidden nulls start OFF
+in the Schedule tab too; turning the layer back on (its eye, All on,
+or Isolate Net from a popup) re-ticks their schedule row in the same
+click. The footer flags a network named like '... (3)' as a Civil 3D
+COPY - if levels were edited on the live network, such an export
+carries the copy's OLD levels, which is the usual reason the dashboard
+'does not show the new heights'. One export button -
 **Export model** - writes the `MODEL-*.json` the placement buttons
 below consume: everything currently turned ON in the dashboard,
 structures AND pipes in one file (turn layers off first to export a

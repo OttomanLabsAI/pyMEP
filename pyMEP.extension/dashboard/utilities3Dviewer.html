@@ -546,6 +546,20 @@ const pClusters = [...clusters.values()].filter(c=>c.kind==="p")
 const st = {showS:true, showP:true, grid:true, solo:null, soloC:null,
             dark:true, cVis:new Map()};
 for (const ck of clusters.keys()) st.cVis.set(ck, true);
+/* null structures start OFF in the Schedule too, matching their hidden
+   NULL STRUCTURES layer; turning that layer's eye back on re-ticks
+   them so the Networks-list hint stays true */
+const NULL_ONLY_CKS = sClusters
+  .filter(c => [...c.nets].every(nm => nm === "NULL STRUCTURES"))
+  .map(c => c.ck);
+{
+  const nullNet = nets.get("NULL STRUCTURES");
+  if (nullNet && !nullNet.visible)
+    for (const ck of NULL_ONLY_CKS) st.cVis.set(ck, false);
+}
+function wakeNullClusters(){
+  for (const ck of NULL_ONLY_CKS) st.cVis.set(ck, true);
+}
 const netOn = name => { const n = nets.get(name);
   return n.visible && (!st.solo || st.solo===name); };
 
@@ -816,7 +830,9 @@ document.getElementById("iClose").onclick = ()=>select(null);
 document.getElementById("iFocus").onclick = ()=>{ if(selected) focusMesh(selected); };
 document.getElementById("iIso").onclick = ()=>{
   if (!selected) return;
-  st.solo = selected.userData.net; nets.get(st.solo).visible = true; update();
+  st.solo = selected.userData.net; nets.get(st.solo).visible = true;
+  if (st.solo === "NULL STRUCTURES") wakeNullClusters();
+  update();
 };
 document.getElementById("iIsoT").onclick = ()=>{
   if (!selected) return;
@@ -884,9 +900,12 @@ const grpHeads = new Map();
       solo.setAttribute("aria-label","Isolate "+n.name);
       row.append(sw, nm, ct, eye, solo); host.appendChild(row);
       eye.onclick = ()=>{ n.visible=!n.visible;
+        if(n.visible&&n.name==="NULL STRUCTURES")wakeNullClusters();
         if(!n.visible&&st.solo===n.name)st.solo=null; update(); };
       solo.onclick = ()=>{ st.solo = (st.solo===n.name)?null:n.name;
-                           if (st.solo) n.visible=true; update(); };
+                           if (st.solo){ n.visible=true;
+                             if(n.name==="NULL STRUCTURES")wakeNullClusters(); }
+                           update(); };
       nm.onclick = solo.onclick;
       swEls.set(n.name, [sw]);
       rowEls.set(n.name, {row, eye, solo, ct, grp:h});
@@ -956,7 +975,8 @@ document.getElementById("chipS").onchange = e=>{ st.showS=e.target.checked; upda
 document.getElementById("chipP").onchange = e=>{ st.showP=e.target.checked; update(); };
 document.getElementById("chipG").onchange = e=>{ st.grid=e.target.checked; update(); };
 document.getElementById("allOn").onclick = ()=>{
-  st.solo=null; for (const n of nets.values()) n.visible=true; update(); };
+  st.solo=null; for (const n of nets.values()) n.visible=true;
+  wakeNullClusters(); update(); };
 document.getElementById("allOff").onclick = ()=>{
   st.solo=null; for (const n of nets.values()) n.visible=false; update(); };
 document.getElementById("clearSolo").onclick =
@@ -1503,8 +1523,24 @@ applyTheme(); update(); tick();
                         : "LandXML",
         nS: totS, nP: totP,
         src: src, slug: slugify(fbase),
-        note: omitted ? (omitted + " pipe(s) omitted — endpoints unresolved")
-                      : ""
+        note: (function(){
+          var bits = [];
+          if (omitted)
+            bits.push(omitted + " pipe(s) omitted — endpoints unresolved");
+          /* a network named '... (3)' is a Civil 3D COPY - if levels
+             were edited on the live network, this export carries the
+             copy's OLD levels */
+          var copies = [];
+          p.networks.forEach(function(nw){
+            if (/\(\d+\)\s*$/.test(nw.name)) copies.push(nw.name);
+          });
+          if (copies.length)
+            bits.push("⚠ " + copies.join(", ") +
+                      (copies.length > 1 ? " are Civil 3D COPIES" :
+                       " is a Civil 3D COPY") +
+                      " — check the LIVE network was exported");
+          return bits.join(" · ");
+        })()
       },
       nets: nets
     };
