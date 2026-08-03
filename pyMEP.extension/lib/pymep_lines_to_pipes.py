@@ -523,14 +523,19 @@ def node_z_m(rise_mm, invert_m):
 # Revit API access
 # ---------------------------------------------------------------------------
 def _marker_z_ft(doc, el, loc_z_ft):
-    """A marker's invert elevation in feet: its Level's elevation plus
-    the 'Elevation from Level' parameter - the two values the family
-    actually carries. The location point Z is only the fallback."""
+    """A marker's invert elevation in feet: its Level's PROJECT
+    elevation (the number the level displays - NOT its distance from
+    Revit's internal origin, which can differ by tens of metres in a
+    shared-coordinates model) plus the 'Elevation from Level'
+    parameter. The location point Z is only the fallback."""
     lvl_elev = None
     try:
         lvl = doc.GetElement(el.LevelId)
         if lvl is not None:
-            lvl_elev = lvl.Elevation
+            try:
+                lvl_elev = lvl.ProjectElevation
+            except Exception:
+                lvl_elev = lvl.Elevation
     except Exception:
         pass
     offset = None
