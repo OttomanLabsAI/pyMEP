@@ -401,6 +401,15 @@ class MarkerZ(unittest.TestCase):
             self.ProjectElevation = proj
             self.Elevation = proj + 150.0   # internal differs - must NOT win
 
+    def test_workplane_datum_wins_over_the_marker_level(self):
+        # the lines' work plane is the authoritative datum - the
+        # marker's own (possibly wrong/unset) level must not shift it
+        el = self.El({"Invert Level": self.P(169.7)})
+        doc = self.Doc(self.Lvl(0.0))    # marker level internal = 150
+        self.assertAlmostEqual(
+            ns["_marker_z_ft"](doc, el, 999.0, datum_z_ft=-144.2),
+            169.7 - 144.2)
+
     def test_invert_level_param_is_level_relative(self):
         # the typed invert is measured above the marker's LEVEL, and
         # the level's INTERNAL elevation carries it into model space -
