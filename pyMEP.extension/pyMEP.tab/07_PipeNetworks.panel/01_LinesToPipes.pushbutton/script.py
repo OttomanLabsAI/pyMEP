@@ -71,6 +71,7 @@ AUTO_TYPE = "(automatic)"
 NO_SEGMENT = "(from pipe type)"
 
 settings = load_settings()
+markers = find_invert_markers(doc)
 
 
 def slope_breakdown(rows):
@@ -152,7 +153,7 @@ class LinesWindow(forms.WPFWindow):
         if want in styles or want in (ANY_STYLE, SLOPE_STYLES):
             self.CmbStyle.SelectedItem = want
         else:
-            self.CmbStyle.SelectedItem = SLOPE_STYLES
+            self.CmbStyle.SelectedItem = ANY_STYLE
         self.CmbWorkset.SelectedItem = settings.get("lines_workset") \
             if settings.get("lines_workset") in worksets else ANY_WORKSET
 
