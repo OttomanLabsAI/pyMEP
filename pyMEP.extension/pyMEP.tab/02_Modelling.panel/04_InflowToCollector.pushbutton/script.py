@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
 """Inflow Drop Pipe to Collector - pipe nodes into a collector run.
 
+THE COLLECTOR finds itself: each node casts a ray along its FACING
+direction (family rotation) and tees into the first pipe that ray
+meets (plan-nearest when the ray misses everything). Pre-select ONE
+pipe together with the nodes to FORCE that pipe as every branch's
+collector instead - that also unlocks the main resize / re-grade
+options.
+
 WHICH nodes, your choice:
-  - SELECT them: pre-select the collector pipe together with the node
-    instances (or pick the pipe, then pick the nodes when prompted) -
-    exactly those nodes get connected, mixed types welcome;
+  - SELECT them: pre-select the node instances (with or without a
+    collector pipe), or pick them when prompted - exactly those nodes
+    get connected, mixed types welcome;
   - or a FAMILY TYPE: finish the node pick empty and the dialog's
     category > family > type cascade (or search) connects every
     placed, still-unconnected node of that type.
@@ -36,7 +43,9 @@ from pymep_connect_fixtures import (
     node_dia_mm, node_dia_param_options, CONNECTOR_DIA, DIA_PARAM_NAMES,
     main_gradient, regrade_main, list_pipe_type_options,
     list_system_type_options, set_pipe_dia, _has_point,
+    node_directions, ray_hits_main,
 )
+from pymep_lines_to_pipes import aim_pick
 from pymep_config import load_settings, save_settings, get_export_folder
 from pymep_drainage_networks import next_collector_name
 from pymep_net_param import (ensure_network_param, stamp_network,
@@ -60,9 +69,9 @@ uidoc = revit.uidoc
 log("### Inflow Drop Pipe to Collector")
 
 # ---------------------------------------------------------------------------
-# 1. The main pipe and (optionally) the NODES, straight from selection:
-#    pre-select the pipe + node instances together, or pick the pipe
-#    and then pick nodes when prompted (Finish empty -> family type)
+# 1. The NODES (and optionally ONE forced collector pipe), straight
+#    from selection. No pipe selected = AIM MODE: each node finds its
+#    collector along its own rotation, nothing to pick.
 # ---------------------------------------------------------------------------
 main = None
 sel_nodes = []
@@ -72,62 +81,67 @@ for eid in uidoc.Selection.GetElementIds():
         if main is None:
             main = el
         else:
-            forms.alert("Select just ONE pipe (the main run), or nothing "
-                        "and pick it when asked.", exitscript=True)
+            forms.alert("Select just ONE pipe (to force it as the "
+                        "collector), or none - each node then finds "
+                        "its collector along its own rotation.",
+                        exitscript=True)
     elif isinstance(el, FamilyInstance) and _has_point(el):
         sel_nodes.append(el)
 
 clr.AddReference("RevitAPIUI")
 from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 
-if main is None:
+if not sel_nodes:
 
-    class _PipesOnly(ISelectionFilter):
+    class _NodesOnly(ISelectionFilter):
         def AllowElement(self, e):
-            return isinstance(e, Pipe)
+            return (isinstance(e, FamilyInstance)
+                    and not isinstance(e, Pipe) and _has_point(e))
 
         def AllowReference(self, r, p):
             return False
 
     try:
-        ref = uidoc.Selection.PickObject(
-            ObjectType.Element, _PipesOnly(), "Pick the main pipe")
-        main = doc.GetElement(ref.ElementId)
+        refs = uidoc.Selection.PickObjects(
+            ObjectType.Element, _NodesOnly(),
+            "Pick the nodes to connect - Finish with NOTHING "
+            "selected to choose a family type instead")
+        sel_nodes = [doc.GetElement(r.ElementId) for r in refs]
     except Exception:
-        log("Cancelled - nothing changed.")
-        log.close()
-        script.exit()
-
-    # no nodes pre-selected: offer to pick them - Finish with nothing
-    # (or Escape) falls back to the family-type dialog
-    if not sel_nodes:
-
-        class _NodesOnly(ISelectionFilter):
-            def AllowElement(self, e):
-                return (isinstance(e, FamilyInstance)
-                        and not isinstance(e, Pipe) and _has_point(e))
-
-            def AllowReference(self, r, p):
-                return False
-
-        try:
-            refs = uidoc.Selection.PickObjects(
-                ObjectType.Element, _NodesOnly(),
-                "Pick the nodes to connect - Finish with NOTHING "
-                "selected to choose a family type instead")
-            sel_nodes = [doc.GetElement(r.ElementId) for r in refs]
-        except Exception:
-            sel_nodes = []
+        sel_nodes = []
 
 if sel_nodes:
     log("Nodes chosen BY SELECTION: **{}**.".format(len(sel_nodes)))
 
-try:
-    a, b, _tid, _sid, _lid, main_dia_ft = main_pipe_info(main)
-except Exception as ex:
-    log("{}".format(ex))
-    log.close()
-    forms.alert(str(ex), exitscript=True)
+a = b = None
+main_dia_ft = None
+cand = []                # aim mode: [(pipe, (ax, ay), (bx, by)), ...]
+if main is not None:
+    try:
+        a, b, _tid, _sid, _lid, main_dia_ft = main_pipe_info(main)
+    except Exception as ex:
+        log("{}".format(ex))
+        log.close()
+        forms.alert(str(ex), exitscript=True)
+    log("Collector FORCED by selection: '{}'.".format(safe_name(main)))
+else:
+    # every readable, non-vertical pipe is a candidate for the rays -
+    # a drop pipe has no plan length and cannot catch one
+    from Autodesk.Revit.DB import FilteredElementCollector
+    for _p in FilteredElementCollector(doc).OfClass(Pipe):
+        try:
+            ca, cb, _t1, _s1, _l1, _d1 = main_pipe_info(_p)
+        except Exception:
+            continue
+        if ((ca[0] - cb[0]) ** 2 + (ca[1] - cb[1]) ** 2) ** 0.5 < 0.5:
+            continue
+        cand.append((_p, (ca[0], ca[1]), (cb[0], cb[1])))
+    if not cand:
+        forms.alert("No pipes in the model to aim at - draw the "
+                    "collector runs first (or pre-select one pipe to "
+                    "force it).", exitscript=True)
+    log("AIM MODE: **{}** candidate pipe(s) - each node tees into the "
+        "first one its rotation meets.".format(len(cand)))
 
 # ---------------------------------------------------------------------------
 # 2. The node types placed in this model (families with a pipe connector)
@@ -176,7 +190,7 @@ def _type_label(r):
         r["type"], len(r["insts"]), len(r["todo"]))
 
 
-_cur_grad = main_gradient(a, b)
+_cur_grad = main_gradient(a, b) if main is not None else None
 SAME_AS_MAIN = "(same as the main)"
 _pt_opts = list_pipe_type_options(doc)
 _st_opts = list_system_type_options(doc)
@@ -204,24 +218,40 @@ class NodesWindow(forms.WPFWindow):
                 if nm == want:
                     combo.SelectedIndex = i + 1
                     break
-        self.TxtMainDia.Text = "{:.0f}".format(ft2mm(main_dia_ft))
-        self.TxtInfo.Text = "Main: '{}' ({:.0f} mm), tee junctions".format(
-            safe_name(main), ft2mm(main_dia_ft))
         self.TxtSlope.Text = "{:g}".format(
             float(settings.get("nodes_slope", 100.0)))
-        if _cur_grad is not None:
-            self.TxtMainSlope.Text = "{:.0f}".format(_cur_grad)
-            self.TxtMainHint.Text = (
-                "The main currently falls at about 1:{:.0f}. Tick to "
-                "re-grade it BEFORE the branches are drawn - the chosen "
-                "end stays put, the other moves.".format(_cur_grad))
+        if main is not None:
+            self.TxtMainDia.Text = "{:.0f}".format(ft2mm(main_dia_ft))
+            self.TxtInfo.Text = ("Main: '{}' ({:.0f} mm), tee "
+                                 "junctions".format(safe_name(main),
+                                                    ft2mm(main_dia_ft)))
+            if _cur_grad is not None:
+                self.TxtMainSlope.Text = "{:.0f}".format(_cur_grad)
+                self.TxtMainHint.Text = (
+                    "The main currently falls at about 1:{:.0f}. Tick "
+                    "to re-grade it BEFORE the branches are drawn - "
+                    "the chosen end stays put, the other "
+                    "moves.".format(_cur_grad))
+            else:
+                self.TxtMainSlope.Text = "{:g}".format(
+                    float(settings.get("nodes_slope", 100.0)))
+                self.TxtMainHint.Text = (
+                    "The main is currently LEVEL. Tick to re-grade it "
+                    "before the branches are drawn - the chosen end "
+                    "stays put, the other moves.")
         else:
-            self.TxtMainSlope.Text = "{:g}".format(
-                float(settings.get("nodes_slope", 100.0)))
+            # aim mode - the main options only mean something when ONE
+            # collector is forced by selection
+            self.TxtInfo.Text = ("No pipe selected - each node tees "
+                                 "into the pipe its ROTATION finds")
+            self.TxtMainDia.Text = ""
+            for c in (self.TxtMainDia, self.ChkRegrade,
+                      self.TxtMainSlope, self.RadMainUpper,
+                      self.RadMainLower):
+                c.IsEnabled = False
             self.TxtMainHint.Text = (
-                "The main is currently LEVEL. Tick to re-grade it before "
-                "the branches are drawn - the chosen end stays put, the "
-                "other moves.")
+                "Resize / re-grade apply only when ONE collector pipe "
+                "is pre-selected together with the nodes.")
         if settings.get("nodes_main_keep", "low") == "high":
             self.RadMainUpper.IsChecked = True
 
@@ -527,7 +557,7 @@ if not todo:
 # ---------------------------------------------------------------------------
 from Autodesk.Revit.DB import TransactionGroup
 
-main_segs = [main]
+main_segs = [main] if main is not None else []
 
 
 def _nearest_seg(outlet_xyz):
@@ -543,6 +573,33 @@ def _nearest_seg(outlet_xyz):
     return best
 
 
+def _aim_target(node, outlet_xyz):
+    """(pipe, how) - the first candidate pipe the node's facing ray
+    meets (facing pair before hand pair), else the plan-nearest."""
+    return aim_pick((outlet_xyz[0], outlet_xyz[1]),
+                    node_directions(node), cand,
+                    ray_hits_main, plan_dist_to_segment)
+
+
+def _refresh_cand(target, new_seg):
+    """Keep the candidate lines honest after a tee: the aimed pipe was
+    re-curved and the split-off half is a fresh element."""
+    for _i2 in range(len(cand)):
+        if cand[_i2][0].Id == target.Id:
+            try:
+                na, nb, _x1, _x2, _x3, _x4 = main_pipe_info(target)
+                cand[_i2] = (target, (na[0], na[1]), (nb[0], nb[1]))
+            except Exception:
+                pass
+            break
+    if new_seg is not None:
+        try:
+            na, nb, _x1, _x2, _x3, _x4 = main_pipe_info(new_seg)
+            cand.append((new_seg, (na[0], na[1]), (nb[0], nb[1])))
+        except Exception:
+            pass
+
+
 done = 0
 failed = 0
 fitting_notes = 0
@@ -552,25 +609,47 @@ fitting_notes = 0
 net_name = row["type"] if row is not None else safe_name(todo[0].Symbol)
 base = os.path.join(get_export_folder(doc), "project_files")
 
-# THE COLLECTOR'S IDENTITY: reuse the name already stamped on the
-# picked run, else allocate the next free '<type> - C<n>' - type names
-# carry no network number any more, the collector pipe does.
-collector = network_value(main)
-if not collector:
-    existing = set()
-    try:
-        existing.update(collect_by_network(doc).keys())
-    except Exception:
-        pass
-    try:
-        for _r0 in load_branches(base)["branches"]:
-            if _r0.get("collector"):
-                existing.add(_r0["collector"])
-    except Exception:
-        pass
-    collector = next_collector_name(existing, net_name)
-log("Collector network: **{}** (carried by every element's "
-    "pyMEP_Network parameter).".format(collector))
+# names already in use - every new collector picks the next free one
+existing = set()
+try:
+    existing.update(collect_by_network(doc).keys())
+except Exception:
+    pass
+try:
+    for _r0 in load_branches(base)["branches"]:
+        if _r0.get("collector"):
+            existing.add(_r0["collector"])
+except Exception:
+    pass
+
+# THE COLLECTOR'S IDENTITY: reuse the name already stamped on the run,
+# else allocate the next free '<type> - C<n>' - type names carry no
+# network number any more, the collector pipe does. In aim mode each
+# AIMED pipe gets (or keeps) its own identity.
+_collectors = {}
+
+
+def _collector_for(target):
+    key = str(target.Id)
+    if key in _collectors:
+        return _collectors[key]
+    name = network_value(target)
+    if not name:
+        name = next_collector_name(existing, net_name)
+    existing.add(name)
+    _collectors[key] = name
+    return name
+
+
+if main is not None:
+    collector = _collector_for(main)
+    log("Collector network: **{}** (carried by every element's "
+        "pyMEP_Network parameter).".format(collector))
+else:
+    collector = None
+    log("Collector networks are assigned PER AIMED PIPE - each pipe "
+        "keeps its stamped pyMEP_Network name or takes the next free "
+        "'{} - C<n>'.".format(net_name))
 
 tg = TransactionGroup(doc, "Inflow Drop Pipe to Collector")
 tg.Start()
@@ -578,13 +657,13 @@ try:
     # the network parameter rides on everything this run creates
     if not ensure_network_param(doc):
         log("(pyMEP_Network parameter not bound - stamping skipped)")
-    if win.result["main_dia"] is not None:
+    if main is not None and win.result["main_dia"] is not None:
         try:
             set_pipe_dia(doc, main, win.result["main_dia"], log=log)
         except Exception as ex:
             log("! Couldn't resize the main ({}) - keeping its current "
                 "size.".format(ex))
-    if win.result["main_slope"] is not None:
+    if main is not None and win.result["main_slope"] is not None:
         try:
             regrade_main(doc, main, win.result["main_slope"],
                          keep=win.result["main_keep"], log=log)
@@ -593,7 +672,8 @@ try:
                 "as it lies.".format(ex))
     # the line the tracker uses to find the main's pieces later - taken
     # AFTER any resize/re-grade so it matches what gets built against
-    a, b, _t0, _s0, _l0, _d0 = main_pipe_info(main)
+    if main is not None:
+        a, b, _t0, _s0, _l0, _d0 = main_pipe_info(main)
 
     for node in todo:
         log("**{}** (id {}):".format(safe_name(node), node.Id))
@@ -615,7 +695,23 @@ try:
             if not node_dia:
                 log("  ! no size on '{}' - using 100 mm".format(
                     dia_param or "connector/DIA"))
-            seg = _nearest_seg(o_xyz)
+            if main is not None:
+                seg = _nearest_seg(o_xyz)
+                rec_line = (a, b)
+                col = collector
+            else:
+                seg, how = _aim_target(node, o_xyz)
+                if seg is None:
+                    failed += 1
+                    log("  ! no pipe to aim at - skipped")
+                    continue
+                if how == "nearest":
+                    log("  its rotation aims at no pipe - using the "
+                        "plan-nearest one")
+                ta, tb, _t2, _s2, _l2, _d2 = main_pipe_info(seg)
+                rec_line = (ta, tb)
+                col = _collector_for(seg)
+                log("  -> '{}' ({})".format(safe_name(seg), col))
             r = connect_fixture_to_main(doc, node, seg, slope, dia_mm,
                                         invert_m=win.result["invert_m"],
                                         log=log, pipe_type_id=pt_id,
@@ -625,6 +721,21 @@ try:
             fitting_notes += r["fitting_misses"]
             if r.get("new_main_segment") is not None:
                 main_segs.append(r["new_main_segment"])
+            if main is None:
+                # the tee re-curved the aimed pipe and may have split
+                # off a fresh piece - keep the ray candidates honest,
+                # and both pieces carry the collector name
+                _refresh_cand(seg, r.get("new_main_segment"))
+                if r.get("new_main_segment") is not None:
+                    _collectors[str(r["new_main_segment"].Id)] = col
+                try:
+                    stamp_network(
+                        doc,
+                        [seg] + ([r["new_main_segment"]]
+                                 if r.get("new_main_segment") is not None
+                                 else []), col)
+                except Exception:
+                    pass
             # the collector name rides on the node, its branch and every
             # fitting Revit slipped in - the dashboard groups by it
             try:
@@ -633,10 +744,10 @@ try:
                        r.get("elbow2"), r.get("tee")]
                 els += with_connected_fittings(
                     [r.get("down"), r.get("sloped"), r.get("stub")])
-                stamp_network(doc, els, collector)
+                stamp_network(doc, els, col)
             except Exception:
                 pass
-            # track it so Update Nodes can adapt when the node moves
+            # track it so Sync Input Nodes can adapt when the node moves
             try:
                 rec = make_record(
                     node, r, slope, dia_mm, win.result["invert_m"],
@@ -644,9 +755,9 @@ try:
                     if win.result["pipe_type"] else "",
                     win.result["sys_type"][0]
                     if win.result["sys_type"] else "",
-                    (a, b),
+                    rec_line,
                     row["label"] if row is not None else _node_label(node))
-                rec["collector"] = collector
+                rec["collector"] = col
                 add_branch(base, rec)
             except Exception as ex:
                 log("  (branch not tracked: {})".format(ex))
@@ -655,11 +766,13 @@ try:
             import traceback
             log(traceback.format_exc())
             log("  ! not connected: {}".format(ex))
-    # every piece of the (split) collector belongs to the network too
-    try:
-        stamp_network(doc, main_segs, collector)
-    except Exception:
-        pass
+    # every piece of the (split) forced collector belongs to the
+    # network too (aim mode stamps its pieces per node, as it goes)
+    if main is not None:
+        try:
+            stamp_network(doc, main_segs, collector)
+        except Exception:
+            pass
     # one go: everything lands as a SINGLE undo step
     tg.Assimilate()
 except Exception:
@@ -670,9 +783,14 @@ except Exception:
     raise
 
 log("#### Summary")
-log("- Nodes piped into the main: **{}** of {} in one go (tee "
-    "junctions; the main is now {} segment(s))".format(
-        done, len(todo), len(main_segs)))
+if main is not None:
+    log("- Nodes piped into the main: **{}** of {} in one go (tee "
+        "junctions; the main is now {} segment(s))".format(
+            done, len(todo), len(main_segs)))
+else:
+    log("- Nodes piped: **{}** of {} in one go, each into the pipe "
+        "its rotation found ({} collector network(s) touched)".format(
+            done, len(todo), len(set(_collectors.values()))))
 if fitting_notes:
     log("- Fitting notes: **{}** (see above)".format(fitting_notes))
 if failed:
