@@ -540,14 +540,19 @@ def _set_all_named_length_m(inst, names, value_m):
 # transform solving (validated BEFORE anything is created)
 # ---------------------------------------------------------------------------
 def solve_points(doc, rows, log=None, force_offset=None,
-                 prefer_model=None):
+                 prefer_model=None, off_z_m=None):
     """Solve the survey->internal transform for ``rows``: the Settings
     offset first, then the model's own project position. Every attempt is
     logged with the resulting distance. Returns (pts, mode, offsets) where
     pts is [(plan XYZ at Z=0, z_internal_ft, row), ...] and offsets is
     (off_e_m, off_n_m, off_z_m, rot_deg). Raises with the full numbers if
     nothing lands within the sanity limit - in that case NOTHING has been
-    created or modified."""
+    created or modified.
+
+    ``off_z_m`` overrides the VERTICAL datum on every candidate
+    (including force_offset): pass -level_elevation_m to measure the
+    export's site levels above a picked datum level - the same
+    convention Place Pipes uses, so the two placers stay level."""
     if not rows:
         raise ValueError("No structures to place.")
     try:
@@ -608,6 +613,10 @@ def solve_points(doc, rows, log=None, force_offset=None,
         candidates = [("export origin (site at internal origin)",
                        (float(force_offset[0]), float(force_offset[1]),
                         float(force_offset[2]), float(force_offset[3])))]
+
+    if off_z_m is not None:
+        candidates = [(name, (off[0], off[1], float(off_z_m), off[3]))
+                      for name, off in candidates]
 
     tried = []
     for name, off in candidates:
@@ -1208,6 +1217,7 @@ def run_place(shape=None):
     ORIGIN_VALUES = {"Base - grows up": "base", "Top - grows down": "top",
                      "Mid-height": "center"}
     COORD_MODEL = "Model's Revit coordinates (Manage > Coordinates)"
+    DATUM_SETTINGS = "(numeric Z offset from Settings / coordinates)"
     COORD_SETTINGS = "pyMEP Settings offsets (E/N/Z/rotation)"
     from pymep_landxml_place2 import model_survey_position
     _mp = model_survey_position(doc)
@@ -1240,6 +1250,28 @@ def run_place(shape=None):
             self.CmbCoords.Items.Add(COORD_MODEL)
             self.CmbCoords.Items.Add(COORD_SETTINGS)
             self.CmbCoords.SelectedIndex = 0 if has_georef else 1
+            # vertical datum: the level the export's site levels sit
+            # ABOVE (same convention + remembered pick as Place Pipes)
+            lvl_names = [safe_name(lv) for lv in sorted(
+                FilteredElementCollector(doc).OfClass(Level).ToElements(),
+                key=lambda lv: lv.Elevation)]
+            self.CmbDatum.Items.Clear()
+            self.CmbDatum.Items.Add(DATUM_SETTINGS)
+            for n in lvl_names:
+                self.CmbDatum.Items.Add(n)
+            try:
+                from pymep_config import load_settings
+                remembered = str(
+                    load_settings().get("landxml_datum_level") or "")
+            except Exception:
+                remembered = ""
+            datumish = [n for n in lvl_names if "datum" in n.lower()]
+            if remembered and remembered in lvl_names:
+                self.CmbDatum.SelectedItem = remembered
+            elif remembered == DATUM_SETTINGS or not datumish:
+                self.CmbDatum.SelectedIndex = 0
+            else:
+                self.CmbDatum.SelectedItem = datumish[0]
             self._fill_categories()
             self._restore_defaults()
             self.StatusText.Text = "Pick a dashboard MODEL or STRUCTS " \
@@ -1497,12 +1529,14 @@ def run_place(shape=None):
             for row in self.LstLayers.ItemsSource:
                 if str(row["layer"]) in set(chosen):
                     ws_map[str(row["layer"])] = str(row["workset"] or "")
+            datum = str(self.CmbDatum.SelectedItem or DATUM_SETTINGS)
             self.result = {
                 "path": self.path, "meta": self.meta, "rows": sel_rows,
                 "layers": chosen, "ws_map": ws_map, "fams": fams,
                 "assign_sys": bool(self.ChkSystemType.IsChecked),
                 "prefer_model":
                     str(self.CmbCoords.SelectedItem) == COORD_MODEL,
+                "datum_level": "" if datum == DATUM_SETTINGS else datum,
             }
             self._save_defaults()
             self.Close()
@@ -1641,10 +1675,36 @@ def run_place(shape=None):
     # transform once - fail here and NOTHING gets created --------------------
     log("Coordinates: **{}**".format(
         COORD_MODEL if res["prefer_model"] else COORD_SETTINGS))
+    # vertical datum: site levels measured ABOVE the picked level (same
+    # convention + remembered pick as Place Pipes)
+    datum_level_name = res.get("datum_level") or ""
+    datum_off_z = None
+    if datum_level_name:
+        from pymep_landxml_place2 import datum_off_z_m
+        for _lv in FilteredElementCollector(doc).OfClass(Level):
+            if safe_name(_lv) == datum_level_name:
+                datum_off_z = datum_off_z_m(_lv.Elevation)
+                break
+        if datum_off_z is None:
+            forms.alert("Level '{}' disappeared - nothing was placed."
+                        .format(datum_level_name), exitscript=True)
+        log("Vertical datum: site levels measured above level **{}** "
+            "(internal {:+.3f} m).".format(datum_level_name,
+                                           -datum_off_z))
+    else:
+        log("Vertical datum: numeric Z offset from Settings.")
+    try:
+        from pymep_config import load_settings, save_settings
+        _s = load_settings()
+        _s["landxml_datum_level"] = datum_level_name or DATUM_SETTINGS
+        save_settings(_s)
+    except Exception:
+        pass
     pts_info = None
     try:
         pts_info = solve_points(doc, rows, log=log,
-                                prefer_model=res["prefer_model"])
+                                prefer_model=res["prefer_model"],
+                                off_z_m=datum_off_z)
     except Exception as ex:
         import traceback
         log(traceback.format_exc())
@@ -1678,7 +1738,8 @@ def run_place(shape=None):
                         log("Could not save Settings: {}".format(ex2))
                 pts_info = solve_points(
                     doc, rows, log=log,
-                    force_offset=(float(oe), float(on), 0.0, 0.0))
+                    force_offset=(float(oe), float(on), 0.0, 0.0),
+                    off_z_m=datum_off_z)
         if pts_info is None:
             forms.alert("Transform failed - nothing was created.\n\n{}"
                         "\n\nFull details are in the output window."

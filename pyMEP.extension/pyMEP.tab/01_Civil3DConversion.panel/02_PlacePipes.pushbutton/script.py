@@ -40,7 +40,7 @@ from pymep_dashboard_pipes import (
 )
 from pymep_landxml_place2 import (
     place_landxml_pipes, list_type_names, list_worksets, _el_name,
-    model_survey_position,
+    model_survey_position, datum_off_z_m,
 )
 from pymep_pipesizes import list_pipe_segments, add_sizes_to_segment
 from pymep_revit import safe_name
@@ -66,6 +66,7 @@ ACTIVE = "(active workset)"
 SEG_ROUTE = "(leave to the pipe type's routing preferences)"
 COORD_MODEL = "Model's Revit coordinates (Manage > Coordinates)"
 COORD_SETTINGS = "pyMEP Settings offsets (E/N/Z/rotation)"
+DATUM_SETTINGS = "(numeric Z offset from Settings / coordinates)"
 _mp = model_survey_position(doc)
 HAS_GEOREF = _mp is not None and (abs(_mp[0]) > 1e-6
                                   or abs(_mp[1]) > 1e-6)
@@ -124,6 +125,26 @@ class PipesWindow(forms.WPFWindow):
             key=lambda lv: lv.Elevation)
         self._level_names = [safe_name(lv) for lv in self._levels]
         _fill_names(self.CmbLevel, self._level_names, default_lvl)
+        # vertical datum: the level the export's site levels sit ABOVE.
+        # Default: the remembered pick, else a level named like 'datum',
+        # else the numeric-Z behaviour of before.
+        from pymep_config import load_settings
+        remembered = str(load_settings().get("landxml_datum_level") or "")
+        self.CmbDatum.Items.Clear()
+        self.CmbDatum.Items.Add(DATUM_SETTINGS)
+        for n in self._level_names:
+            self.CmbDatum.Items.Add(n)
+        if remembered and remembered in self._level_names:
+            self.CmbDatum.SelectedItem = remembered
+        elif remembered == DATUM_SETTINGS:
+            self.CmbDatum.SelectedIndex = 0
+        else:
+            datumish = [n for n in self._level_names
+                        if "datum" in n.lower()]
+            if datumish:
+                self.CmbDatum.SelectedItem = datumish[0]
+            else:
+                self.CmbDatum.SelectedIndex = 0
         self.StatusText.Text = "Pick a dashboard MODEL or PIPES export " \
                                "to begin."
 
@@ -206,6 +227,7 @@ class PipesWindow(forms.WPFWindow):
             if str(row["layer"]) in set(chosen):
                 ws_map[str(row["layer"])] = str(row["workset"] or "")
         seg = str(self.CmbSegment.SelectedItem)
+        datum = str(self.CmbDatum.SelectedItem or DATUM_SETTINGS)
         self.result = {
             "layers": chosen, "ws_map": ws_map,
             "pipe_type": str(self.CmbPipeType.SelectedItem),
@@ -214,6 +236,7 @@ class PipesWindow(forms.WPFWindow):
             "level": str(self.CmbLevel.SelectedItem),
             "layer_systems": bool(self.ChkLayerSystems.IsChecked),
             "prefer_model": str(self.CmbCoords.SelectedItem) == COORD_MODEL,
+            "datum_level": "" if datum == DATUM_SETTINGS else datum,
         }
         self.Close()
 
@@ -252,6 +275,32 @@ log("Pipe type **{}**, fallback system **{}**, segment **{}**, level "
     "**{}**.".format(pipe_type_name, system_type_name,
                      segment_name or "(routing preferences)",
                      host_level_name))
+
+# vertical datum: site levels are measured ABOVE the picked level, so a
+# 47.85 m invert lands 47.85 m over it and the displayed elevations read
+# the site values (the numeric Settings Z stays available as the
+# fallback option)
+datum_level_name = res.get("datum_level") or ""
+datum_off_z = None
+if datum_level_name:
+    for _lv in FilteredElementCollector(doc).OfClass(Level):
+        if safe_name(_lv) == datum_level_name:
+            datum_off_z = datum_off_z_m(_lv.Elevation)
+            break
+    if datum_off_z is None:
+        forms.alert("Level '{}' disappeared - nothing was placed."
+                    .format(datum_level_name), exitscript=True)
+    log("Vertical datum: site levels measured above level **{}** "
+        "(internal {:+.3f} m).".format(datum_level_name, -datum_off_z))
+else:
+    log("Vertical datum: numeric Z offset from Settings.")
+try:
+    from pymep_config import load_settings, save_settings
+    _s = load_settings()
+    _s["landxml_datum_level"] = datum_level_name or DATUM_SETTINGS
+    save_settings(_s)
+except Exception:
+    pass
 
 # Persist only when workshared (the non-workshared branch forces '' and
 # would clobber real names) - same rule as before.
@@ -329,6 +378,8 @@ p_rows = placement_rows(rows, only_circular=True, layers=set(chosen_layers))
 
 
 def _place(off_e=None, off_n=None, off_z=None, rot=None):
+    if off_z is None:
+        off_z = datum_off_z    # None -> Settings, as before
     return place_landxml_pipes(
         doc, p_rows, layer_workset_map,
         pipe_type_name=pipe_type_name, system_type_name=system_type_name,
@@ -374,7 +425,9 @@ try:
             except Exception as ex2:
                 log("Could not save Settings: {}".format(ex2))
         created, failed, skipped, mode, dia_set, mark_set = _place(
-            off_e=float(oe), off_n=float(on), off_z=0.0, rot=0.0)
+            off_e=float(oe), off_n=float(on),
+            off_z=datum_off_z if datum_off_z is not None else 0.0,
+            rot=0.0)
 
     forms.alert(
         "Done.\n\nPlaced: {}\nFailed: {}\nShort-skipped: {}\n"
