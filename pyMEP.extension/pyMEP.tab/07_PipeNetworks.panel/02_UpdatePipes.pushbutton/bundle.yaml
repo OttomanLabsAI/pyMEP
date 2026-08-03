@@ -1,0 +1,2 @@
+title: Update Pipes
+tooltip: "Re-run the last Lines to Pipes build against the lines as they are NOW: the elements the last build created are deleted, the lines re-read (moved, redrawn, added, removed) and the network rebuilt with the same inputs - filters, sizes, invert and outfall point. Custom lines keep their remembered gradients; only new 'Slope Custom' lines are asked for, in the same clickable plan."
