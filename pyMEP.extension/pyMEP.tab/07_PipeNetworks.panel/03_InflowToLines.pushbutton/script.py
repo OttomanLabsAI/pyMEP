@@ -200,8 +200,8 @@ if failed:
     log("- Failed: **{}**".format(failed))
 for n in fitting_notes:
     log("- {}".format(n))
-log("Note: Update Pipes rebuilds the MAINS only - re-run this button "
-    "after an update to reconnect the nodes.")
+log("Note: re-running Lines to Pipes rebuilds the MAINS only - run "
+    "this button again afterwards to reconnect the nodes.")
 
 forms.alert("Connected {} node(s) into the line network.{}{}".format(
     done,
