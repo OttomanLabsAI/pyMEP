@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Update Nodes - adapt the tracked node branches to where the nodes are
-NOW.
+"""Sync Input Nodes - adapt the tracked node branches to where the
+nodes are NOW.
 
-Every branch Inflow Drop Pipe to Collector builds is tracked in the project's file
-store. Hit this after moving (or deleting) nodes:
+Every tracked inflow branch lives in the project's file store. Hit
+this after moving (or deleting) nodes:
 
   - untouched nodes with an intact branch are left alone;
   - moved nodes - and nodes that were TURNED or had their family's
@@ -15,7 +15,7 @@ store. Hit this after moving (or deleting) nodes:
 Everything runs in one go (a single undo step).
 """
 
-__title__  = "Update\nNodes"
+__title__  = "Sync Input\nNodes"
 __author__ = "Glent Group"
 
 import os
@@ -34,7 +34,7 @@ output = script.get_output()
 log = Logger(output, "UpdateNodes")
 doc = revit.doc
 
-log("### Update Nodes")
+log("### Sync Input Nodes")
 
 base = os.path.join(get_export_folder(doc), "project_files")
 try:
@@ -47,12 +47,12 @@ except Exception as ex:
                 exitscript=True)
 
 if res.get("none"):
-    log("No tracked branches yet - run **Inflow Drop Pipe to Collector** first; every "
-        "branch it builds is tracked automatically.")
+    log("No tracked branches yet - branches are tracked automatically "
+        "as the inflow buttons build them.")
     log.close()
-    forms.alert("No tracked branches for this project yet.\n\nRun "
-                "Inflow Drop Pipe to Collector first - every branch it builds is "
-                "tracked automatically.", exitscript=True)
+    forms.alert("No tracked branches for this project yet.\n\n"
+                "Branches are tracked automatically as the inflow "
+                "buttons build them.", exitscript=True)
 
 log("#### Summary")
 log("- Unchanged: **{}**".format(res["unchanged"]))
