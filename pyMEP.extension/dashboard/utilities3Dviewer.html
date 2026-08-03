@@ -494,7 +494,11 @@ for (const nd of DATA.nets){
   g.add(gs, gp); world.add(g);
 
   for (const d of nd.structs){
-    const h = Math.max(d[4]-d[5], .35);
+    /* the solid spans cover .. underside of the floor slab (d[11],
+       parsed from the style desc) - matching the DWG's 3D, where the
+       body reads floor-thickness deeper than the Sump Level param */
+    const base = d[5] - (d[11] || 0);
+    const h = Math.max(d[4]-base, .35);
     let geo;
     if (d[6]==="c"){
       const r = Math.max(d[7]/2, .2);
@@ -504,7 +508,7 @@ for (const nd of DATA.nets){
       geo = new THREE.BoxGeometry(Math.max(d[7],.25), Math.max(d[8],.25), h);
     }
     const m = new THREE.Mesh(geo, mat);
-    m.position.set(d[2], d[3], (d[4]+d[5])/2);
+    m.position.set(d[2], d[3], (d[4]+base)/2);
     if (d[6]!=="c" && d[10]) m.rotation.z = d[10]*Math.PI/180;
     const c = cluster("s", d[1]||NODESC, sSize(d), d[9]||"—");
     c.members.push(m); c.nets.add(nd.name);
@@ -812,6 +816,7 @@ function fillInfo(mesh){
   if (u.k==="s"){
     rows.push(["Cover level", fmt(d[4],2)+" m"]);
     rows.push(["Sump level", fmt(d[5],2)+" m"]);
+    if (d[11]) rows.push(["Floor u/s", fmt(d[5]-d[11],2)+" m"]);
     rows.push(["Depth", fmt(d[4]-d[5],2)+" m"]);
     if (d[9]) rows.push(["Material", d[9]]);
     rows.push(["Easting", fmt(M.origin[0]+d[2],2)]);
@@ -1003,6 +1008,7 @@ function structRows(){
       northing: +(M.origin[1]+d[3]).toFixed(3),
       rim_m: d[4], sump_m: d[5], depth_m: +(d[4]-d[5]).toFixed(3),
       z_m: d[5], rotation_deg: d[10] || 0,
+      floor_m: d[11] || 0,
       material: d[9]||null, desc: d[1]||null
     };
     if (d[6]==="c"){ row.shape="cyl"; row.dia_m = d[7]>0 ? d[7] : null; }
@@ -1345,6 +1351,18 @@ applyTheme(); update(); tick();
     if (rim === null || rim <= sump) rim = sump + 1.2;
     return {rim:rim, sump:sump};
   }
+  function floorOf(desc){
+    /* '... wall 150 floor' in a Civil 3D style desc = a 150 mm floor
+       slab UNDER the sump. elevSump is the inner (hydraulic) floor -
+       the drawn solid's bottom sits this much lower, which is why a
+       chamber measured in the DWG reads deeper than its Sump Level
+       parameter. Values >= 10 are millimetres. */
+    var m = /(\d+(?:[.,]\d+)?)\s*floor\b/i.exec(desc || "");
+    if (!m) return 0;
+    var v = parseFloat(m[1].replace(",", "."));
+    if (!isFinite(v) || v <= 0) return 0;
+    return v >= 10 ? v / 1000 : v;
+  }
   function withNet(name, net){
     var sfx = " (" + net + ")";
     return (name.slice(-sfx.length) === sfx) ? name : name + sfx;
@@ -1437,10 +1455,11 @@ applyTheme(); update(); tick();
           return;
         }
         var lv = structLevels(st);
-        srows.push({st:st, rim:lv.rim, sump:lv.sump});
+        var fl = floorOf(st.desc);
+        srows.push({st:st, rim:lv.rim, sump:lv.sump, floor:fl});
         minE = Math.min(minE, st.x); maxE = Math.max(maxE, st.x);
         minN = Math.min(minN, st.y); maxN = Math.max(maxN, st.y);
-        zs.push(lv.rim, lv.sump);
+        zs.push(lv.rim, lv.sump - fl);
       });
       nw.pipes.forEach(function(pp){
         if (pp.dead){ omitted++; return; }
@@ -1472,7 +1491,7 @@ applyTheme(); update(); tick();
                 st.shape || "c",
                 st.d1 !== null ? st.d1 : (st.shape === "r" ? 0.6 : 1.0),
                 st.d2 !== null ? st.d2 : (st.shape === "r" ? 0.6 : 0),
-                st.material || "", rotFor(st)];
+                st.material || "", rotFor(st), r3(row.floor)];
       });
       var pipes = sn.prows.map(function(row){
         var pp = row.p;
@@ -1500,7 +1519,7 @@ applyTheme(); update(); tick();
         return [st.name, st.desc || "Dummy null structure",
                 r2(st.x - origin[0]), r2(st.y - origin[1]),
                 r3(rim), r3(sump), "c", 0.5, 0, st.material || "",
-                rotFor(st)];
+                rotFor(st), 0];
       });
       nets.push({name:"NULL STRUCTURES", structs:nrows, pipes:[],
                  hidden: !!hideNull});
