@@ -29,7 +29,7 @@ pyMEP.extension/
   lib/                        # shared IronPython modules used by the buttons
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
-    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, stacked icons: Create Pipe Sizes + Structure to Pipe; Family at Pipe Top (own slot)
+    01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, big icon-only: Create Pipe Sizes + Structure to Pipe (stack) and Family at Pipe Top (own slot)
     02_Modelling.panel/         # 'Drainage': Gully to MH, Merge/Connect/Nodes tools
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
     07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes
@@ -168,7 +168,7 @@ neither fits, it offers to place at the internal origin using the
 export's own origin (optionally saving it to Settings). Rectangular duct-bank
 rows are skipped - only circular runs become pipes.
 
-**Create Pipe Sizes** (stacked, big icon - the name lives in the tooltip) - reads a dashboard pipes
+**Create Pipe Sizes** (stacked, big icon-only - the name lives in the tooltip) - reads a dashboard pipes
 export, lists the distinct circular diameters and adds the missing ones
 to the pipe Segment configured in Settings > Pipes (Place Pipes already
 does this automatically; keep for adding sizes without placing pipes).
@@ -188,7 +188,8 @@ dialogs are dismissed as they arrive, so a big batch never stops to
 ask. A cylinder that cannot be read is reported and skipped; the rest
 still convert.
 
-**Family at Pipe Top** (its own button after the Pipe Tools column) - the inverse of Structure to Pipe: select what the family
+**Family at Pipe Top** (its own column, big icon with no label - the
+name lives in the tooltip) - the inverse of Structure to Pipe: select what the family
 should sit on, pick a family type (category > family > type, with a
 search box that matches all three at once) and one instance is placed
 on the top of each. Anything drawn as a line - pipe, conduit, duct,
@@ -518,8 +519,9 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 
 ## Ribbon order on reload
 
-The same startup pass turns the two-high stacks into big icon-only
-buttons, and leaves a column of three or more alone.
+The same startup pass turns the icon-only buttons (the two-high
+stacks AND the standalone Family at Pipe Top) into big unlabelled
+icons, and leaves a column of three or more alone.
 
 Revit builds each panel's layout ONCE per session, so a button added
 to an existing stacked column has nowhere to go until Revit itself is
