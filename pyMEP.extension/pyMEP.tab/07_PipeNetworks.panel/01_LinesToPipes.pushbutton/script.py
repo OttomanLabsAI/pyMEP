@@ -427,8 +427,9 @@ if markers:
     sources = []
     for el, (mx, my), mz in markers:
         sources.append(((mx, my), mz))
-        log("- Invert Level node at ({:.1f}, {:.1f}) m -> invert "
-            "**{:.3f} m** (Level + Elevation from Level)".format(
+        log("- Invert Level node at ({:.1f}, {:.1f}) m -> HIGH point "
+            "**{:.3f} m** - the network falls away from it along the "
+            "node's direction".format(
                 mx / 1000.0, my / 1000.0, mz / 1000.0))
     pick_mm = list(sources[0][0])
 else:
@@ -450,17 +451,40 @@ else:
         pick_mm = (p.X * MM_PER_FT, p.Y * MM_PER_FT)
 
 # ---------------------------------------------------------------------------
-# tracked rebuild: the elements the LAST run created are removed first,
-# so re-running replaces the network instead of doubling it
+# tracked UPDATE: existing pipes are re-curved IN PLACE (element ids -
+# and therefore drawing tags - survive); only the fittings are removed
+# up front, since a connected tee blocks a curve change. Leftover old
+# pipes (their line gone or split differently) are swept afterwards.
 # ---------------------------------------------------------------------------
-old_uids = _prev.get("element_uids", []) or []
-if old_uids:
-    t_old = Transaction(doc, "Lines to Pipes - remove previous network")
+from Autodesk.Revit.DB.Plumbing import Pipe as _Pipe
+
+prev_line_pipes = _prev.get("line_pipes", {}) or {}
+prev_fitting_uids = _prev.get("fitting_uids", []) or []
+prev_all_uids = _prev.get("element_uids", []) or []
+legacy_record = bool(prev_all_uids) and not prev_line_pipes
+
+reuse = {}
+reusable_uids = set()
+for i, (el, _a, _b, _st) in enumerate(lines):
+    pool = []
+    for uid in prev_line_pipes.get(el.UniqueId, []):
+        try:
+            p_el = doc.GetElement(uid)
+        except Exception:
+            p_el = None
+        if isinstance(p_el, _Pipe):
+            pool.append(p_el)
+            reusable_uids.add(uid)
+    if pool:
+        reuse[i] = pool
+
+def _delete_uids(uids, label):
+    t_old = Transaction(doc, "Lines to Pipes - " + label)
     _quiet(t_old)
     t_old.Start()
     gone = 0
     try:
-        for uid in old_uids:
+        for uid in uids:
             try:
                 el = doc.GetElement(uid)
             except Exception:
@@ -476,11 +500,22 @@ if old_uids:
         if t_old.HasStarted() and not t_old.HasEnded():
             t_old.RollBack()
         raise
-    log("Previous build removed: **{}** element(s) (tracked in the "
-        "build record).".format(gone))
+    return gone
+
+if legacy_record:
+    # a pre-v1.108 record has no per-line map - one last full rebuild,
+    # tags survive from the NEXT run onward
+    gone = _delete_uids(prev_all_uids, "remove previous network")
+    log("Previous build (old record format) removed: **{}** element(s) "
+        "- pipe ids are stable from this run on.".format(gone))
+elif prev_fitting_uids or prev_all_uids:
+    gone = _delete_uids(prev_fitting_uids, "remove old fittings")
+    log("Old fittings removed: **{}** - existing pipes stay and are "
+        "re-graded in place, so drawing tags keep their host.".format(
+            gone))
 
 # ---------------------------------------------------------------------------
-# solve + build
+# solve + build (existing pipes re-curved via the reuse pools)
 # ---------------------------------------------------------------------------
 sol = solve(lines_mm, pick_mm, slopes, sources=sources)
 
@@ -498,14 +533,37 @@ try:
                               0.0 if markers else opt["invert_m"],
                               log=log,
                               segment_id=(opt["segment"][1].Id
-                                          if opt["segment"] else None))
+                                          if opt["segment"] else None),
+                              reuse=reuse)
 except Exception as ex:
     import traceback
     log(traceback.format_exc())
     forms.alert("Nothing was built - the model is unchanged.\n\n"
                 "{}".format(ex), title="Lines to Pipes", exitscript=True)
 
-# record the build so Update Pipes can delete + rebuild it later
+# sweep old pipes that no run reused (their line is gone or now
+# splits differently) - AFTER the build so a failure leaves them be
+try:
+    kept_uids = set()
+    for el2 in res.get("reused_elements", []):
+        try:
+            kept_uids.add(el2.UniqueId)
+        except Exception:
+            pass
+    stale = [u for u in reusable_uids if u not in kept_uids]
+    if not legacy_record:
+        stale += [u for u in prev_all_uids
+                  if u not in reusable_uids
+                  and u not in set(prev_fitting_uids)]
+    stale = [u for u in set(stale) if u not in kept_uids]
+    if stale:
+        gone2 = _delete_uids(stale, "sweep stale pipes")
+        if gone2:
+            log("Stale old pipe(s) swept: **{}**.".format(gone2))
+except Exception as ex:
+    log("! stale sweep skipped ({})".format(ex))
+
+# record the build (per-line pipe map + fittings) for the next update
 try:
     import datetime
     base = os.path.join(get_export_folder(doc), "project_files")
@@ -514,12 +572,32 @@ try:
         if i in slopes:
             custom_by_uid[lines[i][0].UniqueId] = slopes[i]
     uids = []
-    for el in res.get("elements", []):
+    for el in res.get("elements", []) + res.get("reused_elements", []):
         try:
             uids.append(el.UniqueId)
         except Exception:
             pass
+    uids = sorted(set(uids))
+    line_pipes = {}
+    for li, pieces in (res.get("pieces_by_line") or {}).items():
+        lu = lines[li][0].UniqueId
+        got = []
+        for p_el in pieces:
+            try:
+                got.append(p_el.UniqueId)
+            except Exception:
+                pass
+        if got:
+            line_pipes[lu] = got
+    fitting_uids = []
+    for f_el in res.get("fitting_elements", []):
+        try:
+            fitting_uids.append(f_el.UniqueId)
+        except Exception:
+            pass
     save_lines_record(base, {
+        "line_pipes": line_pipes,
+        "fitting_uids": fitting_uids,
         "style": opt["style"], "workset": opt["workset"],
         "dia_mm": opt["dia_mm"], "invert_m": opt["invert_m"],
         "slope_default": opt["slope_n"],
@@ -532,13 +610,14 @@ try:
         "custom_slopes": custom_by_uid,
         "element_uids": uids,
         "when": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
-    log("Build recorded for **Update Pipes** ({} element(s))."
-        .format(len(uids)))
+    log("Build recorded ({} element(s)) - the next run updates these "
+        "pipes in place.".format(len(uids)))
 except Exception as ex:
-    log("! build record not saved ({}) - Update Pipes will not track "
-        "this run".format(ex))
+    log("! build record not saved ({}) - the next run will rebuild "
+        "instead of update".format(ex))
 
 log("#### Summary")
+log("- Pipes re-graded in place: **{}**".format(res.get("updated", 0)))
 log("- Pipes created: **{}**".format(res["pipes"]))
 log("- Fittings placed: **{}**".format(res["fittings"]))
 if res["failed"]:
@@ -547,8 +626,10 @@ for n in res["notes"]:
     log("- {}".format(n))
 
 forms.alert(
-    "Built {} pipe(s) and {} fitting(s) from {} line(s).{}".format(
-        res["pipes"], res["fittings"], len(lines),
+    "Updated {} and built {} pipe(s), {} fitting(s) from {} "
+    "line(s).{}".format(
+        res.get("updated", 0), res["pipes"], res["fittings"],
+        len(lines),
         "\n{} failed - see the report.".format(res["failed"])
         if res["failed"] else ""),
     title="Lines to Pipes")
