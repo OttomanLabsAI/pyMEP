@@ -569,7 +569,19 @@ def _marker_z_ft(doc, el, loc_z_ft):
                 str(prm.StorageType) == "Double":
             v = prm.AsDouble()
             if abs(v) > 1e-9:
-                return v
+                # the typed invert is measured ABOVE THE MARKER'S LEVEL
+                # (the project datum) - and pipe elevations display
+                # relative to their reference level too, so adding the
+                # level's INTERNAL elevation makes the pipe's displayed
+                # invert read exactly the typed number
+                base = 0.0
+                try:
+                    lvl = doc.GetElement(el.LevelId)
+                    if lvl is not None:
+                        base = lvl.Elevation
+                except Exception:
+                    pass
+                return base + v
     except Exception:
         pass
     lvl_elev = None

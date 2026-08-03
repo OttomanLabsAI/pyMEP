@@ -401,12 +401,25 @@ class MarkerZ(unittest.TestCase):
             self.ProjectElevation = proj
             self.Elevation = proj + 150.0   # internal differs - must NOT win
 
-    def test_invert_level_param_wins(self):
+    def test_invert_level_param_is_level_relative(self):
+        # the typed invert is measured above the marker's LEVEL, and
+        # the level's INTERNAL elevation carries it into model space -
+        # a Datum Level far from the internal origin must not shift
+        # the displayed result
         el = self.El({"Invert Level": self.P(169.7),
                       "Elevation from Level": self.P(5.0)})
-        doc = self.Doc(self.Lvl(0.0))
+        doc = self.Doc(self.Lvl(0.0))     # internal = 0 + 150
         self.assertAlmostEqual(
-            ns["_marker_z_ft"](doc, el, 999.0), 169.7)
+            ns["_marker_z_ft"](doc, el, 999.0), 169.7 + 150.0)
+
+    def test_invert_level_param_without_level(self):
+        el = self.El({"Invert Level": self.P(169.7)}, level_id=None)
+
+        class NoDoc(object):
+            def GetElement(self, _id):
+                raise Exception("no level")
+        self.assertAlmostEqual(
+            ns["_marker_z_ft"](NoDoc(), el, 999.0), 169.7)
 
     def test_zero_invert_falls_back_to_level_plus_offset(self):
         el = self.El({"Invert Level": self.P(0.0),
