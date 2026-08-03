@@ -52,6 +52,7 @@ XAML_PATH = os.path.join(_LIB_DIR, "pymep_lines_to_pipes.xaml")
 CUSTOM_XAML_PATH = os.path.join(_LIB_DIR, "pymep_lines_custom.xaml")
 
 ANY_STYLE = "(any line style)"
+SLOPE_STYLES = "(all slope-named styles - Pipe 1-n / Custom)"
 ANY_WORKSET = "(any workset)"
 
 styles = line_style_options(doc)
@@ -69,6 +70,18 @@ NO_SEGMENT = "(from pipe type)"
 settings = load_settings()
 
 
+def gather_lines(style_sel, workset):
+    """The lines the current filter selects. SLOPE_STYLES takes every
+    line whose style name parses to a slope OR is a Custom style - the
+    whole slope-named network in one go."""
+    rows = collect_lines(doc, None, workset)
+    if style_sel == ANY_STYLE:
+        return rows
+    if style_sel == SLOPE_STYLES:
+        return [r for r in rows if parse_style_slope(r[3]) is not None]
+    return [r for r in rows if r[3] == style_sel]
+
+
 class LinesWindow(forms.WPFWindow):
 
     def __init__(self):
@@ -77,6 +90,7 @@ class LinesWindow(forms.WPFWindow):
         self._loading = True
 
         self.CmbStyle.Items.Clear()
+        self.CmbStyle.Items.Add(SLOPE_STYLES)
         self.CmbStyle.Items.Add(ANY_STYLE)
         for nm in styles:
             self.CmbStyle.Items.Add(nm)
@@ -116,8 +130,11 @@ class LinesWindow(forms.WPFWindow):
                 self.CmbSegment.SelectedIndex = i + 1
                 break
 
-        self.CmbStyle.SelectedItem = settings.get("lines_style") \
-            if settings.get("lines_style") in styles else ANY_STYLE
+        want = settings.get("lines_style")
+        if want in styles or want in (ANY_STYLE, SLOPE_STYLES):
+            self.CmbStyle.SelectedItem = want
+        else:
+            self.CmbStyle.SelectedItem = SLOPE_STYLES
         self.CmbWorkset.SelectedItem = settings.get("lines_workset") \
             if settings.get("lines_workset") in worksets else ANY_WORKSET
         self._fill_sizes()
@@ -158,14 +175,30 @@ class LinesWindow(forms.WPFWindow):
     def _filters(self):
         style = self.CmbStyle.SelectedItem
         ws = self.CmbWorkset.SelectedItem
-        return (None if style in (None, ANY_STYLE) else str(style),
+        return (str(style) if style is not None else SLOPE_STYLES,
                 None if ws in (None, ANY_WORKSET) else str(ws))
 
     def _refresh_count(self):
         style, ws = self._filters()
-        n = len(collect_lines(doc, style, ws))
-        self.TxtCount.Text = ("{} straight model line(s) match - they "
-                              "become the network.".format(n))
+        rows = gather_lines(style, ws)
+        n = len(rows)
+        if n:
+            named = len(set(r[3] for r in rows if r[3]))
+            self.TxtCount.Text = ("{} straight model line(s) across {} "
+                                  "line style(s) - they become the "
+                                  "network.".format(n, named))
+            return
+        # nothing matches - say WHY
+        if ws and gather_lines(style, None):
+            self.TxtCount.Text = ("0 match - lines with that style "
+                                  "exist, but not on workset "
+                                  "'{}'.".format(ws))
+        elif style not in (ANY_STYLE, SLOPE_STYLES) and \
+                collect_lines(doc, None, ws):
+            self.TxtCount.Text = ("0 match - no straight model line "
+                                  "carries the style '{}'.".format(style))
+        else:
+            self.TxtCount.Text = "0 straight model line(s) match."
 
     def on_filter_changed(self, sender, args):
         if self._loading:
@@ -185,7 +218,7 @@ class LinesWindow(forms.WPFWindow):
                                     "invert is in metres.")
             return
         style, ws = self._filters()
-        if not collect_lines(doc, style, ws):
+        if not gather_lines(style, ws):
             self.StatusText.Text = "No straight model lines match."
             return
         i_pt = self.CmbPipeType.SelectedIndex
@@ -361,7 +394,7 @@ if win.result is None:
     script.exit()
 
 opt = win.result
-settings["lines_style"] = opt["style"] or ANY_STYLE
+settings["lines_style"] = opt["style"]
 settings["lines_workset"] = opt["workset"] or ANY_WORKSET
 settings["lines_dia_mm"] = opt["dia_mm"]
 settings["lines_slope"] = opt["slope_n"]
@@ -375,7 +408,7 @@ try:
 except Exception:
     pass
 
-lines = collect_lines(doc, opt["style"], opt["workset"])
+lines = gather_lines(opt["style"], opt["workset"])
 log("**{}** line(s), dia **{:.0f} mm**{}, default gradient **1:{:g}**, "
     "outfall invert **{:.3f} m**".format(
         len(lines), opt["dia_mm"],
