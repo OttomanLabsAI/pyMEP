@@ -60,6 +60,18 @@
                     <Grid Margin="0,2,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Pipes workset"/>
+                        <ComboBox x:Name="CmbPipesWorkset" Grid.Column="1"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Which workset the COLLECTOR pipes live on - only its pipes can catch a node's ray (ignored when one main is forced by selection)."/>
+                    <Grid Margin="0,2,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="110"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>

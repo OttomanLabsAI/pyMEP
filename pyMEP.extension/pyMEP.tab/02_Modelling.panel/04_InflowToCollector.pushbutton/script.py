@@ -45,7 +45,7 @@ from pymep_connect_fixtures import (
     list_system_type_options, set_pipe_dia, _has_point,
     node_directions, ray_hits_main,
 )
-from pymep_lines_to_pipes import aim_pick
+from pymep_lines_to_pipes import aim_pick, _workset_name
 from pymep_config import load_settings, save_settings, get_export_folder
 from pymep_drainage_networks import next_collector_name
 from pymep_net_param import (ensure_network_param, stamp_network,
@@ -116,6 +116,8 @@ if sel_nodes:
 a = b = None
 main_dia_ft = None
 cand = []                # aim mode: [(pipe, (ax, ay), (bx, by)), ...]
+cand_ws = []             # the workset name of each candidate
+ANY_PIPES_WS = "(any workset)"
 if main is not None:
     try:
         a, b, _tid, _sid, _lid, main_dia_ft = main_pipe_info(main)
@@ -136,12 +138,14 @@ else:
         if ((ca[0] - cb[0]) ** 2 + (ca[1] - cb[1]) ** 2) ** 0.5 < 0.5:
             continue
         cand.append((_p, (ca[0], ca[1]), (cb[0], cb[1])))
+        cand_ws.append(_workset_name(doc, _p) or "")
     if not cand:
         forms.alert("No pipes in the model to aim at - draw the "
                     "collector runs first (or pre-select one pipe to "
                     "force it).", exitscript=True)
-    log("AIM MODE: **{}** candidate pipe(s) - each node tees into the "
-        "first one its rotation meets.".format(len(cand)))
+    log("AIM MODE: **{}** candidate pipe(s) - pick the collector "
+        "pipes' WORKSET in the dialog; each node tees into the first "
+        "candidate its rotation meets.".format(len(cand)))
 
 # ---------------------------------------------------------------------------
 # 2. The node types placed in this model (families with a pipe connector)
@@ -220,6 +224,19 @@ class NodesWindow(forms.WPFWindow):
                     break
         self.TxtSlope.Text = "{:g}".format(
             float(settings.get("nodes_slope", 100.0)))
+        self.CmbPipesWorkset.Items.Clear()
+        self.CmbPipesWorkset.Items.Add(ANY_PIPES_WS)
+        for w in sorted(set(w for w in cand_ws if w),
+                        key=lambda x: x.lower()):
+            self.CmbPipesWorkset.Items.Add(w)
+        self.CmbPipesWorkset.SelectedIndex = 0
+        want_ws = settings.get("nodes_pipes_workset") or ""
+        for i in range(self.CmbPipesWorkset.Items.Count):
+            if str(self.CmbPipesWorkset.Items[i]) == want_ws:
+                self.CmbPipesWorkset.SelectedIndex = i
+                break
+        if main is not None:
+            self.CmbPipesWorkset.IsEnabled = False
         if main is not None:
             self.TxtMainDia.Text = "{:.0f}".format(ft2mm(main_dia_ft))
             self.TxtInfo.Text = ("Main: '{}' ({:.0f} mm), tee "
@@ -475,7 +492,11 @@ class NodesWindow(forms.WPFWindow):
                 return
         pt_i = self.CmbPipeType.SelectedIndex
         st_i = self.CmbSysType.SelectedIndex
+        pipes_ws = str(self.CmbPipesWorkset.SelectedItem
+                       or ANY_PIPES_WS)
         self.result = {"row": (None if sel_nodes else self._shown[i]),
+                       "pipes_workset": ("" if pipes_ws == ANY_PIPES_WS
+                                         else pipes_ws),
                        "slope": slope,
                        "dia_mode": dia_mode, "dia_param": dia_param,
                        "fixed_dia": fixed_dia, "main_dia": main_dia,
@@ -522,10 +543,27 @@ settings["nodes_pipe_type"] = (win.result["pipe_type"][0]
                                if win.result["pipe_type"] else "")
 settings["nodes_sys_type"] = (win.result["sys_type"][0]
                               if win.result["sys_type"] else "")
+settings["nodes_pipes_workset"] = win.result.get("pipes_workset") or ""
 try:
     save_settings(settings)
 except Exception:
     pass
+
+# aim mode: only the chosen workset's pipes can catch a ray - no
+# more teeing into random pipes from other systems
+if main is None:
+    _ws_pick = win.result.get("pipes_workset") or ""
+    if _ws_pick:
+        cand = [c for c, w in zip(list(cand), list(cand_ws))
+                if w == _ws_pick]
+        if not cand:
+            forms.alert("No candidate pipes on workset '{}' - nothing "
+                        "to aim at.".format(_ws_pick), exitscript=True)
+        log("Collector pipes filtered to workset **{}**: **{}** "
+            "candidate(s).".format(_ws_pick, len(cand)))
+    else:
+        log("Collector pipes: ANY workset ({} candidate(s)).".format(
+            len(cand)))
 
 pt_id = win.result["pipe_type"][1] if win.result["pipe_type"] else None
 st_id = win.result["sys_type"][1] if win.result["sys_type"] else None
