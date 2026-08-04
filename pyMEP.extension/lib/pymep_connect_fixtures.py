@@ -384,13 +384,14 @@ def node_directions(inst):
     return out
 
 
-def node_forward_directions(inst):
-    """Only the directions the node POINTS: facing, then hand - no
-    reversed pair. For aiming among MANY candidate pipes: with the
-    reversed directions in play, a forward miss lets the backwards ray
-    latch onto a pipe BEHIND the node and the branch builds backwards.
-    Against one known main the full pairs stay the right tool."""
-    return node_directions(inst)[::2]
+def node_aim_directions(inst):
+    """The directions the node's drawn ARROW points: these node
+    families draw their direction wire along the OPPOSITE of the API
+    FacingOrientation, so the aim rays are -facing, then -hand - and
+    never the other two, so a miss cannot latch onto a pipe behind
+    the arrow. Against one known main the full pairs stay the right
+    tool (there they only choose the tee point)."""
+    return node_directions(inst)[1::2]
 
 
 def node_drop_pipe(inst):
