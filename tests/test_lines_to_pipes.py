@@ -246,43 +246,45 @@ class FitPlan(unittest.TestCase):
 
 
 class InvertMarkers(unittest.TestCase):
-    """Multi-source solving: Invert Level marker families pin absolute
-    levels as HIGH points - the node is the inlet and the network
-    FALLS away from it along the node's direction."""
+    """Head-fed solving: Invert Level nodes pin the HIGH ends and the
+    pick marks the LOW (outfall) end, which needs no node. The network
+    falls from every head toward the pick; merges continue from the
+    lower feed; headless branches rise off the mains."""
 
     def test_marker_is_the_high_point(self):
-        # marker at the trunk's west end pins 51324 mm; 30 m at 1:200
-        # FALLS 150 mm to the east end - the marker is the head, not
-        # the outfall
-        sol = solve([TRUNK], (0.0, 0.0), 200.0,
+        # marker at the trunk's west end pins 51324 mm; the pick marks
+        # the east end as the outfall - 30 m at 1:200 falls 150 mm
+        sol = solve([TRUNK], (30000.0, 0.0), 200.0,
                     sources=[((0.0, 0.0), 51324.0)])
-        far = None
+        west, east = None, None
         for i, (x, y) in enumerate(sol["nodes"]):
+            if abs(x) < 1.0:
+                west = i
             if abs(x - 30000.0) < 1.0:
-                far = i
-        self.assertAlmostEqual(sol["depths"][far], 51174.0, places=6)
-        self.assertAlmostEqual(
-            sol["depths"][sol["outfall_node"]], 51324.0, places=6)
+                east = i
+        self.assertAlmostEqual(sol["depths"][west], 51324.0, places=6)
+        self.assertAlmostEqual(sol["depths"][east], 51174.0, places=6)
+        self.assertEqual(sol["outfall_node"], east)
 
     def test_two_islands_each_take_their_own_marker(self):
-        sol = solve([TRUNK, LONER], (0.0, 0.0), 100.0,
+        # pick on the trunk; the loner is an island with its own
+        # marker - it keeps the fall-away-from-the-node rule
+        sol = solve([TRUNK, LONER], (30000.0, 0.0), 100.0,
                     sources=[((0.0, 0.0), 10000.0),
                              ((50000.0, 50000.0), 20000.0)])
         lone_top = None
         for i, (x, y) in enumerate(sol["nodes"]):
             if abs(y - 60000.0) < 1.0:
                 lone_top = i
-        # the 10 m loner FALLS 100 mm below ITS marker, not the trunk's
         self.assertAlmostEqual(sol["depths"][lone_top], 19900.0,
                                places=6)
         # both lines build - the loner is no longer 'not piped'
         self.assertEqual(sorted(r["line"] for r in sol["runs"]), [0, 1])
         self.assertEqual(len(sol["source_nodes"]), 2)
 
-    def test_highest_feed_wins_when_sources_compete(self):
-        # markers at both trunk ends; each end keeps its own marker
-        # (falling from the other would land it lower - the higher
-        # feed wins) and the between piece is flagged, not fudged
+    def test_heads_pin_their_levels_exactly(self):
+        # markers at both trunk ends: each stays at ITS typed level -
+        # a feed arriving below a pinned head is reported, not fudged
         sol = solve([TRUNK], (0.0, 0.0), 100.0,
                     sources=[((0.0, 0.0), 10000.0),
                              ((30000.0, 0.0), 10100.0)])
@@ -295,15 +297,82 @@ class InvertMarkers(unittest.TestCase):
         self.assertAlmostEqual(sol["depths"][west], 10000.0, places=6)
         self.assertAlmostEqual(sol["depths"][east], 10100.0, places=6)
 
-    def test_descend_falls_along_the_direction(self):
-        # one marker at the head: EVERY node downstream sits LOWER
-        # than the marker - nothing anywhere sits above it
-        sol = solve([TRUNK, LATERAL, CORNER], (0.0, 0.0), 100.0,
+    def test_headless_branches_rise_off_the_mains(self):
+        # ONE head west, outfall picked east: the trunk falls west ->
+        # east, and the lateral / corner (no head above them) RISE
+        # away from the network at their grade so they drain into it
+        sol = solve([TRUNK, LATERAL, CORNER], (30000.0, 0.0), 100.0,
                     sources=[((0.0, 0.0), 50000.0)])
-        top = max(sol["depths"].values())
-        self.assertAlmostEqual(top, 50000.0, places=6)
-        self.assertTrue(all(v <= 50000.0 + 1e-6
-                            for v in sol["depths"].values()))
+        idx = {}
+        for i, (x, y) in enumerate(sol["nodes"]):
+            idx[(round(x), round(y))] = i
+        self.assertAlmostEqual(
+            sol["depths"][idx[(10000, 0)]], 49900.0, places=6)   # tee
+        self.assertAlmostEqual(
+            sol["depths"][idx[(30000, 0)]], 49700.0, places=6)   # out
+        self.assertAlmostEqual(
+            sol["depths"][idx[(10000, 12000)]], 50020.0,
+            places=6)                     # lateral rises off the tee
+        self.assertAlmostEqual(
+            sol["depths"][idx[(30000, 20000)]], 49900.0,
+            places=6)                     # corner rises off the out
+        # every line builds - nothing 'fed from both ends'
+        self.assertEqual(sorted(set(r["line"] for r in sol["runs"])),
+                         [0, 1, 2])
+
+    def test_merge_takes_the_lower_feed(self):
+        # two heads feed one junction; the run continues from the
+        # LOWER feed and the higher feed's last stretch is steeper -
+        # it still builds, nothing is flagged
+        A = ((0.0, 0.0), (20000.0, 0.0))
+        B = ((10000.0, 10000.0), (10000.0, 0.0))
+        sol = solve([A, B], (20000.0, 0.0), 100.0,
+                    sources=[((0.0, 0.0), 50000.0),
+                             ((10000.0, 10000.0), 49000.0)])
+        idx = {}
+        for i, (x, y) in enumerate(sol["nodes"]):
+            idx[(round(x), round(y))] = i
+        self.assertAlmostEqual(
+            sol["depths"][idx[(10000, 0)]], 48900.0, places=6)
+        self.assertAlmostEqual(
+            sol["depths"][idx[(20000, 0)]], 48800.0, places=6)
+        self.assertAlmostEqual(
+            sol["depths"][idx[(0, 0)]], 50000.0, places=6)
+        self.assertEqual(sorted(set(r["line"] for r in sol["runs"])),
+                         [0, 1])
+        self.assertFalse(any("fed from both ends" in s
+                             for s in sol["skipped"]))
+
+    def test_three_run_ends_become_a_join(self):
+        # two feeds and the outfall run all END at one point - the
+        # solver emits a 3-way JOIN with the straight-through pair
+        # first, and nothing is 'left unconnected'
+        A = ((0.0, 0.0), (10000.0, 0.0))
+        B = ((10000.0, 10000.0), (10000.0, 0.0))
+        C = ((10000.0, 0.0), (20000.0, 0.0))
+        sol = solve([A, B, C], (20000.0, 0.0), 100.0,
+                    sources=[((0.0, 0.0), 50000.0),
+                             ((10000.0, 10000.0), 49000.0)])
+        self.assertEqual(len(sol["joins"]), 1)
+        jn = sol["joins"][0]
+        lines_in = [r["line"] for r in jn["runs"]]
+        self.assertEqual(sorted(lines_in), [0, 1, 2])
+        # the collinear pair (A and C) carries straight through
+        self.assertEqual(sorted(lines_in[:2]), [0, 2])
+        self.assertEqual(lines_in[2], 1)
+        self.assertFalse(any("left unconnected" in s
+                             for s in sol["skipped"]))
+
+    def test_loop_segment_left_out(self):
+        # a closed square has no single flow direction - one segment
+        # is dropped with a note, the rest still solves
+        L0 = ((0.0, 0.0), (10000.0, 0.0))
+        L1 = ((10000.0, 0.0), (10000.0, 10000.0))
+        L2 = ((10000.0, 10000.0), (0.0, 10000.0))
+        L3 = ((0.0, 10000.0), (0.0, 0.0))
+        sol = solve([L0, L1, L2, L3], (0.0, 0.0), 100.0,
+                    sources=[((0.0, 10000.0), 50000.0)])
+        self.assertTrue(any("LOOP" in s for s in sol["skipped"]))
 
 
 class AimPick(unittest.TestCase):
