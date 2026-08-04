@@ -238,7 +238,7 @@ of family + checkbox is remembered between runs.
 the lot into a graded pipe network in one run. Filter the lines by line
 style and workset - the default filter '(styles starting
 with the prefix)' takes every line whose style name starts with the
-Style prefix box ('Pipes' by default), so one run covers the whole network; a zero count says WHY (wrong
+Style prefix box ('Pipe' by default), so one run covers the whole network; a zero count says WHY (wrong
 workset vs. style not in use); pick the system type, the PIPE SEGMENT (the
 material/schedule choice from the pipe properties - e.g. 'Plastic -
 Schedule 40') with the diameter list showing that segment's catalogued
