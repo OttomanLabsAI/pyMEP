@@ -450,6 +450,36 @@ class AimPick(unittest.TestCase):
                                   self.ray, self.dist)
         self.assertEqual((key, how), (None, None))
 
+    def test_forward_directions_never_aim_backwards(self):
+        # aim-anywhere mode uses the FORWARD pair only: a node facing
+        # +y with a candidate pipe BEHIND it (-y) must NOT latch onto
+        # it via the reversed ray - the plan-nearest fallback reports
+        # 'nearest' instead, and the backwards branch never builds
+        import types
+        cf_path = os.path.join(LIB, "pymep_connect_fixtures.py")
+        src = io.open(cf_path, encoding="utf-8").read()
+        nd_ns = {}
+        for node in ast.parse(src).body:
+            if isinstance(node, ast.FunctionDef) and node.name in (
+                    "node_directions", "node_forward_directions"):
+                exec(compile(ast.get_source_segment(src, node), cf_path,
+                             "exec"), nd_ns)
+        inst = types.SimpleNamespace(
+            FacingOrientation=types.SimpleNamespace(X=0.0, Y=1.0, Z=0.0),
+            HandOrientation=types.SimpleNamespace(X=1.0, Y=0.0, Z=0.0))
+        fwd = nd_ns["node_forward_directions"](inst)
+        self.assertEqual(fwd, [(0.0, 1.0), (1.0, 0.0)])
+        behind = [("behind", (-100.0, -50.0), (100.0, -50.0))]
+        # the full pairs DO latch onto the pipe behind...
+        key, how = ns["aim_pick"](
+            (0.0, 0.0), nd_ns["node_directions"](inst), behind,
+            self.ray, self.dist)
+        self.assertEqual((key, how), ("behind", "aimed"))
+        # ...the forward pair does not
+        key, how = ns["aim_pick"]((0.0, 0.0), fwd, behind,
+                                  self.ray, self.dist)
+        self.assertEqual((key, how), ("behind", "nearest"))
+
 
 class MarkerZ(unittest.TestCase):
     """The marker family's invert resolution order: its own 'Invert
