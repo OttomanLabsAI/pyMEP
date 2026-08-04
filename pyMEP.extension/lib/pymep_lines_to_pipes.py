@@ -940,7 +940,7 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
     fitting_elements = []
     fitting_lines = []       # (fitting, [line_index, ...]) per fitting
     reused_elements = []
-    made, updated, fitted, failed = 0, 0, 0, 0
+    made, updated, fitted, failed, left = 0, 0, 0, 0, 0
     notes = []
 
     t = Transaction(doc, "Lines to Pipes")
@@ -970,6 +970,28 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
                     if bd is None or d2 < bd:
                         bi, bd = i2, d2
                 cand = pool.pop(bi)
+                # a pipe still CONNECTED to anything (a node branch's
+                # tee, a fitting outside the update scope) cannot take
+                # a new curve - Revit invalidates the connections AT
+                # COMMIT ('modified to be in the opposite direction'),
+                # killing the whole update. Leave it exactly as it is.
+                still_connected = False
+                try:
+                    for c in cand.ConnectorManager.Connectors:
+                        if c.IsConnected:
+                            still_connected = True
+                            break
+                except Exception:
+                    pass
+                if still_connected:
+                    notes.append("line {}: a pipe still has connected "
+                                 "fittings - left AS IT IS, not "
+                                 "re-graded (disconnect or rebuild its "
+                                 "branches first)".format(r["line"]))
+                    pipe = cand
+                    left += 1
+                    reused_elements.append(cand)
+                    break
                 # keep the pipe's EXISTING direction: writing a curve
                 # that runs the opposite way invalidates its
                 # connections ('modified to be in the opposite
@@ -1119,7 +1141,8 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
             t.RollBack()
         raise
 
-    return {"pipes": made, "updated": updated, "fittings": fitted,
+    return {"pipes": made, "updated": updated, "left": left,
+            "fittings": fitted,
             "failed": failed, "notes": notes, "elements": created,
             "pieces_by_line": pieces_by_line,
             "fitting_elements": fitting_elements,

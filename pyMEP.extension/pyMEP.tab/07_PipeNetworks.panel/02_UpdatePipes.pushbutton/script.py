@@ -643,6 +643,10 @@ except Exception as ex:
 
 log("#### Summary")
 log("- Pipes re-graded in place: **{}**".format(res.get("updated", 0)))
+if res.get("left"):
+    log("- Pipes left AS THEY ARE (connected fittings): **{}** - "
+        "disconnect or rebuild their branches, then update again"
+        .format(res.get("left", 0)))
 log("- Pipes created: **{}**".format(res["pipes"]))
 log("- Fittings placed: **{}**".format(res["fittings"]))
 if res["failed"]:
