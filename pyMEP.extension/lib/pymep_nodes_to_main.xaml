@@ -176,6 +176,7 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
@@ -192,6 +193,11 @@
                                Text="Type"/>
                     <ComboBox x:Name="CmbType" Grid.Row="2" Grid.Column="1"
                               SelectionChanged="on_type_changed"/>
+                    <TextBlock Grid.Row="5" Grid.Column="0"
+                               Style="{StaticResource FieldLabel}"
+                               Text="Node workset"/>
+                    <ComboBox x:Name="CmbNodeWorkset" Grid.Row="5"
+                              Grid.Column="1"/>
                     <TextBlock Grid.Row="3" Grid.Column="0"
                                Style="{StaticResource FieldLabel}"
                                Text="Search"/>
@@ -202,7 +208,7 @@
                                Text="Dia from"/>
                     <ComboBox x:Name="CmbDiaParam" Grid.Row="4"
                               Grid.Column="1"/>
-                    <TextBlock Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="2"
+                    <TextBlock Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="2"
                                Style="{StaticResource Hint}"
                                Text="Search matches every category / family / type at once (clear it to go back to the three lists). 'Dia from' picks WHICH family parameter carries the pipe diameter - the type's numeric parameters are listed with a sample value, plus the outlet connector when the family has one."/>
                 </Grid>
