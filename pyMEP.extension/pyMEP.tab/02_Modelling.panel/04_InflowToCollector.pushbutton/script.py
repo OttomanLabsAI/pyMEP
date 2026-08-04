@@ -618,14 +618,16 @@ def _nearest_seg(outlet_xyz):
 
 
 def _aim_target(node, outlet_xyz):
-    """(pipe, how) - the first candidate pipe the rays along the
-    node's drawn ARROW meet (the wire is 180 degrees off the API
-    facing; the other two directions are never tried, so a miss
-    cannot latch onto a pipe behind the arrow), else the
-    plan-nearest."""
+    """(pipe, how) - a candidate DIRECTLY UNDER the node (within
+    ~300 mm in plan) wins outright: the drop goes straight down into
+    it. Otherwise the first candidate the rays along the node's drawn
+    ARROW meet (the wire is 180 degrees off the API facing; the other
+    two directions are never tried, so a miss cannot latch onto a
+    pipe behind the arrow), else the plan-nearest."""
     return aim_pick((outlet_xyz[0], outlet_xyz[1]),
                     node_aim_directions(node), cand,
-                    ray_hits_main, plan_dist_to_segment)
+                    ray_hits_main, plan_dist_to_segment,
+                    under=1.0)
 
 
 def _refresh_cand(target, new_seg):
@@ -755,6 +757,9 @@ try:
                 if how == "nearest":
                     log("  its rotation aims at no pipe - using the "
                         "plan-nearest one")
+                elif how == "under":
+                    log("  directly over the pipe - dropped straight "
+                        "in")
                 ta, tb, _t2, _s2, _l2, _d2 = main_pipe_info(seg)
                 rec_line = (ta, tb)
                 col = _collector_for(seg)
