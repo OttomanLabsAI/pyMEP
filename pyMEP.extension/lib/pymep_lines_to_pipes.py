@@ -953,9 +953,41 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
             pipe = None
             pool = (reuse or {}).get(r["line"]) or []
             while pool:
-                cand = pool.pop(0)
+                # take the pool pipe LYING CLOSEST to this run - FIFO
+                # cross-matched the pieces of a line split several ways
+                bi, bd = 0, None
+                mx = (pa.X + pb.X) / 2.0
+                my = (pa.Y + pb.Y) / 2.0
+                for i2 in range(len(pool)):
+                    try:
+                        oc = pool[i2].Location.Curve
+                        o0 = oc.GetEndPoint(0)
+                        o1 = oc.GetEndPoint(1)
+                        d2 = (((o0.X + o1.X) / 2.0 - mx) ** 2 +
+                              ((o0.Y + o1.Y) / 2.0 - my) ** 2)
+                    except Exception:
+                        continue
+                    if bd is None or d2 < bd:
+                        bi, bd = i2, d2
+                cand = pool.pop(bi)
+                # keep the pipe's EXISTING direction: writing a curve
+                # that runs the opposite way invalidates its
+                # connections ('modified to be in the opposite
+                # direction' - a Revit error that aborts the update)
+                q0, q1 = pa, pb
                 try:
-                    cand.Location.Curve = Line.CreateBound(pa, pb)
+                    oc = cand.Location.Curve
+                    o0 = oc.GetEndPoint(0)
+                    o1 = oc.GetEndPoint(1)
+                    dot = ((o1.X - o0.X) * (pb.X - pa.X) +
+                           (o1.Y - o0.Y) * (pb.Y - pa.Y) +
+                           (o1.Z - o0.Z) * (pb.Z - pa.Z))
+                    if dot < 0:
+                        q0, q1 = pb, pa
+                except Exception:
+                    pass
+                try:
+                    cand.Location.Curve = Line.CreateBound(q0, q1)
                     _set_segment(cand, segment_id)
                     _set_dia(cand, dia_ft)
                     pipe = cand
