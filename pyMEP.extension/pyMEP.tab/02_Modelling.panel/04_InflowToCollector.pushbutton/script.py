@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Inflow Drop Pipe to Collector - pipe nodes into a collector run.
 
-THE COLLECTOR finds itself: each node casts a ray along its FACING
-direction (family rotation) and tees into the first pipe that ray
-meets (plan-nearest when the ray misses everything). Pre-select ONE
+THE COLLECTOR finds itself: each node casts rays along its FORWARD
+directions only (facing, then hand - never backwards) and tees into
+the first candidate pipe a ray meets (plan-nearest when both miss).
+Pre-select ONE
 pipe together with the nodes to FORCE that pipe as every branch's
 collector instead - that also unlocks the main resize / re-grade
 options.
@@ -43,7 +44,7 @@ from pymep_connect_fixtures import (
     node_dia_mm, node_dia_param_options, CONNECTOR_DIA, DIA_PARAM_NAMES,
     main_gradient, regrade_main, list_pipe_type_options,
     list_system_type_options, set_pipe_dia, _has_point,
-    node_directions, ray_hits_main,
+    node_directions, node_forward_directions, ray_hits_main,
 )
 from pymep_lines_to_pipes import aim_pick, _workset_name
 from pymep_config import load_settings, save_settings, get_export_folder
@@ -612,10 +613,12 @@ def _nearest_seg(outlet_xyz):
 
 
 def _aim_target(node, outlet_xyz):
-    """(pipe, how) - the first candidate pipe the node's facing ray
-    meets (facing pair before hand pair), else the plan-nearest."""
+    """(pipe, how) - the first candidate pipe the node's FORWARD rays
+    meet (facing, then hand - never the reversed pair, so a forward
+    miss cannot latch onto a pipe BEHIND the node), else the
+    plan-nearest."""
     return aim_pick((outlet_xyz[0], outlet_xyz[1]),
-                    node_directions(node), cand,
+                    node_forward_directions(node), cand,
                     ray_hits_main, plan_dist_to_segment)
 
 

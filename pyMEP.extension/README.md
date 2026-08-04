@@ -358,8 +358,10 @@ runs. A fitting that can't be placed never fails the branch - the
 pipes stay and the miss is reported.
 
 **Inflow Drop Pipe to Collector** - the node-driven sibling of Connect
-Fixtures. THE COLLECTOR FINDS ITSELF: each node's facing ray picks the
-first CANDIDATE pipe it meets (plan-nearest when the ray misses), and
+Fixtures. THE COLLECTOR FINDS ITSELF: each node casts rays along its
+FORWARD directions only (facing, then hand - never backwards, so a
+miss can't latch onto a pipe behind the node) and tees into the first
+CANDIDATE pipe a ray meets (plan-nearest when both miss), and
 every aimed pipe keeps - or is given - its own collector network
 name. The dialog's 'Pipes workset' picks WHICH workset's pipes are
 candidates ('(any workset)' to open it up, remembered between runs) -
