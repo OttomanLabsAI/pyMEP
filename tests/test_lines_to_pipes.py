@@ -450,6 +450,22 @@ class AimPick(unittest.TestCase):
                                   self.ray, self.dist)
         self.assertEqual((key, how), (None, None))
 
+    def test_pipe_directly_under_wins_before_any_ray(self):
+        # the node sits ON a run whose direction matches its arrow: a
+        # parallel ray cannot hit it and would catch the NEXT pipe
+        # along, drawing a duplicate run on top of the main - with
+        # ``under`` set, the pipe below wins outright
+        below = ("below", (-100.0, 0.3), (100.0, 0.3))
+        far = ("far", (150.0, -100.0), (150.0, 100.0))
+        key, how = ns["aim_pick"]((0.0, 0.0), [(1.0, 0.0)],
+                                  [below, far], self.ray, self.dist,
+                                  under=1.0)
+        self.assertEqual((key, how), ("below", "under"))
+        # without ``under`` the parallel ray latches onto the far pipe
+        key, how = ns["aim_pick"]((0.0, 0.0), [(1.0, 0.0)],
+                                  [below, far], self.ray, self.dist)
+        self.assertEqual((key, how), ("far", "aimed"))
+
     def test_aim_directions_follow_the_drawn_arrow(self):
         # the node families draw their direction wire OPPOSITE the API
         # FacingOrientation: with API facing +y, the arrow points -y.

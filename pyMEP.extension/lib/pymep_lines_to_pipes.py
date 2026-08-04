@@ -127,15 +127,31 @@ def fit_plan(lines, width, height, pad=16.0):
     return scale, ox, oy
 
 
-def aim_pick(o_xy, dir_xys, segs, ray_fn, dist_fn):
+def aim_pick(o_xy, dir_xys, segs, ray_fn, dist_fn, under=None):
     """Which network segment a node belongs to. ``segs`` is
     [(key, (ax, ay), (bx, by)), ...]; ``dir_xys`` the node's direction
     candidates in priority order (facing pair first). The first
     direction whose ray meets any segment wins, nearest hit first;
     with no hit at all the plan-nearest segment is returned instead.
-    Returns (key, 'aimed' | 'nearest') or (None, None) when there are
-    no segments. ``ray_fn``/``dist_fn`` are ray_hits_main and
-    plan_dist_to_segment (injected so this stays pure and testable)."""
+    Returns (key, 'under' | 'aimed' | 'nearest') or (None, None) when
+    there are no segments. ``ray_fn``/``dist_fn`` are ray_hits_main
+    and plan_dist_to_segment (injected so this stays pure and
+    testable).
+
+    ``under`` (same unit as the coordinates): a segment passing WITHIN
+    that distance of the node wins outright as 'under' - the node sits
+    ON a run and the drop goes straight down into it. Without this, an
+    arrow PARALLEL to the pipe below sails over it (a parallel ray
+    cannot hit) and catches the next pipe along, drawing a duplicate
+    run on top of the main."""
+    if under is not None:
+        u_best, u_d = None, None
+        for key, a_xy, b_xy in segs:
+            d = dist_fn(o_xy, a_xy, b_xy)
+            if u_d is None or d < u_d:
+                u_best, u_d = key, d
+        if u_best is not None and u_d <= under:
+            return u_best, "under"
     for d in dir_xys:
         best, best_s = None, None
         for key, a_xy, b_xy in segs:
