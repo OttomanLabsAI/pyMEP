@@ -85,12 +85,15 @@ class AutoInvert(unittest.TestCase):
         self.assertAlmostEqual(out["upstream_invert_m"],
                                (9.8 - 0.25) * FT, places=9)
 
-    def test_projection_clamps_to_segment(self):
-        # fixture beyond the main's b end: projection clamps to b
+    def test_projection_clamps_to_segment_off_the_end(self):
+        # fixture beyond the main's b end: projection clamps to b,
+        # then comes IN by a fitting's worth (2 x dia here) - a tee
+        # cannot split a pipe at its endpoint
         out = branch_points((150.0, 10.0, 20.0), (0.0, 0.0, 10.0),
                             (100.0, 0.0, 8.0), 100.0, 0.5)
-        self.assertEqual(out["end"][:2], (100.0, 0.0))
-        self.assertAlmostEqual(out["end"][2], 8.0, places=9)
+        self.assertEqual(out["end"][:2], (99.0, 0.0))
+        # z follows the main's own fall to the nudged point
+        self.assertAlmostEqual(out["end"][2], 8.0 + 0.02, places=9)
 
     def test_fixture_directly_over_the_main(self):
         out = branch_points((50.0, 0.0, 20.0), (0.0, 0.0, 10.0),
@@ -375,6 +378,39 @@ class NearestSegment(unittest.TestCase):
         self.assertAlmostEqual(
             plan_dist_to_segment((103, 4, 0), (0, 0, 0), (100, 0, 0)),
             5.0, places=9)
+
+
+class TeeOffTheEnds(unittest.TestCase):
+    """A branch point on the main's END cannot become a tee -
+    BreakCurve cannot split a pipe at its endpoint, so the connection
+    degraded to a takeoff/elbow. The branch point is nudged INWARD by
+    a fitting's worth (max of 2 diameters and 300 mm) so a real
+    T-junction places."""
+
+    MAIN_A = (0.0, 0.0, 0.0)
+    MAIN_B = (32.8, 0.0, 0.0)          # a ~10 m main along x
+    DIA = 100.0 / 304.8
+
+    def _margin(self):
+        return max(2.0 * self.DIA, 300.0 / 304.8)
+
+    def test_projection_at_the_end_is_nudged_in(self):
+        # the outlet lies BEYOND the b end: the plan projection clamps
+        # to the endpoint - the branch point must come in by the margin
+        r = branch_points((40.0, 5.0, 10.0), self.MAIN_A, self.MAIN_B,
+                          100.0, self.DIA)
+        self.assertAlmostEqual(r["end"][0], 32.8 - self._margin(),
+                               places=6)
+
+    def test_projection_at_the_start_is_nudged_in(self):
+        r = branch_points((-5.0, 5.0, 10.0), self.MAIN_A, self.MAIN_B,
+                          100.0, self.DIA)
+        self.assertAlmostEqual(r["end"][0], self._margin(), places=6)
+
+    def test_mid_span_is_untouched(self):
+        r = branch_points((16.4, 5.0, 10.0), self.MAIN_A, self.MAIN_B,
+                          100.0, self.DIA)
+        self.assertAlmostEqual(r["end"][0], 16.4, places=6)
 
 
 if __name__ == "__main__":

@@ -187,6 +187,20 @@ def branch_points(outlet, main_a, main_b, slope_n, dia_ft, invert_m=None,
         mx = ax + t * dx
         my = ay + t * dy
 
+    # keep the junction OFF the main's ends: a tee cannot SPLIT a pipe
+    # at its endpoint (BreakCurve fails and the branch degrades to a
+    # takeoff/elbow instead of a T-junction), so a branch point landing
+    # within a fitting's worth of either end is nudged inward
+    plan_len = math.hypot(bx - ax, by - ay)
+    tm = 0.0
+    if plan_len > 1e-9:
+        m_ft = min(max(2.0 * dia_ft, 300.0 / 304.8), 0.45 * plan_len)
+        tm = m_ft / plan_len
+        if t < tm or t > 1.0 - tm:
+            t = max(tm, min(1.0 - tm, t))
+            mx = ax + t * (bx - ax)
+            my = ay + t * (by - ay)
+
     # oblique approach? square the last bit so the tee can place
     stub = None
     if hit is not None:
@@ -207,7 +221,7 @@ def branch_points(outlet, main_a, main_b, slope_n, dia_ft, invert_m=None,
                     # perpendicular foot of the stub corner on the main
                     t2 = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) \
                         / max((bx - ax) ** 2 + (by - ay) ** 2, 1e-12)
-                    t2 = max(0.0, min(1.0, t2))
+                    t2 = max(tm, min(1.0 - tm, t2))
                     mx = ax + t2 * (bx - ax)
                     my = ay + t2 * (by - ay)
                     t = t2
