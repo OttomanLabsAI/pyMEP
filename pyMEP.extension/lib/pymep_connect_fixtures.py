@@ -308,10 +308,21 @@ def main_pipe_info(main):
 
 def fixture_outlet_info(fixture):
     """((x,y,z), dia_mm or None) - the outlet connector, most-downward
-    then lowest (same rule as the gully button)."""
+    then lowest (same rule as the gully button). A family with NO
+    connector hangs its branch from its LOCATION POINT: the node
+    families are spheres placed by their centre, and the gully-style
+    bounding-box bottom (extension geometry and all) started the drop
+    below the ball instead of at it."""
     o, dia_mm = gully_outlet(fixture)
     if o is None:
         return None, None
+    if not get_connectors(fixture):
+        try:
+            p = fixture.Location.Point
+            if p is not None:
+                return (p.X, p.Y, p.Z), dia_mm
+        except Exception:
+            pass
     return (o.X, o.Y, o.Z), dia_mm
 
 
