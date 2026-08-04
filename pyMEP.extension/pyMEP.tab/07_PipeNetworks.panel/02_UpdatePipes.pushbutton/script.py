@@ -1,21 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Lines to Pipes - turn the model lines you drew into a graded pipe
-network.
+"""Update Pipes - update the RECORDED Lines to Pipes network for the
+lines and worksets YOU CHOOSE, in place.
 
-Every line is graded at ITS OWN slope, read from its line style name:
-'Pipe 1-80' runs at 1:80, 'Pipe 1-150' at 1:150. A style whose name
-carries no number uses the dialog's default gradient, and a 'Slope
-Custom' style opens a clickable plan of the network asking for each
-custom line's gradient. Lines crossing or ending on another line are
-teed in at the level of the run they meet; end-to-end joints get
-elbows.
-
-This button ALWAYS CREATES NEW pipes and records them; Update Pipes
-(next door) re-grades a recorded network in place for the lines and
-worksets you choose, keeping element ids and drawing tags.
+The dialog's filters (style prefix / line style / workset) pick the
+SCOPE. The lines are re-read as they are now, solved exactly like
+Lines to Pipes (per-style gradients, Invert Level heads + one outfall
+click), and every recorded pipe of the scope is RE-GRADED by
+re-setting its curve - element ids, and therefore drawing tags,
+survive. Only the scope's fittings are deleted and rebuilt (a
+connected tee blocks a curve change); pipes whose line is gone or now
+splits differently are swept; scoped lines NEW to the record are
+created fresh and start tracking. Everything else in the record is
+left alone.
 """
 
-__title__ = "Lines to\nPipes"
+__title__ = "Update\nPipes"
 __author__ = "Glent Group"
 
 import sys
@@ -40,18 +39,20 @@ from pymep_lines_to_pipes import (
 )
 from pymep_lines_custom_ui import ask_custom_slopes
 from pymep_pipesizes import existing_segment_sizes_mm, list_pipe_segments
+from pymep_replace_structure import _quiet
 
 import clr
 clr.AddReference("RevitAPI")
 clr.AddReference("RevitAPIUI")
+from Autodesk.Revit.DB import Transaction
 from Autodesk.Revit.UI.Selection import ObjectType
 
 output = script.get_output()
-log = Logger(output, "LinesToPipes")
+log = Logger(output, "UpdatePipes")
 doc = revit.doc
 uidoc = revit.uidoc
 
-log("### Lines to Pipes")
+log("### Update Pipes")
 
 _LIB_DIR = os.path.dirname(
     os.path.abspath(sys.modules["pymep_config"].__file__))
@@ -456,7 +457,90 @@ else:
     pick_mm = (p.X * MM_PER_FT, p.Y * MM_PER_FT)
 
 # ---------------------------------------------------------------------------
-# solve + build - ALWAYS fresh pipes; Update Pipes handles in-place
+# tracked UPDATE: existing pipes are re-curved IN PLACE (element ids -
+# and therefore drawing tags - survive); only the fittings are removed
+# up front, since a connected tee blocks a curve change. Leftover old
+# pipes (their line gone or split differently) are swept afterwards.
+# ---------------------------------------------------------------------------
+from Autodesk.Revit.DB.Plumbing import Pipe as _Pipe
+
+prev_line_pipes = _prev.get("line_pipes", {}) or {}
+prev_fitting_lines = _prev.get("fitting_lines", {}) or {}
+prev_fitting_uids = _prev.get("fitting_uids", []) or []
+if not prev_line_pipes:
+    forms.alert("Nothing updatable is recorded for this model (or the "
+                "record is from an older pyMEP) - run Lines to Pipes "
+                "first; every build it records can then be updated "
+                "here.", exitscript=True)
+scope_uids = set(el.UniqueId for el, _a, _b, _st in lines)
+in_scope = sorted(u for u in prev_line_pipes if u in scope_uids)
+fresh = [u for u in scope_uids if u not in prev_line_pipes]
+log("Scope: **{}** line(s) - **{}** recorded (updated in place), "
+    "**{}** new to the record (created fresh).".format(
+        len(lines), len(in_scope), len(fresh)))
+
+reuse = {}
+reusable_uids = set()
+for i, (el, _a, _b, _st) in enumerate(lines):
+    pool = []
+    for uid in prev_line_pipes.get(el.UniqueId, []):
+        try:
+            p_el = doc.GetElement(uid)
+        except Exception:
+            p_el = None
+        if isinstance(p_el, _Pipe):
+            pool.append(p_el)
+            reusable_uids.add(uid)
+    if pool:
+        reuse[i] = pool
+
+def _delete_uids(uids, label):
+    t_old = Transaction(doc, "Lines to Pipes - " + label)
+    _quiet(t_old)
+    t_old.Start()
+    gone = 0
+    try:
+        for uid in uids:
+            try:
+                el = doc.GetElement(uid)
+            except Exception:
+                el = None
+            if el is not None:
+                try:
+                    doc.Delete(el.Id)
+                    gone += 1
+                except Exception:
+                    pass
+        t_old.Commit()
+    except Exception:
+        if t_old.HasStarted() and not t_old.HasEnded():
+            t_old.RollBack()
+        raise
+    return gone
+
+# only the fittings that belong ENTIRELY to the scope are removed -
+# fittings bridging out of the scope stay (a pipe they still hold is
+# replaced with a fresh one and noted)
+del_fits = [fu for fu, lus in prev_fitting_lines.items()
+            if lus and all(u in scope_uids for u in lus)]
+if not prev_fitting_lines and prev_fitting_uids:
+    # older record: fittings not mapped to their lines - safe to drop
+    # them all only when the scope covers every recorded line
+    if scope_uids >= set(prev_line_pipes.keys()):
+        del_fits = list(prev_fitting_uids)
+    else:
+        log("! this record predates per-line fittings - update with a "
+            "filter covering ALL recorded lines once to upgrade it; "
+            "fittings are kept this run (blocked pipes get fresh "
+            "replacements).")
+if del_fits:
+    gone = _delete_uids(del_fits, "remove the scope's fittings")
+    log("Fittings removed in scope: **{}** - existing pipes stay and "
+        "are re-graded in place, so drawing tags keep their host."
+        .format(gone))
+
+# ---------------------------------------------------------------------------
+# solve + build (existing pipes re-curved via the reuse pools)
 # ---------------------------------------------------------------------------
 sol = solve(lines_mm, pick_mm, slopes, sources=sources)
 
@@ -474,15 +558,32 @@ try:
                               0.0 if markers else opt["invert_m"],
                               log=log,
                               segment_id=(opt["segment"][1].Id
-                                          if opt["segment"] else None))
+                                          if opt["segment"] else None),
+                              reuse=reuse)
 except Exception as ex:
     import traceback
     log(traceback.format_exc())
     forms.alert("Nothing was built - the model is unchanged.\n\n"
-                "{}".format(ex), title="Lines to Pipes", exitscript=True)
+                "{}".format(ex), title="Update Pipes", exitscript=True)
 
-# record the build (per-line pipe map + fittings), MERGED into what
-# other runs recorded - Update Pipes updates any of it by scope
+# sweep old pipes that no run reused (their line is gone or now
+# splits differently) - AFTER the build so a failure leaves them be
+try:
+    kept_uids = set()
+    for el2 in res.get("reused_elements", []):
+        try:
+            kept_uids.add(el2.UniqueId)
+        except Exception:
+            pass
+    stale = [u for u in set(reusable_uids) if u not in kept_uids]
+    if stale:
+        gone2 = _delete_uids(stale, "sweep stale pipes")
+        if gone2:
+            log("Stale old pipe(s) swept: **{}**.".format(gone2))
+except Exception as ex:
+    log("! stale sweep skipped ({})".format(ex))
+
+# record the build (per-line pipe map + fittings) for the next update
 try:
     import datetime
     base = os.path.join(get_export_folder(doc), "project_files")
@@ -490,7 +591,8 @@ try:
     for i in custom_idx:
         if i in slopes:
             custom_by_uid[lines[i][0].UniqueId] = slopes[i]
-    line_pipes = dict(_prev.get("line_pipes", {}) or {})
+    line_pipes = dict(prev_line_pipes)
+    built_uids = set()
     for li, pieces in (res.get("pieces_by_line") or {}).items():
         lu = lines[li][0].UniqueId
         got = []
@@ -501,7 +603,15 @@ try:
                 pass
         if got:
             line_pipes[lu] = got
-    fitting_lines_rec = dict(_prev.get("fitting_lines", {}) or {})
+            built_uids.add(lu)
+    # scoped lines that got NOTHING this run: their old pipes were
+    # swept - drop the record entry
+    for lu in list(line_pipes):
+        if lu in scope_uids and lu not in built_uids:
+            line_pipes.pop(lu, None)
+    fitting_lines_rec = dict(prev_fitting_lines)
+    for fu in del_fits:
+        fitting_lines_rec.pop(fu, None)
     for f_el, lidx in res.get("fitting_lines", []):
         try:
             fitting_lines_rec[f_el.UniqueId] = sorted(set(
@@ -532,6 +642,7 @@ except Exception as ex:
         "instead of update".format(ex))
 
 log("#### Summary")
+log("- Pipes re-graded in place: **{}**".format(res.get("updated", 0)))
 log("- Pipes created: **{}**".format(res["pipes"]))
 log("- Fittings placed: **{}**".format(res["fittings"]))
 if res["failed"]:
@@ -540,9 +651,11 @@ for n in res["notes"]:
     log("- {}".format(n))
 
 forms.alert(
-    "Built {} pipe(s) and {} fitting(s) from {} line(s).{}".format(
-        res["pipes"], res["fittings"], len(lines),
+    "Updated {} and built {} pipe(s), {} fitting(s) from {} "
+    "line(s).{}".format(
+        res.get("updated", 0), res["pipes"], res["fittings"],
+        len(lines),
         "\n{} failed - see the report.".format(res["failed"])
         if res["failed"] else ""),
-    title="Lines to Pipes")
+    title="Update Pipes")
 log.close()
