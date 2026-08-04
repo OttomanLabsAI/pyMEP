@@ -32,7 +32,7 @@ pyMEP.extension/
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, big icon-only: Create Pipe Sizes + Structure to Pipe (stack) and Family at Pipe Top (own slot)
     02_Modelling.panel/         # 'Drainage': Gully to MH, Merge Pipes, Connect Fixtures, Inflow Drop Pipe to Collector
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
-    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (always creates) + Update Pipes (scoped in-place update) + Inflow Nodes -> Collector Pipes + Sync Input Nodes
+    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (always creates) + Update Pipes (scoped in-place update) + Sync Input Nodes
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
@@ -40,7 +40,7 @@ pyMEP.extension/
     08_Electrical.panel/        # Encasement (shown before Drainage on the ribbon)
 ```
 
-9 panels, 33 buttons, every one with its own icon.
+9 panels, 32 buttons, every one with its own icon.
 
 ## Panels
 
@@ -291,18 +291,10 @@ gone or now splits differently are swept; scoped lines new to the
 record are created fresh and start tracking. Everything outside the
 scope is left alone.
 
-**Inflow Nodes -> Collector Pipes** - connects node families into the
-whole line-built network: select the node
-families (or pick them), give the branch gradient, and every node
-casts a ray along its FACING direction (family rotation) - the first
-network pipe that ray meets is the one it joins, and the branch is
-built into exactly that pipe with the full node engine: drop-first or
-grade-first per the family's 'Drop Pipe' parameter, oblique approaches
-squared for the tee, branch pipe type and system inherited from the
-pipe it joins, size from the outlet connector / DIA parameter. A node
-whose rotation meets nothing uses the plan-nearest pipe (logged);
-already-connected nodes are skipped. Re-running Lines to Pipes rebuilds the MAINS
-only - run this button again afterwards to reconnect the nodes.
+Connecting node families into the built network is Inflow Drop Pipe
+to Collector's job (Drainage panel) - its aim mode finds each node's
+collector along the node's rotation, filtered to the workset you
+pick.
 
 **Sync Input Nodes** - adapts the tracked branches to the nodes as they
 are NOW: untouched nodes are left alone; nodes that moved, TURNED
@@ -367,9 +359,11 @@ pipes stay and the miss is reported.
 
 **Inflow Drop Pipe to Collector** - the node-driven sibling of Connect
 Fixtures. THE COLLECTOR FINDS ITSELF: each node's facing ray picks the
-first pipe it meets anywhere in the model (plan-nearest when the ray
-misses), and every aimed pipe keeps - or is given - its own collector
-network name. Pre-select ONE pipe together with the nodes to FORCE it
+first CANDIDATE pipe it meets (plan-nearest when the ray misses), and
+every aimed pipe keeps - or is given - its own collector network
+name. The dialog's 'Pipes workset' picks WHICH workset's pipes are
+candidates ('(any workset)' to open it up, remembered between runs) -
+so rays never latch onto random pipes from other systems. Pre-select ONE pipe together with the nodes to FORCE it
 as every branch's collector instead; only then do the main resize /
 re-grade options apply. Choose the nodes BY SELECTION - pre-select
 them (with or without the forced collector pipe), or pick them when
