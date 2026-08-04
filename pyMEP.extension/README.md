@@ -260,13 +260,19 @@ longer copy; a line that touches nothing on the way to the outfall is
 reported and skipped, never guessed at. Everything happens in one
 transaction with Revit's warning dialogs dismissed as they come.
 Placed 'Node - Invert Level' marker families (any family whose name
-contains 'invert') replace the outfall pick entirely: each node pins
-the level typed into its 'Invert Level' parameter (measured above the
-LINES' work plane) at its spot as the network's HIGH point - the
-node is the inlet, and the pipes FALL AWAY from it along the node's
-direction at their line gradients. Several nodes split the network
-between them; where two could feed the same run the higher feed wins
-and the clash is reported, not fudged.
+contains 'invert') are the network's HEADS: each pins the level typed
+into its 'Invert Level' parameter (measured above the LINES' work
+plane) at its spot, and ONE click marks the LOW (outfall) end - which
+needs no node. The network FALLS from every head toward that click at
+each line's own gradient, so it works with SEVERAL heads at once:
+where two feeds MERGE the lower one governs and the run continues
+falling from it (the higher feed's last stretch lands steeper - it
+still drains); where two feeds and the outfall run all END at one
+point a 3-way TEE joins them. Branches with no head above them are
+upstream inlets - they RISE off the mains at their grade so they
+drain into the network. Segments that close a LOOP have no single
+flow direction and are left for hand-modelling; a feed arriving
+below a pinned head is reported, not fudged.
 Every build is TRACKED (project_files/lines_network.json), and
 re-running is an IN-PLACE update: each existing pipe is re-graded by
 re-setting its location curve, so the element ids survive and TAGS IN

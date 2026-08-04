@@ -404,10 +404,11 @@ if custom_idx:
             lines_mm[i][0][0] / 1000.0, lines_mm[i][0][1] / 1000.0, n))
 
 # ---------------------------------------------------------------------------
-# the outfall: Invert Level marker nodes when placed, else one pick
+# heads + outfall: Invert Level marker nodes pin the HIGH ends; ONE
+# click marks the LOW (outfall) end, which needs no node. Without
+# markers the click is the outfall and the typed invert applies.
 # ---------------------------------------------------------------------------
 sources = None
-pick_mm = None
 if markers:
     # the LINES' work plane is the datum the typed inverts sit above -
     # grab it and resolve every marker against it
@@ -427,28 +428,30 @@ if markers:
     sources = []
     for el, (mx, my), mz in markers:
         sources.append(((mx, my), mz))
-        log("- Invert Level node at ({:.1f}, {:.1f}) m -> HIGH point "
-            "**{:.3f} m** - the network falls away from it along the "
-            "node's direction".format(
+        log("- Invert Level node at ({:.1f}, {:.1f}) m -> HEAD at "
+            "**{:.3f} m** - the network falls from it toward the "
+            "outfall you click".format(
                 mx / 1000.0, my / 1000.0, mz / 1000.0))
-    pick_mm = list(sources[0][0])
+
+pick_mm = None
+try:
+    ref = uidoc.Selection.PickObject(
+        ObjectType.Element,
+        "Click a line near the network's LOW (outfall) end - the "
+        "Invert Level nodes are the heads it falls from" if markers
+        else "Click a line NEAR ITS OUTFALL END - pipes fall toward it")
+except Exception:
+    log("Pick cancelled - nothing changed.")
+    log.close()
+    script.exit()
+pick_el = doc.GetElement(ref.ElementId)
+gp = ref.GlobalPoint
+if gp is not None:
+    pick_mm = (gp.X * MM_PER_FT, gp.Y * MM_PER_FT)
 else:
-    try:
-        ref = uidoc.Selection.PickObject(
-            ObjectType.Element,
-            "Click a line NEAR ITS OUTFALL END - pipes fall toward it")
-    except Exception:
-        log("Pick cancelled - nothing changed.")
-        log.close()
-        script.exit()
-    pick_el = doc.GetElement(ref.ElementId)
-    gp = ref.GlobalPoint
-    if gp is not None:
-        pick_mm = (gp.X * MM_PER_FT, gp.Y * MM_PER_FT)
-    else:
-        crv = pick_el.GeometryCurve
-        p = crv.GetEndPoint(0)
-        pick_mm = (p.X * MM_PER_FT, p.Y * MM_PER_FT)
+    crv = pick_el.GeometryCurve
+    p = crv.GetEndPoint(0)
+    pick_mm = (p.X * MM_PER_FT, p.Y * MM_PER_FT)
 
 # ---------------------------------------------------------------------------
 # tracked UPDATE: existing pipes are re-curved IN PLACE (element ids -

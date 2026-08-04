@@ -360,14 +360,107 @@ def assign_depths(net, outfall, slopes=None, init=None, descend=False):
     return dist
 
 
-def plan_runs(net, depths, slopes=None):
+def orient_tree(net, root, slopes=None):
+    """Orient the network as a TREE rooted at the outfall: BFS from
+    ``root`` gives every reachable node its parent (the next node on
+    the way down to the outfall) and the edge weight length/slope.
+    Segments that would close a loop are returned separately - a
+    looped grid cannot carry one well-defined flow direction.
+
+    Returns (parent, order, loops) where parent = {node: (parent_node
+    or None, weight_to_parent)}, order = nodes in BFS sequence (root
+    first - parents always precede children), loops = [seg, ...]."""
+    adj = {}
+    for s in net["segs"]:
+        n0, n1, li, length = s
+        n_slope = 1.0 if slopes is None else slopes.get(li, 1.0)
+        w = length / n_slope
+        adj.setdefault(n0, []).append((n1, w, s))
+        adj.setdefault(n1, []).append((n0, w, s))
+    parent = {root: (None, 0.0)}
+    order = [root]
+    k = 0
+    while k < len(order):
+        n = order[k]
+        k += 1
+        for m, w, s in adj.get(n, []):
+            if m not in parent:
+                parent[m] = (n, w)
+                order.append(m)
+    loops = []
+    for s in net["segs"]:
+        n0, n1 = s[0], s[1]
+        if n0 in parent and n1 in parent:
+            if parent[n0][0] != n1 and parent[n1][0] != n0:
+                loops.append(s)
+    return parent, order, loops
+
+
+def assign_levels_heads(net, root, heads, slopes=None):
+    """Levels for a network fed by Invert Level HEAD nodes, flowing to
+    ONE outfall (``root`` - the picked low end, which needs no node).
+
+    Water falls from every head toward the root at each line's own
+    grade. Where two feeds MERGE the lower one governs and the run
+    continues falling from it (the higher feed arrives steeper - it
+    still drains). A branch with NO head above it is an upstream
+    inlet: it RISES away from the main at its grade, so it falls INTO
+    the network. Heads pin their level exactly; a feed arriving BELOW
+    a pinned head is reported.
+
+    Returns (z, loops, notes): {node: level}, loop-closing segments
+    (left out - no defined direction), human-readable notes. z is
+    empty when no head reaches the root's part of the network."""
+    parent, order, loops = orient_tree(net, root, slopes)
+    heads = {n: float(v) for n, v in heads.items() if n in parent}
+    notes = []
+    if not heads:
+        return {}, loops, notes
+    # feed(N) = the lowest level any head above N delivers AT N,
+    # falling at grade all the way down - children before parents in
+    # reversed BFS order
+    feed = {}
+    kids = {}
+    for n in order[1:]:
+        p, w = parent[n]
+        kids.setdefault(p, []).append((n, w))
+    for n in reversed(order):
+        cands = []
+        for c, w in kids.get(n, []):
+            if c in feed:
+                cands.append(feed[c] - w)
+        if n in heads:
+            for v in cands:
+                if v < heads[n] - DEPTH_EPS_MM:
+                    notes.append(
+                        "a feed arrives {:.0f} below the Invert Level "
+                        "node pinned at node {} - check the node "
+                        "levels".format(heads[n] - v, n))
+            feed[n] = heads[n]
+        elif cands:
+            feed[n] = min(cands)
+    z = {}
+    for n in order:
+        if n in feed:
+            z[n] = feed[n]
+        else:
+            p, w = parent[n]
+            if p is None or p not in z:
+                continue
+            z[n] = z[p] + w        # headless branch rises upstream
+    return z, loops, notes
+
+
+def plan_runs(net, depths, slopes=None, steeper_ok=False):
     """Chop every line into buildable RUNS and classify the joints.
 
     A run is a maximal stretch of consecutive segments of one line all
     reachable from the outfall, with the rise changing by exactly the
     segment length over the line's slope (grade continuity - anything
     else means a loop fed the line from both sides, and that piece is
-    left out with a note).
+    left out with a note). ``steeper_ok`` also accepts MORE fall than
+    the grade - head-fed solving drops a merge's higher feed onto the
+    lower one, which makes that one stretch steeper, never flatter.
 
     Returns {"runs", "tees", "elbows", "notes"} where each run is
       {"line", "nodes": [node, ...], "a", "b"}  (a = shallowest end)
@@ -384,8 +477,14 @@ def plan_runs(net, depths, slopes=None):
             (t0, n0), (t1, n1) = seq[k], seq[k + 1]
             length = _dist(net["nodes"][n0], net["nodes"][n1])
             rise = length / n_slope
-            ok = (n0 in depths and n1 in depths and
-                  abs(abs(depths[n1] - depths[n0]) - rise) <= DEPTH_EPS_MM)
+            fall = (abs(depths[n1] - depths[n0])
+                    if n0 in depths and n1 in depths else None)
+            # exact grade; with steeper_ok also MORE fall than the
+            # grade (a merge's higher feed drops onto the lower one -
+            # it still drains), never less
+            ok = fall is not None and (
+                abs(fall - rise) <= DEPTH_EPS_MM or
+                (steeper_ok and fall >= rise - DEPTH_EPS_MM))
             present = any(s[0] == n0 and s[1] == n1 and s[2] == li
                           for s in net["segs"])
             if ok and present:
@@ -440,7 +539,7 @@ def plan_runs(net, depths, slopes=None):
         for n in r["nodes"][1:-1]:
             run_through.setdefault(n, []).append(ri)
 
-    tees, elbows = [], []
+    tees, elbows, joins = [], [], []
     for n in sorted(set(list(run_ends.keys()) + list(run_through.keys()))):
         through = run_through.get(n, [])
         ends = run_ends.get(n, [])
@@ -464,16 +563,40 @@ def plan_runs(net, depths, slopes=None):
             if ra is not rb:
                 elbows.append({"la": ra["line"], "lb": rb["line"],
                                "node": n})
-        elif len(ends) > 2:
-            ra, rb = out_runs[ends[0]], out_runs[ends[1]]
-            elbows.append({"la": ra["line"], "lb": rb["line"], "node": n})
-            for ri in ends[2:]:
-                notes.append("node {}: more than two runs end here - "
+        elif len(ends) >= 3:
+            # a MERGE point: three run ENDS meet (two feeds + the
+            # continuation - two heads joining the outfall run). A tee
+            # fitting joins all three; the most OPPOSITE pair carries
+            # straight through, the third is the branch.
+            def _dir_from(ri):
+                seq = out_runs[ri]["nodes"]
+                nx = seq[1] if seq[0] == n else seq[-2]
+                ax, ay = net["nodes"][n]
+                bx, by = net["nodes"][nx]
+                dx, dy = bx - ax, by - ay
+                ln = (dx * dx + dy * dy) ** 0.5 or 1.0
+                return dx / ln, dy / ln
+            three = ends[:3]
+            best_pair, best_dot = (0, 1), 2.0
+            for i2 in range(3):
+                for j2 in range(i2 + 1, 3):
+                    d1 = _dir_from(three[i2])
+                    d2 = _dir_from(three[j2])
+                    dot = d1[0] * d2[0] + d1[1] * d2[1]
+                    if dot < best_dot:
+                        best_dot, best_pair = dot, (i2, j2)
+            k3 = [x for x in range(3) if x not in best_pair][0]
+            joins.append({"node": n,
+                          "runs": [out_runs[three[best_pair[0]]],
+                                   out_runs[three[best_pair[1]]],
+                                   out_runs[three[k3]]]})
+            for ri in ends[3:]:
+                notes.append("node {}: more than three runs end here - "
                              "line {} left unconnected".format(
                                  n, out_runs[ri]["line"]))
 
     return {"runs": out_runs, "tees": tees, "elbows": elbows,
-            "notes": notes}
+            "joins": joins, "notes": notes}
 
 
 def solve(lines, pick, slopes, join_tol=JOIN_TOL_MM,
@@ -486,11 +609,14 @@ def solve(lines, pick, slopes, join_tol=JOIN_TOL_MM,
 
     ``sources`` ([((x, y), z), ...], same units) overrides the pick:
     each source pins its nearest network node at the ABSOLUTE level z
-    (an Invert Level marker family). The marker is the HIGH point -
-    the network FALLS away from it (the node is the inlet; its
-    direction shows which way the run drops), so "depths" holds
-    absolute levels that DESCEND from every marker - build with
-    invert 0.
+    (an Invert Level marker family). Markers are HEADS - the network
+    FALLS from every one of them toward the OUTFALL at ``pick`` (the
+    low end, which needs no node): merges continue from the LOWER
+    feed, branches with no head above them RISE off the mains so they
+    drain into the network, and loop-closing segments are left out.
+    "depths" then holds absolute levels - build with invert 0.
+    Markers on islands the pick cannot reach keep the simple rule:
+    the network falls away from the marker.
 
     Returns {"outfall_node", "nodes", "depths", "runs", "tees",
     "elbows", "skipped", "source_nodes"} where each run carries
@@ -509,16 +635,36 @@ def solve(lines, pick, slopes, join_tol=JOIN_TOL_MM,
                        .format(li, length))
 
     source_nodes = []
+    steeper = False
     if sources:
-        init = {}
+        heads = {}
         for (sx, sy), z in sources:
             n = nearest_node(net, (sx, sy))
-            if n is not None and (n not in init or z > init[n]):
-                init[n] = float(z)
-        source_nodes = sorted(init)
-        out = max(init, key=lambda k: init[k]) if init else None
-        depths = assign_depths(net, out, slopes, init=init,
-                               descend=True)
+            if n is not None and (n not in heads or z > heads[n]):
+                heads[n] = float(z)
+        source_nodes = sorted(heads)
+        out = nearest_node(net, pick)
+        depths, loop_segs, head_notes = assign_levels_heads(
+            net, out, heads, slopes)
+        skipped.extend(head_notes)
+        for s in loop_segs:
+            skipped.append("line {}: a segment closes a LOOP - flow "
+                           "has no single direction there, left for "
+                           "hand-modelling".format(s[2]))
+        if loop_segs:
+            drop = set(id(s) for s in loop_segs)
+            net["segs"] = [s for s in net["segs"]
+                           if id(s) not in drop]
+        # markers on islands the outfall pick cannot reach: the
+        # network still falls away from each of them
+        left = {n: v for n, v in heads.items() if n not in depths}
+        if left:
+            isl = assign_depths(net, None, slopes, init=left,
+                                descend=True)
+            for n, v in isl.items():
+                if n not in depths:
+                    depths[n] = v
+        steeper = True
     else:
         out = nearest_node(net, pick)
         depths = assign_depths(net, out, slopes)
@@ -532,7 +678,7 @@ def solve(lines, pick, slopes, join_tol=JOIN_TOL_MM,
             skipped.append("line {} touches nothing on the way to the "
                            "outfall - not piped".format(li))
 
-    plan = plan_runs(net, depths, slopes)
+    plan = plan_runs(net, depths, slopes, steeper_ok=steeper)
     runs = []
     for r in plan["runs"]:
         length = sum(_dist(net["nodes"][r["nodes"][k]],
@@ -548,9 +694,12 @@ def solve(lines, pick, slopes, join_tol=JOIN_TOL_MM,
     kept_ids = set(id(r) for r in runs)
     tees = [t for t in plan["tees"]]
     elbows = [e for e in plan["elbows"]]
+    joins = [j for j in plan.get("joins", [])
+             if all(id(r) in kept_ids for r in j["runs"])]
     return {"outfall_node": out, "nodes": net["nodes"], "depths": depths,
             "runs": runs, "tees": tees, "elbows": elbows,
-            "skipped": skipped, "source_nodes": source_nodes}
+            "joins": joins, "skipped": skipped,
+            "source_nodes": source_nodes}
 
 
 def node_z_m(rise_mm, invert_m):
@@ -897,6 +1046,34 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
             except Exception as ex:
                 notes.append("elbow at node {} not placed ({})".format(
                     el["node"], ex))
+
+        # 3-way MERGES: three run ends joined by one tee fitting (two
+        # head feeds meeting the outfall run) - the solver ordered the
+        # straight-through pair first
+        run_pipe_by_id = {}
+        for _li2, lst in pipes_by_line.items():
+            for _r2, _p2 in lst:
+                run_pipe_by_id[id(_r2)] = _p2
+        for jn in sol.get("joins", []):
+            p = xyz(jn["node"], sol["depths"][jn["node"]])
+            ps = [run_pipe_by_id.get(id(r2)) for r2 in jn["runs"]]
+            if any(pp is None for pp in ps):
+                notes.append("3-way join at node {}: a pipe is "
+                             "missing".format(jn["node"]))
+                continue
+            cs = [_conn_near(pp, p) for pp in ps]
+            if any(c is None for c in cs):
+                notes.append("3-way join at node {}: connectors not "
+                             "free".format(jn["node"]))
+                continue
+            try:
+                fit = doc.Create.NewTeeFitting(cs[0], cs[1], cs[2])
+                created.append(fit)
+                fitting_elements.append(fit)
+                fitted += 1
+            except Exception as ex:
+                notes.append("3-way join at node {} not placed ({})"
+                             .format(jn["node"], ex))
 
         t.Commit()
     except Exception:
