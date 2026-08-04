@@ -640,8 +640,33 @@ def _tee_into_main(doc, c_end, main_seg, end_xyz, fit_notes):
     the branch with a TEE fitting. Returns ``(other, tee)`` - the new
     second half (so the caller can keep tracking every piece of the
     main) and the tee instance; either may be None. Failures degrade:
-    tee -> takeoff -> note."""
+    tee -> takeoff -> note.
+
+    The split point is PROJECTED onto the piece's actual curve and kept
+    OFF its ends: the solved branch point can sit a hair off the curve
+    (a fixed-invert end derives down the slope) or land exactly on a
+    boundary an EARLIER branch's tee created this run - BreakCurve
+    cannot split at an endpoint and the connection degraded to a
+    takeoff/elbow instead of a T-junction."""
     other = None
+    try:
+        crv = main_seg.Location.Curve
+        pr = crv.Project(end_xyz)
+        if pr is not None:
+            p_on = pr.XYZPoint
+            p0 = crv.GetEndPoint(0)
+            p1 = crv.GetEndPoint(1)
+            length = p0.DistanceTo(p1)
+            margin = min(300.0 / 304.8, 0.45 * length)
+            if length > 1e-6 and margin > 1e-6:
+                v = p1.Subtract(p0).Normalize()
+                if p_on.DistanceTo(p0) < margin:
+                    p_on = p0.Add(v.Multiply(margin))
+                elif p_on.DistanceTo(p1) < margin:
+                    p_on = p1.Subtract(v.Multiply(margin))
+            end_xyz = p_on
+    except Exception:
+        pass
     try:
         from Autodesk.Revit.DB.Plumbing import PlumbingUtils
         new_id = PlumbingUtils.BreakCurve(doc, main_seg.Id, end_xyz)
