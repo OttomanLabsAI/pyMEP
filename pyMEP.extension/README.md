@@ -366,7 +366,10 @@ pipe a ray meets (plan-nearest when both miss), and
 every aimed pipe keeps - or is given - its own collector network
 name. The dialog's 'Pipes workset' picks WHICH workset's pipes are
 candidates ('(any workset)' to open it up, remembered between runs) -
-so rays never latch onto random pipes from other systems. Pre-select ONE pipe together with the nodes to FORCE it
+so rays never latch onto random pipes from other systems. With
+NOTHING selected the dialog opens straight away (no picking): the
+family cascade plus the 'Node workset' filter choose the nodes to
+run on, both remembered between runs. Pre-select ONE pipe together with the nodes to FORCE it
 as every branch's collector instead; only then do the main resize /
 re-grade options apply. Choose the nodes BY SELECTION - pre-select
 them (with or without the forced collector pipe), or pick them when

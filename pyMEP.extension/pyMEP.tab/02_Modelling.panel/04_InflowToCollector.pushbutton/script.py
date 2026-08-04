@@ -10,12 +10,12 @@ collector instead - that also unlocks the main resize / re-grade
 options.
 
 WHICH nodes, your choice:
-  - SELECT them: pre-select the node instances (with or without a
-    collector pipe), or pick them when prompted - exactly those nodes
-    get connected, mixed types welcome;
-  - or a FAMILY TYPE: finish the node pick empty and the dialog's
-    category > family > type cascade (or search) connects every
-    placed, still-unconnected node of that type.
+  - SELECT them first: exactly those nodes get connected, mixed types
+    welcome;
+  - or select NOTHING: the dialog opens straight away and its
+    category > family > type cascade (or search) plus the NODE
+    WORKSET filter choose every placed, still-unconnected node of
+    that type on that workset.
 
 Per node: a drop pipe from its outlet connector (diameter taken from
 THE NODE's own connector, snapped to the main type's routing sizes), a
@@ -46,7 +46,8 @@ from pymep_connect_fixtures import (
     list_system_type_options, set_pipe_dia, _has_point,
     node_directions, node_aim_directions, ray_hits_main,
 )
-from pymep_lines_to_pipes import aim_pick, _workset_name
+from pymep_lines_to_pipes import (aim_pick, _workset_name,
+                                  workset_options)
 from pymep_config import load_settings, save_settings, get_export_folder
 from pymep_drainage_networks import next_collector_name
 from pymep_net_param import (ensure_network_param, stamp_network,
@@ -89,28 +90,8 @@ for eid in uidoc.Selection.GetElementIds():
     elif isinstance(el, FamilyInstance) and _has_point(el):
         sel_nodes.append(el)
 
-clr.AddReference("RevitAPIUI")
-from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
-
-if not sel_nodes:
-
-    class _NodesOnly(ISelectionFilter):
-        def AllowElement(self, e):
-            return (isinstance(e, FamilyInstance)
-                    and not isinstance(e, Pipe) and _has_point(e))
-
-        def AllowReference(self, r, p):
-            return False
-
-    try:
-        refs = uidoc.Selection.PickObjects(
-            ObjectType.Element, _NodesOnly(),
-            "Pick the nodes to connect - Finish with NOTHING "
-            "selected to choose a family type instead")
-        sel_nodes = [doc.GetElement(r.ElementId) for r in refs]
-    except Exception:
-        sel_nodes = []
-
+# nothing pre-selected -> straight to the dialog: its family cascade
+# + Node workset filter choose the nodes, no picking
 if sel_nodes:
     log("Nodes chosen BY SELECTION: **{}**.".format(len(sel_nodes)))
 
@@ -238,6 +219,19 @@ class NodesWindow(forms.WPFWindow):
                 break
         if main is not None:
             self.CmbPipesWorkset.IsEnabled = False
+        self.CmbNodeWorkset.Items.Clear()
+        self.CmbNodeWorkset.Items.Add(ANY_PIPES_WS)
+        for w in workset_options(doc):
+            self.CmbNodeWorkset.Items.Add(w)
+        self.CmbNodeWorkset.SelectedIndex = 0
+        want_nws = settings.get("nodes_node_workset") or ""
+        for i in range(self.CmbNodeWorkset.Items.Count):
+            if str(self.CmbNodeWorkset.Items[i]) == want_nws:
+                self.CmbNodeWorkset.SelectedIndex = i
+                break
+        if sel_nodes:
+            # nodes chosen by hand - the workset filter is moot
+            self.CmbNodeWorkset.IsEnabled = False
         if main is not None:
             self.TxtMainDia.Text = "{:.0f}".format(ft2mm(main_dia_ft))
             self.TxtInfo.Text = ("Main: '{}' ({:.0f} mm), tee "
@@ -495,9 +489,13 @@ class NodesWindow(forms.WPFWindow):
         st_i = self.CmbSysType.SelectedIndex
         pipes_ws = str(self.CmbPipesWorkset.SelectedItem
                        or ANY_PIPES_WS)
+        node_ws = str(self.CmbNodeWorkset.SelectedItem
+                      or ANY_PIPES_WS)
         self.result = {"row": (None if sel_nodes else self._shown[i]),
                        "pipes_workset": ("" if pipes_ws == ANY_PIPES_WS
                                          else pipes_ws),
+                       "node_workset": ("" if node_ws == ANY_PIPES_WS
+                                        else node_ws),
                        "slope": slope,
                        "dia_mode": dia_mode, "dia_param": dia_param,
                        "fixed_dia": fixed_dia, "main_dia": main_dia,
@@ -528,9 +526,15 @@ slope = win.result["slope"]
 dia_mode = win.result["dia_mode"]
 dia_param = win.result["dia_param"]
 if row is not None:
-    # family-type mode: everything unconnected of that type
+    # family-type mode: everything unconnected of that type, cut down
+    # to the picked NODE WORKSET
     label, insts, todo = row["label"], row["insts"], row["todo"]
     settings["nodes_label"] = label
+    node_ws = win.result.get("node_workset") or ""
+    if node_ws:
+        todo = [n for n in todo
+                if _workset_name(doc, n) == node_ws]
+        label = "{} [{}]".format(label, node_ws)
 else:
     # selection mode: exactly the picked nodes
     label = "{} selected node(s)".format(len(sel_nodes))
@@ -545,6 +549,7 @@ settings["nodes_pipe_type"] = (win.result["pipe_type"][0]
 settings["nodes_sys_type"] = (win.result["sys_type"][0]
                               if win.result["sys_type"] else "")
 settings["nodes_pipes_workset"] = win.result.get("pipes_workset") or ""
+settings["nodes_node_workset"] = win.result.get("node_workset") or ""
 try:
     save_settings(settings)
 except Exception:
