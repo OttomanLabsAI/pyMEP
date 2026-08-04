@@ -1,0 +1,2 @@
+title: Update Pipes
+tooltip: "Update the RECORDED Lines to Pipes network for the lines and worksets you choose: the dialog's filters pick the scope, the lines are re-read as they are NOW, and each recorded pipe is re-graded IN PLACE (element ids - and drawing tags - survive). Only the scope's fittings are rebuilt; stale pipes are swept; lines new to the record are created and start tracking. Lines to Pipes itself always creates new."

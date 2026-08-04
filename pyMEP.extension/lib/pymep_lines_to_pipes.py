@@ -938,6 +938,7 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
     pieces_by_line = {}
     created = []
     fitting_elements = []
+    fitting_lines = []       # (fitting, [line_index, ...]) per fitting
     reused_elements = []
     made, updated, fitted, failed = 0, 0, 0, 0
     notes = []
@@ -1025,6 +1026,8 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
                 fitted += 1
                 created.append(fit)
                 fitting_elements.append(fit)
+                fitting_lines.append((fit, [tee["host_line"],
+                                            tee["branch_line"]]))
 
         for el in sol["elbows"]:
             p = xyz(el["node"], sol["depths"][el["node"]])
@@ -1042,6 +1045,7 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
                 fit = doc.Create.NewElbowFitting(c1, c2)
                 created.append(fit)
                 fitting_elements.append(fit)
+                fitting_lines.append((fit, [el["la"], el["lb"]]))
                 fitted += 1
             except Exception as ex:
                 notes.append("elbow at node {} not placed ({})".format(
@@ -1070,6 +1074,8 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
                 fit = doc.Create.NewTeeFitting(cs[0], cs[1], cs[2])
                 created.append(fit)
                 fitting_elements.append(fit)
+                fitting_lines.append((fit, [r2["line"]
+                                            for r2 in jn["runs"]]))
                 fitted += 1
             except Exception as ex:
                 notes.append("3-way join at node {} not placed ({})"
@@ -1085,4 +1091,5 @@ def build_network_pipes(doc, sol, sys_id, type_id, dia_mm, invert_m,
             "failed": failed, "notes": notes, "elements": created,
             "pieces_by_line": pieces_by_line,
             "fitting_elements": fitting_elements,
+            "fitting_lines": fitting_lines,
             "reused_elements": reused_elements}

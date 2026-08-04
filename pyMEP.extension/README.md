@@ -32,7 +32,7 @@ pyMEP.extension/
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, big icon-only: Create Pipe Sizes + Structure to Pipe (stack) and Family at Pipe Top (own slot)
     02_Modelling.panel/         # 'Drainage': Gully to MH, Merge Pipes, Connect Fixtures, Inflow Drop Pipe to Collector
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
-    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (tracked in-place update) + Inflow Nodes -> Collector Pipes + Sync Input Nodes
+    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (always creates) + Update Pipes (scoped in-place update) + Inflow Nodes -> Collector Pipes + Sync Input Nodes
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
@@ -40,7 +40,7 @@ pyMEP.extension/
     08_Electrical.panel/        # Encasement (shown before Drainage on the ribbon)
 ```
 
-9 panels, 32 buttons, every one with its own icon.
+9 panels, 33 buttons, every one with its own icon.
 
 ## Panels
 
@@ -273,17 +273,23 @@ upstream inlets - they RISE off the mains at their grade so they
 drain into the network. Segments that close a LOOP have no single
 flow direction and are left for hand-modelling; a feed arriving
 below a pinned head is reported, not fudged.
-Every build is TRACKED (project_files/lines_network.json), and
-re-running is an IN-PLACE update: each existing pipe is re-graded by
-re-setting its location curve, so the element ids survive and TAGS IN
-DRAWINGS KEEP THEIR HOSTS. Only the fittings are deleted and rebuilt
-(a connected tee blocks a curve change); pipes whose line is gone or
-now splits differently are swept afterwards; a pipe that will not
-take its new geometry is replaced with a fresh one and logged. A
-record written by an older pyMEP has no per-line pipe map, so the
-first re-run does one last delete-and-rebuild - ids are stable from
-that run on. Custom-line gradients are remembered per line between
-runs.
+Lines to Pipes ALWAYS CREATES NEW pipes; every build is RECORDED
+(project_files/lines_network.json), merged per line with what other
+runs recorded, so several networks (one per workset, say) live in one
+record. Custom-line gradients are remembered per line between runs.
+
+**Update Pipes** - updates the RECORDED network for the lines and
+worksets YOU CHOOSE: the same dialog's filters (style prefix / line
+style / workset) pick the scope, the lines are re-read as they are
+now and solved exactly like Lines to Pipes (per-style gradients,
+Invert Level heads + one outfall click), and every recorded pipe in
+scope is RE-GRADED by re-setting its curve - element ids survive, so
+TAGS IN DRAWINGS KEEP THEIR HOSTS. Only fittings belonging entirely
+to the scope are deleted and rebuilt (ones bridging out of it stay;
+a pipe they block is replaced fresh and noted); pipes whose line is
+gone or now splits differently are swept; scoped lines new to the
+record are created fresh and start tracking. Everything outside the
+scope is left alone.
 
 **Inflow Nodes -> Collector Pipes** - connects node families into the
 whole line-built network: select the node
