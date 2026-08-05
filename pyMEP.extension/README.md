@@ -30,7 +30,7 @@ pyMEP.extension/
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, big icon-only: Create Pipe Sizes + Structure to Pipe (stack) and Family at Pipe Top (own slot)
-    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge Pipes, Connect Fixtures
+    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge Pipes, Quick Merge, Connect Fixtures
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
     07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (always creates) + Update Pipes (scoped in-place update) + Connect Inflow to Collector + Sync Input Nodes
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
@@ -40,7 +40,7 @@ pyMEP.extension/
     08_Electrical.panel/        # Encasement (shown before Drainage on the ribbon)
 ```
 
-9 panels, 32 buttons, every one with its own icon.
+9 panels, 33 buttons, every one with its own icon.
 
 ## Panels
 
@@ -337,8 +337,17 @@ each merged pipe at `1 : n` (remembered), choosing whether the TOP or
 BOTTOM end's level stays exactly as it is (the other end's Z derives
 over the plan run; XY never moves) - or untick to keep both extreme
 endpoints exactly. Runs with a gap larger than a
-coupling are flagged in the confirm dialog; selected pipes that line up
-with nothing are left untouched.
+coupling are flagged in the report; selected pipes that line up
+with nothing are left untouched. Everything is reported in the pyRevit
+output window - no popup at the end.
+
+**Quick Merge** - Merge Pipes without the dialog and without any
+popups: merges the selected pipes using whatever the Merge Pipes
+dialog last remembered (slope on/off + ratio, which end's level to
+keep, workset), writing the outcome to the output report only. With
+nothing selected it drops into pick mode (pick the pipes, then Finish
+on the options bar). Change the settings by running Merge Pipes
+itself.
 
 **Connect Fixtures** - selection-driven: pick ONE pipe (the main run)
 and any number of plumbing fixtures; each fixture gets a vertical

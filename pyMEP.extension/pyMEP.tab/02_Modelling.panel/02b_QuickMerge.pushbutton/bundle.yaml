@@ -1,0 +1,2 @@
+title: "Quick\nMerge"
+tooltip: "Merge the selected pipes into single runs using the settings remembered from the Merge Pipes dialog (slope on/off and ratio, which end's level to keep, workset) - no dialog, no popups. Select the pipes of one or more runs and click; every collinear set is collapsed into one pipe exactly as Merge Pipes would, and the outcome is written to the pyRevit output report only. With nothing selected it drops into pick mode: pick the pipes, then Finish on the options bar."

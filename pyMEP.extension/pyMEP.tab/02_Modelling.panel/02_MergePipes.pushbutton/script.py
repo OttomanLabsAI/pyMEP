@@ -318,13 +318,4 @@ if ws_mixed_runs:
 if failed:
     log("- Runs that failed: **{}** (left untouched)".format(failed))
 
-forms.alert(
-    "Merged {} run(s):\n"
-    "  {} pipes -> {} pipes\n"
-    "  {} coupling fitting(s) removed\n"
-    "{}".format(
-        new_pipes, merged, new_pipes, deleted_couplings,
-        "  {} run(s) failed - see the report.".format(failed)
-        if failed else ""),
-    title="Pipes merged")
 log.close()
