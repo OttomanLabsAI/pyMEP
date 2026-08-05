@@ -485,7 +485,7 @@ class AimPick(unittest.TestCase):
             FacingOrientation=types.SimpleNamespace(X=0.0, Y=1.0, Z=0.0),
             HandOrientation=types.SimpleNamespace(X=1.0, Y=0.0, Z=0.0))
         aim = nd_ns["node_aim_directions"](inst)
-        self.assertEqual(aim, [(-0.0, -1.0), (-1.0, -0.0)])
+        self.assertEqual(aim, [(-0.0, -1.0)])
         arrow_side = [("arrow", (-100.0, -50.0), (100.0, -50.0))]
         key, how = ns["aim_pick"]((0.0, 0.0), aim, arrow_side,
                                   self.ray, self.dist)

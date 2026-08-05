@@ -410,13 +410,16 @@ def node_directions(inst):
 
 
 def node_aim_directions(inst):
-    """The directions the node's drawn ARROW points: these node
+    """THE single direction the node's drawn ARROW points: these node
     families draw their direction wire along the OPPOSITE of the API
-    FacingOrientation, so the aim rays are -facing, then -hand - and
-    never the other two, so a miss cannot latch onto a pipe behind
-    the arrow. Against one known main the full pairs stay the right
-    tool (there they only choose the tee point)."""
-    return node_directions(inst)[1::2]
+    FacingOrientation, so the aim ray is -facing (falling back to
+    -hand only when the family exposes no facing at all). The hand
+    axis is NOT tried any more: an arrow-ray miss slid onto the -hand
+    ray and built runs 90 degrees off the arrow - 2 to 49 m sideways
+    in the HEL18 IFC. Against one known main the full pairs stay the
+    right tool (there they only choose the tee point)."""
+    dirs = node_directions(inst)
+    return [dirs[1]] if len(dirs) >= 2 else dirs
 
 
 def node_drop_pipe(inst):

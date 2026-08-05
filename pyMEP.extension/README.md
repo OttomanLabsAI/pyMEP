@@ -30,7 +30,7 @@ pyMEP.extension/
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, big icon-only: Create Pipe Sizes + Structure to Pipe (stack) and Family at Pipe Top (own slot)
-    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge Pipes, Connect Fixtures, Inflow Drop Pipe to Collector
+    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge Pipes, Connect Fixtures, Connect Inflow to Collector
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
     07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (always creates) + Update Pipes (scoped in-place update) + Sync Input Nodes
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
@@ -291,7 +291,7 @@ gone or now splits differently are swept; scoped lines new to the
 record are created fresh and start tracking. Everything outside the
 scope is left alone.
 
-Connecting node families into the built network is Inflow Drop Pipe
+Connecting node families into the built network is Connect Inflow
 to Collector's job (Drainage panel) - its aim mode finds each node's
 collector along the node's rotation, filtered to the workset you
 pick.
@@ -357,12 +357,13 @@ type, system type and level; diameter and slope are remembered between
 runs. A fitting that can't be placed never fails the branch - the
 pipes stay and the miss is reported.
 
-**Inflow Drop Pipe to Collector** - the node-driven sibling of Connect
-Fixtures. THE COLLECTOR FINDS ITSELF: each node casts rays along its
-drawn ARROW only (the node families draw their wire 180 degrees off
-the API facing; the other directions are never tried, so a miss can't
-latch onto a pipe behind the arrow) and tees into the first CANDIDATE
-pipe a ray meets (plan-nearest when both miss), and
+**Connect Inflow to Collector** - the node-driven sibling of Connect
+Fixtures. THE COLLECTOR FINDS ITSELF: a candidate pipe DIRECTLY UNDER
+the node takes the drop straight down; otherwise THE single ray along
+the node's drawn ARROW (the wire, 180 degrees off the API facing - no
+other direction is ever tried, so a miss can never veer 90 degrees
+onto the hand axis or behind the arrow) picks the first CANDIDATE
+pipe it meets (plan-nearest as the last resort), and
 every aimed pipe keeps - or is given - its own collector network
 name. The dialog's 'Pipes workset' picks WHICH workset's pipes are
 candidates ('(any workset)' to open it up, remembered between runs) -
