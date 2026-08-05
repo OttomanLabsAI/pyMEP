@@ -32,6 +32,7 @@ from pymep_merge_pipes import (
     read_pipe_rows, group_collinear, chain_gaps, merge_chain,
 )
 from pymep_config import load_settings, save_settings
+from pymep_lines_to_pipes import workset_options
 from pymep_revit import ft2mm
 from pymep_log import Logger
 
@@ -52,6 +53,9 @@ log("### Merge Pipes")
 # pick mode runs, so the settings sit next to Finish / Cancel.
 # ---------------------------------------------------------------------------
 settings = load_settings()
+WS_ACTIVE = "(my active workset)"
+WS_KEEP = "(keep from the merged pipes)"
+_ws_names = workset_options(doc)
 XAML_PATH = os.path.join(
     os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
     "pymep_merge_pipes.xaml")
@@ -70,6 +74,17 @@ class MergeWindow(forms.WPFWindow):
             self.RadTop.IsChecked = True
         else:
             self.RadBottom.IsChecked = True
+        self.CmbWorkset.Items.Clear()
+        self.CmbWorkset.Items.Add(WS_ACTIVE)
+        self.CmbWorkset.Items.Add(WS_KEEP)
+        for w in _ws_names:
+            self.CmbWorkset.Items.Add(w)
+        self.CmbWorkset.SelectedIndex = 0
+        want_ws = settings.get("merge_workset") or WS_ACTIVE
+        for i in range(self.CmbWorkset.Items.Count):
+            if str(self.CmbWorkset.Items[i]) == want_ws:
+                self.CmbWorkset.SelectedIndex = i
+                break
         self.on_slope(None, None)
         if modeless:
             # park it top-centre, under the ribbon, above Revit; the
@@ -100,7 +115,9 @@ class MergeWindow(forms.WPFWindow):
             except Exception:
                 return None
         return {"slope": slope,
-                "keep": "top" if self.RadTop.IsChecked else "bottom"}
+                "keep": "top" if self.RadTop.IsChecked else "bottom",
+                "workset": str(self.CmbWorkset.SelectedItem
+                               or WS_ACTIVE)}
 
     def on_slope(self, sender, args):
         try:
@@ -237,6 +254,25 @@ settings["merge_slope_on"] = opts["slope"] is not None
 if opts["slope"] is not None:
     settings["merge_slope"] = opts["slope"]
 settings["merge_keep_end"] = opts["keep"]
+settings["merge_workset"] = opts["workset"]
+# resolve the pick for merge_chain: 'active' / 'keep' / a workset id
+if opts["workset"] == WS_ACTIVE:
+    ws_arg = "active"
+elif opts["workset"] == WS_KEEP:
+    ws_arg = "keep"
+else:
+    ws_arg = "keep"
+    try:
+        from Autodesk.Revit.DB import (FilteredWorksetCollector,
+                                       WorksetKind)
+        for w in FilteredWorksetCollector(doc).OfKind(
+                WorksetKind.UserWorkset):
+            if w.Name == opts["workset"]:
+                ws_arg = w.Id.IntegerValue
+                break
+    except Exception:
+        pass
+log("Merged pipes' workset: **{}**.".format(opts["workset"]))
 try:
     save_settings(settings)
 except Exception:
@@ -258,7 +294,8 @@ for ci, chain in enumerate(chains):
     log("Run {}:".format(ci + 1))
     try:
         res = merge_chain(doc, pipes_by_id, chain, log=log,
-                          slope_n=opts["slope"], keep_end=opts["keep"])
+                          slope_n=opts["slope"], keep_end=opts["keep"],
+                          workset=ws_arg)
         merged += res["pipes"]
         new_pipes += 1
         deleted_couplings += res["internal"]
