@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Inflow Drop Pipe to Collector - pipe nodes into a collector run.
+"""Connect Inflow to Collector - pipe nodes into a collector run.
 
-THE COLLECTOR finds itself: each node casts rays along its drawn
-ARROW only (the wire, 180 degrees off the API facing - never the
-other way) and tees into the first candidate pipe a ray meets
-(plan-nearest when both miss). Pre-select ONE
+THE COLLECTOR finds itself: a candidate pipe DIRECTLY UNDER the node
+takes the drop straight down; otherwise the single ray along the
+node's drawn ARROW (the wire, 180 degrees off the API facing - no
+other direction is ever tried) picks the first candidate pipe it
+meets, plan-nearest as the last resort. Pre-select ONE
 pipe together with the nodes to FORCE that pipe as every branch's
 collector instead - that also unlocks the main resize / re-grade
 options.
@@ -26,7 +27,7 @@ level; each tee splits the main and later nodes tie into whichever
 piece spans their position.
 """
 
-__title__  = "Inflow Drop Pipe\nto Collector"
+__title__  = "Connect Inflow\nto Collector"
 __author__ = "Glent Group"
 
 import os
@@ -68,7 +69,7 @@ log = Logger(output, "NodesToMain")
 doc = revit.doc
 uidoc = revit.uidoc
 
-log("### Inflow Drop Pipe to Collector")
+log("### Connect Inflow to Collector")
 
 # ---------------------------------------------------------------------------
 # 1. The NODES (and optionally ONE forced collector pipe), straight
@@ -620,10 +621,10 @@ def _nearest_seg(outlet_xyz):
 def _aim_target(node, outlet_xyz):
     """(pipe, how) - a candidate DIRECTLY UNDER the node (within
     ~300 mm in plan) wins outright: the drop goes straight down into
-    it. Otherwise the first candidate the rays along the node's drawn
-    ARROW meet (the wire is 180 degrees off the API facing; the other
-    two directions are never tried, so a miss cannot latch onto a
-    pipe behind the arrow), else the plan-nearest."""
+    it. Otherwise the single ray along the node's drawn ARROW picks
+    the first candidate it meets (no other direction is tried - the
+    hand-axis ray built runs 90 degrees off the arrow), else the
+    plan-nearest."""
     return aim_pick((outlet_xyz[0], outlet_xyz[1]),
                     node_aim_directions(node), cand,
                     ray_hits_main, plan_dist_to_segment,
@@ -700,7 +701,7 @@ else:
         "keeps its stamped pyMEP_Network name or takes the next free "
         "'{} - C<n>'.".format(net_name))
 
-tg = TransactionGroup(doc, "Inflow Drop Pipe to Collector")
+tg = TransactionGroup(doc, "Connect Inflow to Collector")
 tg.Start()
 try:
     # the network parameter rides on everything this run creates
