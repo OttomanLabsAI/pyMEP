@@ -226,5 +226,120 @@ class WorksetDecision(unittest.TestCase):
         self.assertEqual(workset_decision([None, None]), (None, False))
 
 
+class _StubParam(object):
+    """Minimal stand-in for a Revit Parameter."""
+
+    def __init__(self, value=None, storage="Double", read_only=False):
+        self._v = value
+        self.StorageType = storage
+        self.IsReadOnly = read_only
+        self.HasValue = value is not None
+
+    def AsDouble(self):
+        return self._v
+
+    def AsInteger(self):
+        return self._v
+
+    def AsString(self):
+        return self._v
+
+    def AsElementId(self):
+        return self._v
+
+    def Set(self, v):
+        if self.IsReadOnly:
+            raise RuntimeError("read-only")
+        self._v = v
+
+
+class _StubElement(object):
+
+    def __init__(self, params):
+        self._params = params
+
+    def get_Parameter(self, bip):
+        return self._params.get(bip)
+
+
+class DonorCarryOver(unittest.TestCase):
+    """The merged pipe carries the donor's instance data - the pipe
+    segment (material + schedule -> Material/Schedule/Roughness) plus
+    Mark and comments - snapshotted BEFORE the donor is deleted, and
+    the segment applied BEFORE the diameter is set."""
+
+    @classmethod
+    def setUpClass(cls):
+        path = os.path.join(LIB, "pymep_merge_pipes.py")
+        with open(path) as f:
+            cls.src = f.read()
+        cls.tree = ast.parse(cls.src)
+
+    def test_segment_is_first_carried_param(self):
+        for node in self.tree.body:
+            if isinstance(node, ast.Assign) and any(
+                    getattr(t, "id", "") == "_DONOR_BIPS"
+                    for t in node.targets):
+                vals = [ast.literal_eval(e) for e in node.value.elts]
+                self.assertEqual(vals[0], "RBS_PIPE_SEGMENT_PARAM")
+                self.assertIn("ALL_MODEL_MARK", vals)
+                self.assertIn("ALL_MODEL_INSTANCE_COMMENTS", vals)
+                return
+        self.fail("_DONOR_BIPS not found in pymep_merge_pipes.py")
+
+    def _merge_chain_src(self):
+        for node in self.tree.body:
+            if isinstance(node, ast.FunctionDef) \
+                    and node.name == "merge_chain":
+                return ast.get_source_segment(self.src, node)
+        self.fail("merge_chain not found")
+
+    def test_snapshot_taken_before_the_donor_dies(self):
+        mc = self._merge_chain_src()
+        self.assertLess(mc.index("donor_vals = []"), mc.index("t.Start()"),
+                        "donor params must be read before the "
+                        "transaction deletes the donor")
+
+    def test_segment_applied_before_diameter(self):
+        mc = self._merge_chain_src()
+        self.assertLess(mc.index("_write_param(new_pipe"),
+                        mc.index("RBS_PIPE_DIAMETER_PARAM"),
+                        "the segment must land before the diameter so "
+                        "the size survives the segment switch")
+
+
+class ParamSnapshot(unittest.TestCase):
+    """_read_param / _write_param behave on stub parameters."""
+
+    read_param = staticmethod(NS["_read_param"])
+    write_param = staticmethod(NS["_write_param"])
+
+    def test_round_trip_by_storage_type(self):
+        for storage, value in (("Double", 0.5), ("Integer", 3),
+                               ("String", "MH-12"), ("ElementId", 4242)):
+            src = _StubElement({"BIP": _StubParam(value, storage)})
+            dst_p = _StubParam(None, storage)
+            dst = _StubElement({"BIP": dst_p})
+            got = self.read_param(src, "BIP")
+            self.assertEqual(got, value)
+            self.write_param(dst, "BIP", got)
+            self.assertEqual(dst_p._v, value)
+
+    def test_unset_param_reads_none_and_writes_nothing(self):
+        src = _StubElement({"BIP": _StubParam(None)})
+        self.assertIsNone(self.read_param(src, "BIP"))
+        dst_p = _StubParam(1.0)
+        self.write_param(_StubElement({"BIP": dst_p}), "BIP", None)
+        self.assertEqual(dst_p._v, 1.0)
+
+    def test_missing_and_readonly_params_are_safe(self):
+        empty = _StubElement({})
+        self.assertIsNone(self.read_param(empty, "BIP"))
+        self.write_param(empty, "BIP", 2.0)      # no param: no-op
+        ro = _StubParam(1.0, read_only=True)
+        self.write_param(_StubElement({"BIP": ro}), "BIP", 2.0)
+        self.assertEqual(ro._v, 1.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

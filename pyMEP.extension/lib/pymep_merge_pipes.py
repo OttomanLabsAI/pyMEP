@@ -11,9 +11,10 @@ INSIDE the chain (the couplings between consecutive segments). Fittings
 that connect the run to the outside (elbows, tees) are kept and
 reconnected to the new pipe, whose end lands on the same coordinates.
 
-The new pipe takes its type, system type, level, Mark and comments from
-the chain's LONGEST segment; the diameter is the chain's (largest, when
-mixed - reported, never silent). The workset is KEPT when every merged
+The new pipe takes its type, system type, pipe segment (the material +
+schedule, which drives Material/Schedule/Roughness), level, Mark and
+comments from the chain's LONGEST pipe; the diameter is the chain's
+(largest, when mixed - reported, never silent). The workset is KEPT when every merged
 pipe shares one; when they differ the new pipe lands on the ACTIVE
 workset and the user is told.
 
@@ -296,21 +297,40 @@ def _pipe_connections(pipe):
     return out
 
 
-def _copy_param(src, dst, bip):
+# instance parameters carried from the chain's donor pipe to the merged
+# pipe. RBS_PIPE_SEGMENT_PARAM comes FIRST: the pipe segment (material +
+# schedule, e.g. 'Plastic - Schedule 40') drives Material, Schedule/Type
+# and Roughness, and setting it can snap the diameter - so the segment
+# lands before the diameter is set.
+_DONOR_BIPS = ("RBS_PIPE_SEGMENT_PARAM", "ALL_MODEL_MARK",
+               "ALL_MODEL_INSTANCE_COMMENTS")
+
+
+def _read_param(el, bip):
+    """The parameter's value, or None when unset/unreadable."""
     try:
-        sp = src.get_Parameter(bip)
-        dp = dst.get_Parameter(bip)
-        if sp is None or dp is None or dp.IsReadOnly or not sp.HasValue:
-            return
-        st = str(sp.StorageType)
+        p = el.get_Parameter(bip)
+        if p is None or not p.HasValue:
+            return None
+        st = str(p.StorageType)
         if st == "String":
-            dp.Set(sp.AsString() or "")
+            return p.AsString() or ""
         elif st == "ElementId":
-            dp.Set(sp.AsElementId())
+            return p.AsElementId()
         elif st == "Integer":
-            dp.Set(sp.AsInteger())
+            return p.AsInteger()
         elif st == "Double":
-            dp.Set(sp.AsDouble())
+            return p.AsDouble()
+    except Exception:
+        pass
+    return None
+
+
+def _write_param(el, bip, value):
+    try:
+        p = el.get_Parameter(bip)
+        if p is not None and not p.IsReadOnly and value is not None:
+            p.Set(value)
     except Exception:
         pass
 
@@ -379,6 +399,14 @@ def merge_chain(doc, pipes_by_id, chain, log=None, slope_n=None,
             "Chain donor pipe '{}' has no level/system type - cannot "
             "rebuild the run.".format(safe_name(donor)))
 
+    # snapshot the donor's carried values NOW - the donor is deleted
+    # before the new pipe exists, so reading it later returns nothing
+    donor_vals = []
+    for bip_name in _DONOR_BIPS:
+        bip = getattr(BuiltInParameter, bip_name, None)
+        if bip is not None:
+            donor_vals.append((bip, _read_param(donor, bip)))
+
     # workset: keep it when every merged pipe shares one; mixed -> the
     # new pipe lands on the ACTIVE workset (and the user is told)
     ws_ids = []
@@ -418,15 +446,12 @@ def merge_chain(doc, pipes_by_id, chain, log=None, slope_n=None,
         new_pipe = Pipe.Create(doc, sys_id, type_id, lvl_id,
                                XYZ(e0[0], e0[1], e0[2]),
                                XYZ(e1[0], e1[1], e1[2]))
+        for bip, val in donor_vals:      # segment first, then diameter
+            _write_param(new_pipe, bip, val)
         dp = new_pipe.get_Parameter(
             BuiltInParameter.RBS_PIPE_DIAMETER_PARAM)
         if dp is not None and not dp.IsReadOnly:
             dp.Set(dia)
-        for bip_name in ("ALL_MODEL_MARK",
-                         "ALL_MODEL_INSTANCE_COMMENTS"):
-            bip = getattr(BuiltInParameter, bip_name, None)
-            if bip is not None:
-                _copy_param(donor, new_pipe, bip)
         if ws_choice is not None:
             try:
                 wp = new_pipe.get_Parameter(
