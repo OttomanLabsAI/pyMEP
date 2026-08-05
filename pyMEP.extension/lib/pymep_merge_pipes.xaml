@@ -83,6 +83,14 @@
                 </StackPanel>
             </GroupBox>
 
+            <GroupBox Header="Workset for the merged pipe">
+                <StackPanel>
+                    <ComboBox x:Name="CmbWorkset"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="'(my active workset)' puts every merged pipe on YOUR current workset; '(keep from the merged pipes)' keeps their shared one (mixed runs land on the active workset and are reported); or pick a named workset."/>
+                </StackPanel>
+            </GroupBox>
+
             <TextBlock x:Name="StatusText" Foreground="#B00020"
                        TextWrapping="Wrap" Text=""/>
         </StackPanel>

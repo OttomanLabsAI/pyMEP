@@ -316,12 +316,15 @@ def _copy_param(src, dst, bip):
 
 
 def merge_chain(doc, pipes_by_id, chain, log=None, slope_n=None,
-                keep_end="bottom"):
+                keep_end="bottom", workset="keep"):
     """Replace one chain with a single pipe, inside ONE transaction.
     ``slope_n`` re-grades the merged pipe at 1:slope_n with the
     ``keep_end`` ("top"/"bottom") level pinned exactly where it is;
-    None keeps both extreme endpoints exactly. Returns a summary dict;
-    raises only when the new pipe cannot be created (in which case the
+    None keeps both extreme endpoints exactly. ``workset``: 'keep'
+    (the merged pipes' shared workset; the active one when they are
+    mixed), 'active' (always the user's CURRENT workset), or a
+    workset id number to force one. Returns a summary dict; raises
+    only when the new pipe cannot be created (in which case the
     transaction rolled back and nothing was deleted)."""
     def say(m):
         if log is not None:
@@ -386,6 +389,17 @@ def merge_chain(doc, pipes_by_id, chain, log=None, slope_n=None,
     except Exception:
         ws_ids = []
     ws_choice, ws_mixed = workset_decision(ws_ids)
+    if workset == "active":
+        # the user's CURRENT workset, whatever the merged pipes carry
+        ws_choice, ws_mixed = None, False
+        try:
+            if doc.IsWorkshared:
+                ws_choice = doc.GetWorksetTable() \
+                    .GetActiveWorksetId().IntegerValue
+        except Exception:
+            ws_choice = None
+    elif workset not in (None, "keep"):
+        ws_choice, ws_mixed = int(workset), False
 
     t = Transaction(doc, "Merge pipe run")
     t.Start()

@@ -313,7 +313,11 @@ downpipe + bend + falling run. Modes are inferred from the selection
 prompts (downpipe length, invert offset, slope) are remembered between runs.
 
 **Merge Pipes** - selection-driven: collapses straight runs of pipe into
-single pipes. Select the pipes that make up a run (the couplings between
+single pipes. The dialog also picks the merged pipe's WORKSET:
+'(my active workset)' (the default) puts every merged pipe on YOUR
+current workset, '(keep from the merged pipes)' keeps their shared
+one (mixed runs land on the active workset, reported), or choose a
+named workset - remembered between runs. Select the pipes that make up a run (the couplings between
 them can be left unselected) and click - or click with NOTHING selected
 and pick the pipes in the view, finishing on the options bar under the
 ribbon; every set of pipes that line up
