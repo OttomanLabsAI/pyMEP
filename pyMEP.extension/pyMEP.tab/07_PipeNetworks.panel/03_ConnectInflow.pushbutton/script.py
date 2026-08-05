@@ -111,14 +111,15 @@ if main is not None:
     log("Collector FORCED by selection: '{}'.".format(safe_name(main)))
 else:
     # every readable, non-vertical pipe is a candidate for the rays -
-    # a drop pipe has no plan length and cannot catch one
+    # a drop pipe has no plan length and cannot catch one, and tee
+    # debris (stubs under ~450 mm) must not catch under/ray picks
     from Autodesk.Revit.DB import FilteredElementCollector
     for _p in FilteredElementCollector(doc).OfClass(Pipe):
         try:
             ca, cb, _t1, _s1, _l1, _d1 = main_pipe_info(_p)
         except Exception:
             continue
-        if ((ca[0] - cb[0]) ** 2 + (ca[1] - cb[1]) ** 2) ** 0.5 < 0.5:
+        if ((ca[0] - cb[0]) ** 2 + (ca[1] - cb[1]) ** 2) ** 0.5 < 1.5:
             continue
         cand.append((_p, (ca[0], ca[1]), (cb[0], cb[1])))
         cand_ws.append(_workset_name(doc, _p) or "")
@@ -623,12 +624,14 @@ def _aim_target(node, outlet_xyz):
     ~300 mm in plan) wins outright: the drop goes straight down into
     it. Otherwise the single ray along the node's drawn ARROW picks
     the first candidate it meets (no other direction is tried - the
-    hand-axis ray built runs 90 degrees off the arrow), else the
-    plan-nearest."""
+    hand-axis ray built runs 90 degrees off the arrow). NO nearest
+    fallback: a node whose arrow hits nothing is SKIPPED and reported
+    - blind-nearest is how mis-rotated nodes all chained into one
+    stray branch and drew a star of criss-crossing runs."""
     return aim_pick((outlet_xyz[0], outlet_xyz[1]),
                     node_aim_directions(node), cand,
                     ray_hits_main, plan_dist_to_segment,
-                    under=1.0)
+                    under=1.0, fallback=False)
 
 
 def _refresh_cand(target, new_seg):
@@ -653,6 +656,7 @@ def _refresh_cand(target, new_seg):
 done = 0
 failed = 0
 fitting_notes = 0
+aim_missed = []
 
 # the type name (e.g. STORMWATER - IN) seeds a NEW collector's name;
 # in selection mode the first picked node provides it
@@ -753,12 +757,16 @@ try:
                 seg, how = _aim_target(node, o_xyz)
                 if seg is None:
                     failed += 1
-                    log("  ! no pipe to aim at - skipped")
+                    if how == "miss":
+                        aim_missed.append(safe_name(node))
+                        log("  ! its ARROW hits no collector pipe - "
+                            "SKIPPED (rotate the node to face the "
+                            "collector, or pre-select a main pipe to "
+                            "force it)")
+                    else:
+                        log("  ! no pipe to aim at - skipped")
                     continue
-                if how == "nearest":
-                    log("  its rotation aims at no pipe - using the "
-                        "plan-nearest one")
-                elif how == "under":
+                if how == "under":
                     log("  directly over the pipe - dropped straight "
                         "in")
                 ta, tb, _t2, _s2, _l2, _d2 = main_pipe_info(seg)
@@ -846,6 +854,12 @@ else:
             done, len(todo), len(set(_collectors.values()))))
 if fitting_notes:
     log("- Fitting notes: **{}** (see above)".format(fitting_notes))
+if aim_missed:
+    log("- Nodes whose ARROW hits no collector pipe (skipped, NOT "
+        "connected): **{}** - {}. Rotate them to face the collector "
+        "(or pre-select a main pipe to force it) and run again."
+        .format(len(aim_missed), ", ".join(aim_missed[:12])
+                + (" ..." if len(aim_missed) > 12 else "")))
 if failed:
     log("- Failed / skipped: **{}**".format(failed))
 log.close()
