@@ -12,7 +12,8 @@ fittings where the run meets the rest of the model (elbows, tees) are
 kept and reconnected to the new pipe's matching end.
 
 The new pipe inherits the run's longest segment: its pipe type, system
-type, level, workset, Mark and comments. Diameter is the run's (the
+type, pipe segment (material + schedule), level, workset, Mark and
+comments. Diameter is the run's (the
 largest when a run mixes sizes - reported, never silently). Pipes in
 the selection that line up with nothing are left untouched.
 """
