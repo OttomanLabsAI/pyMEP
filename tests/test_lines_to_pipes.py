@@ -342,6 +342,37 @@ class InvertMarkers(unittest.TestCase):
                          [0, 1])
         self.assertFalse(any("fed from both ends" in s
                              for s in sol["skipped"]))
+        # the higher head's last stretch IS steeper than its grade -
+        # that is now SAID in the report, not silent ('why is one of
+        # those pipes at the wrong ratio?')
+        self.assertTrue(any("STEEPER" in s for s in sol["skipped"]))
+
+    def test_head_on_grade_is_not_flagged_steeper(self):
+        # a single head feeding the outfall exactly at its grade: no
+        # STEEPER note - the note only fires when a pinned level forces
+        # a run steeper than its line's slope
+        sol = solve([TRUNK], (30000.0, 0.0), 100.0,
+                    sources=[((0.0, 0.0), 50000.0)])
+        self.assertFalse(any("STEEPER" in s for s in sol["skipped"]))
+
+    def test_head_pinned_high_flags_the_steep_run(self):
+        # the user's case: a lateral whose head is pinned WAY above
+        # where 1:n from the collector lands - the run connects steeper
+        # (1:20 instead of 1:150) and the report must say so, with the
+        # node's plan position in the note
+        sol = solve([TRUNK, LATERAL], (30000.0, 0.0), 150.0,
+                    sources=[((0.0, 0.0), 50000.0),
+                             ((10000.0, 12000.0), 51050.0)])
+        idx = {}
+        for i, (x, y) in enumerate(sol["nodes"]):
+            idx[(round(x), round(y))] = i
+        # junction governed by the trunk's (lower) feed; the head keeps
+        # its exact pinned level above it
+        self.assertAlmostEqual(
+            sol["depths"][idx[(10000, 12000)]], 51050.0, places=6)
+        notes = [s for s in sol["skipped"] if "STEEPER" in s]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("(10000, 12000)", notes[0])
 
     def test_three_run_ends_become_a_join(self):
         # two feeds and the outfall run all END at one point - the

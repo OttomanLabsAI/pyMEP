@@ -272,7 +272,11 @@ point a 3-way TEE joins them. Branches with no head above them are
 upstream inlets - they RISE off the mains at their grade so they
 drain into the network. Segments that close a LOOP have no single
 flow direction and are left for hand-modelling; a feed arriving
-below a pinned head is reported, not fudged.
+below a pinned head is reported, not fudged. A head pinned ABOVE
+where its line's grade meets the network makes its run connect
+STEEPER than the line's slope (the junction is fixed by the lower
+feed) - the report says so, with the node's plan position, so a
+'wrong ratio' pipe always has its head named.
 Lines to Pipes ALWAYS CREATES NEW pipes; every build is RECORDED
 (project_files/lines_network.json), merged per line with what other
 runs recorded, so several networks (one per workset, say) live in one

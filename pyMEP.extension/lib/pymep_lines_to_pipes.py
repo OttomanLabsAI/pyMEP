@@ -474,6 +474,23 @@ def assign_levels_heads(net, root, heads, slopes=None):
             if p is None or p not in z:
                 continue
             z[n] = z[p] + w        # headless branch rises upstream
+    # a pinned head sitting ABOVE where its line's grade meets the
+    # network connects STEEPER than the grade (the junction is fixed by
+    # the lower feed) - silent, this reads as 'one pipe has the wrong
+    # ratio', so say it
+    for n in heads:
+        p, w = parent.get(n, (None, None))
+        if p is None or p not in z or n not in z:
+            continue
+        extra = (z[n] - z[p]) - w
+        if extra > DEPTH_EPS_MM:
+            xy = net["nodes"][n]
+            notes.append(
+                "the Invert Level node at ({:.0f}, {:.0f}) is pinned "
+                "{:.0f} ABOVE its line's grade from the network - the "
+                "run up to it connects STEEPER than the line's slope "
+                "(check the node's level if that's not meant)".format(
+                    xy[0], xy[1], extra))
     return z, loops, notes
 
 
