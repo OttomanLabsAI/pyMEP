@@ -30,9 +30,9 @@ pyMEP.extension/
   pyMEP.tab/
     00_Setup.panel/             # 'pyMEP v<x>': Settings / Install Update (stacked)
     01_Civil3DConversion.panel/ # Civil 3D LandXML Dashboard (split), Place Structures/Pipes, big icon-only: Create Pipe Sizes + Structure to Pipe (stack) and Family at Pipe Top (own slot)
-    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge Pipes, Connect Fixtures, Connect Inflow to Collector
+    02_Modelling.panel/         # 'Drainage': Gully to MH, Merge Pipes, Connect Fixtures
     02_Networks.panel/          # 'Networks': Drainage dashboard launch, stacked icons: Apply Edits + Network Settings
-    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (always creates) + Update Pipes (scoped in-place update) + Sync Input Nodes
+    07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (always creates) + Update Pipes (scoped in-place update) + Connect Inflow to Collector + Sync Input Nodes
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
@@ -292,7 +292,7 @@ record are created fresh and start tracking. Everything outside the
 scope is left alone.
 
 Connecting node families into the built network is Connect Inflow
-to Collector's job (Drainage panel) - its aim mode finds each node's
+to Collector's job (this panel) - its aim mode finds each node's
 collector along the node's rotation, filtered to the workset you
 pick.
 
@@ -361,8 +361,8 @@ type, system type and level; diameter and slope are remembered between
 runs. A fitting that can't be placed never fails the branch - the
 pipes stay and the miss is reported.
 
-**Connect Inflow to Collector** - the node-driven sibling of Connect
-Fixtures. THE COLLECTOR FINDS ITSELF: a candidate pipe DIRECTLY UNDER
+**Connect Inflow to Collector** (Pipe Networks panel) - the
+node-driven sibling of Connect Fixtures. THE COLLECTOR FINDS ITSELF: a candidate pipe DIRECTLY UNDER
 the node takes the drop straight down; otherwise THE single ray along
 the node's drawn ARROW (the wire, 180 degrees off the API facing - no
 other direction is ever tried, so a miss can never veer 90 degrees
