@@ -49,6 +49,10 @@ JOIN_TOL_MM = 50.0        # how close counts as touching
 OVERSHOOT_MM = 2000.0     # terminal stub past a junction = drawing overshoot
 MIN_RUN_MM = 160.0        # runs shorter than this cannot be built
 DEPTH_EPS_MM = 1.0        # grade-linearity check along a through run
+SOURCE_SNAP_MM = 2000.0   # an Invert Level marker farther than this
+                          # from every line node pins NOTHING (it was
+                          # snapping across the site onto whichever
+                          # node happened to be nearest)
 
 
 # ---------------------------------------------------------------------------
@@ -683,7 +687,18 @@ def solve(lines, pick, slopes, join_tol=JOIN_TOL_MM,
         heads = {}
         for (sx, sy), z in sources:
             n = nearest_node(net, (sx, sy))
-            if n is not None and (n not in heads or z > heads[n]):
+            if n is None:
+                continue
+            nx, ny = net["nodes"][n]
+            off = math.hypot(nx - sx, ny - sy)
+            if off > SOURCE_SNAP_MM:
+                skipped.append(
+                    "the Invert Level node at ({:.0f}, {:.0f}) is "
+                    "{:.1f} m from the nearest line end - IGNORED "
+                    "(move it onto the line end it should pin)".format(
+                        sx, sy, off / 1000.0))
+                continue
+            if n not in heads or z > heads[n]:
                 heads[n] = float(z)
         source_nodes = sorted(heads)
         out = nearest_node(net, pick)
@@ -834,11 +849,17 @@ def _marker_z_ft(doc, el, loc_z_ft, datum_z_ft=None):
 def find_invert_markers(doc, name_hint="invert", datum_z_ft=None):
     """Placed marker families that pin a HEAD level: any family
     instance whose FAMILY name contains ``name_hint`` (the user's
-    'Node - Invert Level' generic model). Returns
-    [(element, (x_mm, y_mm), z_mm), ...] where z = the typed invert
-    over the datum (else Level + 'Elevation from Level') - the HIGH
-    point the network falls away from at that spot."""
+    'Node - Invert Level' generic model). Returns ``(heads, unset)``:
+    heads = [(element, (x_mm, y_mm), z_mm), ...] with z = the typed
+    invert over the datum - ONLY markers whose 'Invert Level'
+    parameter carries a real (non-zero) value pin anything; unset =
+    [(element, (x_mm, y_mm)), ...], the markers with NO invert typed.
+    An unset marker used to fall back to its placement height (its
+    level/offset, ~the terrain it was dropped on), which silently
+    pinned a branch metres above the network and forced that one run
+    steeper than its grade - now the caller reports it instead."""
     out = []
+    unset = []
     for el in FilteredElementCollector(doc).OfClass(FamilyInstance):
         try:
             fam = el.Symbol.Family.Name
@@ -852,10 +873,22 @@ def find_invert_markers(doc, name_hint="invert", datum_z_ft=None):
             continue
         if p is None:
             continue
+        typed = False
+        try:
+            prm = el.LookupParameter(INVERT_MARKER_PARAM)
+            if prm is not None and prm.HasValue and \
+                    str(prm.StorageType) == "Double" and \
+                    abs(prm.AsDouble()) > 1e-9:
+                typed = True
+        except Exception:
+            pass
+        if not typed:
+            unset.append((el, (p.X * MM_PER_FT, p.Y * MM_PER_FT)))
+            continue
         z_ft = _marker_z_ft(doc, el, p.Z, datum_z_ft)
         out.append((el, (p.X * MM_PER_FT, p.Y * MM_PER_FT),
                     z_ft * MM_PER_FT))
-    return out
+    return out, unset
 
 
 def _gstyle_name(el):

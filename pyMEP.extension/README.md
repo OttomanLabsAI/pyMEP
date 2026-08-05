@@ -263,7 +263,13 @@ Placed 'Node - Invert Level' marker families (any family whose name
 contains 'invert') are the network's HEADS: each pins the level typed
 into its 'Invert Level' parameter (measured above the LINES' work
 plane) at its spot, and ONE click marks the LOW (outfall) end - which
-needs no node. The network FALLS from every head toward that click at
+needs no node. ONLY markers with a real value typed pin anything: a
+marker whose 'Invert Level' is empty (or zero) is listed and ignored
+- it used to pin at its own placement height (the terrain it was
+dropped on) and silently steepen that branch. A marker more than 2 m
+from every line end is ignored too (listed with its distance) instead
+of snapping across the site onto whichever node happens to be
+nearest. The network FALLS from every head toward that click at
 each line's own gradient, so it works with SEVERAL heads at once:
 where two feeds MERGE the lower one governs and the run continues
 falling from it (the higher feed's last stretch lands steeper - it
