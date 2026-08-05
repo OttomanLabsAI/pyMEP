@@ -355,6 +355,25 @@ class InvertMarkers(unittest.TestCase):
                     sources=[((0.0, 0.0), 50000.0)])
         self.assertFalse(any("STEEPER" in s for s in sol["skipped"]))
 
+    def test_far_away_marker_pins_nothing(self):
+        # a marker 5 m from every line node must NOT snap across the
+        # site onto the nearest node: it is ignored with a note, and
+        # the branch it would have pinned rises at its grade instead
+        sol = solve([TRUNK, LATERAL], (30000.0, 0.0), 150.0,
+                    sources=[((0.0, 0.0), 50000.0),
+                             ((10000.0, 17000.0), 51050.0)])
+        idx = {}
+        for i, (x, y) in enumerate(sol["nodes"]):
+            idx[(round(x), round(y))] = i
+        # lateral top rises at 1:150 off the tee - not pinned at 51050
+        tee_z = sol["depths"][idx[(10000, 0)]]
+        self.assertAlmostEqual(sol["depths"][idx[(10000, 12000)]],
+                               tee_z + 12000.0 / 150.0, places=6)
+        notes = [s for s in sol["skipped"] if "IGNORED" in s]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("5.0 m", notes[0])
+        self.assertEqual(len(sol["source_nodes"]), 1)
+
     def test_head_pinned_high_flags_the_steep_run(self):
         # the user's case: a lateral whose head is pinned WAY above
         # where 1:n from the collector lands - the run connects steeper

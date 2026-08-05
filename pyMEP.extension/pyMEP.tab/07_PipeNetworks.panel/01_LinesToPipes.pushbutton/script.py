@@ -77,7 +77,7 @@ AUTO_TYPE = "(automatic)"
 NO_SEGMENT = "(from pipe type)"
 
 settings = load_settings()
-markers = find_invert_markers(doc)
+markers, unset_markers = find_invert_markers(doc)
 
 
 def slope_breakdown(rows):
@@ -426,7 +426,7 @@ if markers:
     else:
         log("! the lines expose no work plane - marker levels fall "
             "back to each marker's own level")
-    markers = find_invert_markers(doc, datum_z_ft=datum_ft)
+    markers, unset_markers = find_invert_markers(doc, datum_z_ft=datum_ft)
     sources = []
     for el, (mx, my), mz in markers:
         sources.append(((mx, my), mz))
@@ -434,6 +434,12 @@ if markers:
             "**{:.3f} m** - the network falls from it toward the "
             "outfall you click".format(
                 mx / 1000.0, my / 1000.0, mz / 1000.0))
+
+for _uel, (_ux, _uy) in unset_markers:
+    log("! Invert Level node at ({:.1f}, {:.1f}) m has NO 'Invert "
+        "Level' value typed - it pins NOTHING (it used to pin at its "
+        "own placement height and steepen that branch; type the "
+        "invert to make it a head)".format(_ux / 1000.0, _uy / 1000.0))
 
 pick_mm = None
 try:
