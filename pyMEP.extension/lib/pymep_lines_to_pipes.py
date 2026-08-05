@@ -127,7 +127,8 @@ def fit_plan(lines, width, height, pad=16.0):
     return scale, ox, oy
 
 
-def aim_pick(o_xy, dir_xys, segs, ray_fn, dist_fn, under=None):
+def aim_pick(o_xy, dir_xys, segs, ray_fn, dist_fn, under=None,
+             fallback=True):
     """Which network segment a node belongs to. ``segs`` is
     [(key, (ax, ay), (bx, by)), ...]; ``dir_xys`` the node's direction
     candidates in priority order (facing pair first). The first
@@ -143,7 +144,14 @@ def aim_pick(o_xy, dir_xys, segs, ray_fn, dist_fn, under=None):
     ON a run and the drop goes straight down into it. Without this, an
     arrow PARALLEL to the pipe below sails over it (a parallel ray
     cannot hit) and catches the next pipe along, drawing a duplicate
-    run on top of the main."""
+    run on top of the main.
+
+    ``fallback=False`` disables the plan-nearest last resort: a node
+    whose arrow ray hits nothing returns (None, 'miss') instead of
+    grabbing whatever pipe happens to be closest. Blind-nearest is how
+    nodes with a mis-rotated arrow all chain into the same stray branch
+    and build a star of criss-crossing runs - callers that model real
+    pipe (Connect Inflow) skip the node and report it instead."""
     if under is not None:
         u_best, u_d = None, None
         for key, a_xy, b_xy in segs:
@@ -163,6 +171,8 @@ def aim_pick(o_xy, dir_xys, segs, ray_fn, dist_fn, under=None):
                 best, best_s = key, s
         if best is not None:
             return best, "aimed"
+    if not fallback:
+        return (None, "miss") if segs else (None, None)
     best, best_d = None, None
     for key, a_xy, b_xy in segs:
         d = dist_fn(o_xy, a_xy, b_xy)

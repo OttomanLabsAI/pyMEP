@@ -495,6 +495,29 @@ class AimPick(unittest.TestCase):
                                   self.ray, self.dist)
         self.assertEqual((key, how), ("api", "nearest"))
 
+    def test_no_fallback_reports_a_miss_instead_of_nearest(self):
+        # Connect Inflow runs with fallback=False: a node whose arrow
+        # hits nothing must be SKIPPED, not latched onto whatever pipe
+        # is closest - blind-nearest chained mis-rotated nodes into one
+        # stray branch and drew a star of criss-crossing runs
+        key, how = ns["aim_pick"]((50.0, 12.0), [(1.0, 0.0)],
+                                  self.SEGS, self.ray, self.dist,
+                                  fallback=False)
+        self.assertEqual((key, how), (None, "miss"))
+        # a real hit still aims, and 'under' still wins outright
+        key, how = ns["aim_pick"]((50.0, 0.0), [(0.0, 1.0)],
+                                  self.SEGS, self.ray, self.dist,
+                                  fallback=False)
+        self.assertEqual((key, how), ("near", "aimed"))
+        key, how = ns["aim_pick"]((50.0, 10.2), [(1.0, 0.0)],
+                                  self.SEGS, self.ray, self.dist,
+                                  under=1.0, fallback=False)
+        self.assertEqual((key, how), ("near", "under"))
+        # no segments at all stays (None, None), miss needs candidates
+        key, how = ns["aim_pick"]((0.0, 0.0), [(1.0, 0.0)], [],
+                                  self.ray, self.dist, fallback=False)
+        self.assertEqual((key, how), (None, None))
+
 
 class MarkerZ(unittest.TestCase):
     """The marker family's invert resolution order: its own 'Invert

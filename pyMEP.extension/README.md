@@ -377,8 +377,11 @@ the node takes the drop straight down; otherwise THE single ray along
 the node's drawn ARROW (the wire, 180 degrees off the API facing - no
 other direction is ever tried, so a miss can never veer 90 degrees
 onto the hand axis or behind the arrow) picks the first CANDIDATE
-pipe it meets (plan-nearest as the last resort), and
-every aimed pipe keeps - or is given - its own collector network
+pipe it meets. A node whose arrow hits NO candidate is SKIPPED and
+listed in the report - there is no nearest-pipe last resort any more:
+blind-nearest let mis-rotated nodes chain into each other's fresh
+branches and build a star of criss-crossing runs at one point. Every
+aimed pipe keeps - or is given - its own collector network
 name. The dialog's 'Pipes workset' picks WHICH workset's pipes are
 candidates ('(any workset)' to open it up, remembered between runs) -
 so rays never latch onto random pipes from other systems. With
@@ -391,7 +394,7 @@ them (with or without the forced collector pipe), or pick them when
 prompted (any mix of types) - or
 finish the pick empty and drive it by family type:
 Each branch LEAVES ALONG THE NODE'S ROTATION - the facing ray decides
-where it tees into the collector (plan-nearest when the ray misses) -
+where it tees into the collector (a miss skips the node) -
 and the family's **Drop Pipe** yes/no picks the geometry: ticked (or
 absent), the classic drop-under-the-outlet then graded run; unticked,
 the 1:n run starts straight AT the outlet and a vertical drop lands it
