@@ -51,6 +51,10 @@ log = Logger(output, "DrapeFloor")
 RAY_START_Z = 30000.0   # ft (~9 km) - cast rays from safely above any terrain
 DEDUPE_TOL = 0.01       # ft (~3 mm) - merge coincident sample points
 MIN_HIT_PROXIMITY = 1e-9
+NUDGE_FT = 50.0 / 304.8  # ~50 mm inward retry when the slab rejects a
+                         # boundary point (curved edges are approximated
+                         # by straight segments in shape editing, so a
+                         # point ON the true arc can sit just outside)
 
 XAML_PATH = os.path.join(
     os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
@@ -256,11 +260,53 @@ def boundary_loops(floor):
     return [list(loop) for loop in sketch.Profile]
 
 
+def resample_poly(pts, spacing):
+    """Walk a tessellated polyline, keeping the first point and every
+    point at least ``spacing`` along from the last kept one (plus the
+    final point). pts are (x, y, z) tuples; pure, unit-tested."""
+    if not pts:
+        return []
+    out = [pts[0]]
+    run = 0.0
+    for i in range(1, len(pts)):
+        a, b = pts[i - 1], pts[i]
+        run += math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2 +
+                         (b[2] - a[2]) ** 2)
+        if run >= spacing or i == len(pts) - 1:
+            out.append(b)
+            run = 0.0
+    return out
+
+
 def sample_curve(curve, spacing):
-    """Points along a bound curve at <= spacing apart, endpoints
-    included."""
+    """Points along a sketch curve at <= spacing apart, endpoints
+    included. UNBOUND curves (a full circle or ellipse drawn as one
+    sketch edge - planters, kerb islands) cannot Evaluate(normalized),
+    so they are tessellated and resampled at the spacing instead."""
+    try:
+        bound = curve.IsBound
+    except Exception:
+        bound = True
+    if not bound:
+        tess = [(q.X, q.Y, q.Z) for q in curve.Tessellate()]
+        return [XYZ(x, y, z) for x, y, z in resample_poly(tess, spacing)]
     n = max(1, int(math.ceil(curve.Length / spacing)))
     return [curve.Evaluate(float(i) / n, True) for i in range(n + 1)]
+
+
+def curve_corners(curve):
+    """The curve's end points; an UNBOUND closed edge (full circle)
+    has none, so its quarter points stand in."""
+    try:
+        if curve.IsBound:
+            return [curve.GetEndPoint(0), curve.GetEndPoint(1)]
+    except Exception:
+        pass
+    tess = list(curve.Tessellate())
+    if not tess:
+        return []
+    step = max(1, len(tess) // 4)
+    return [tess[i] for i in range(0, len(tess), step)]
 
 
 def dedupe(points, tol=DEDUPE_TOL):
@@ -279,6 +325,20 @@ def loop_to_poly(loop_curves):
         tess = list(c.Tessellate())
         poly.extend(tess[:-1])          # last pt = next curve's first pt
     return [(p.X, p.Y) for p in poly]
+
+
+def nudge_inward(p, polys, step=NUDGE_FT):
+    """A point ~50 mm from ``p`` that lies INSIDE the loops - the
+    retry position when the slab rejects a boundary point. Tries the
+    8 compass directions; None when none lands inside (a needle-thin
+    corner)."""
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1),
+                   (1, 1), (1, -1), (-1, 1), (-1, -1)):
+        qx = p.X + dx * step
+        qy = p.Y + dy * step
+        if point_in_polys(qx, qy, polys):
+            return XYZ(qx, qy, p.Z)
+    return None
 
 
 def point_in_polys(x, y, polys):
@@ -558,14 +618,15 @@ def main():
             for loop in loops:
                 for c in loop:
                     if corners_only:
-                        pts.append(c.GetEndPoint(0))
-                        pts.append(c.GetEndPoint(1))
+                        pts.extend(curve_corners(c))
                     else:
                         pts.extend(sample_curve(c, spacing))
             pts = dedupe(pts)
 
+            # the loop polygons serve the grid AND the inward-nudge
+            # retry for boundary points the slab rejects
+            polys = [loop_to_poly(l) for l in loops]
             if include_grid:
-                polys = [loop_to_poly(l) for l in loops]
                 pts = dedupe(pts + grid_points(floor, polys,
                                                gx_ft, gy_ft))
 
@@ -577,7 +638,7 @@ def main():
                         floor.Id, err))
                 continue
 
-            added, missed = 0, 0
+            added, missed, rejected, nudged = 0, 0, 0, 0
             for p in pts:
                 hit = nearest_terrain_hit(
                     ri, XYZ(p.X, p.Y, RAY_START_Z), down, match,
@@ -588,13 +649,38 @@ def main():
                 try:
                     editor.DrawPoint(hit)
                     added += 1
+                    continue
                 except Exception:
-                    missed += 1
+                    pass
+                # the slab rejected the point (curved edges are
+                # approximated by straight segments, so a point ON the
+                # true arc can sit just outside) - retry ~50 mm inward
+                # with a FRESH ray so the level stays on the terrain
+                q = nudge_inward(hit, polys)
+                h2 = None
+                if q is not None:
+                    h2 = nearest_terrain_hit(
+                        ri, XYZ(q.X, q.Y, RAY_START_Z), down, match,
+                        lowest=lowest)
+                if h2 is not None:
+                    try:
+                        editor.DrawPoint(h2)
+                        added += 1
+                        nudged += 1
+                        continue
+                    except Exception:
+                        pass
+                rejected += 1
 
             total_added += added
-            total_missed += missed
-            log("**Floor {}** - {} point(s) added, {} missed".format(
-                floor.Id, added, missed))
+            total_missed += missed + rejected
+            log("**Floor {}** - {} point(s) added{}{}{}".format(
+                floor.Id, added,
+                " ({} nudged inward off a curved edge)".format(nudged)
+                if nudged else "",
+                ", {} no terrain hit".format(missed) if missed else "",
+                ", {} rejected by the slab".format(rejected)
+                if rejected else ""))
 
     log.close()
     if total_added == 0:
