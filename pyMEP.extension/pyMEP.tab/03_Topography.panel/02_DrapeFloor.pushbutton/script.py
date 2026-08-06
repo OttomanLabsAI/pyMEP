@@ -48,7 +48,12 @@ uidoc = revit.uidoc
 output = script.get_output()
 log = Logger(output, "DrapeFloor")
 
-RAY_START_Z = 30000.0   # ft (~9 km) - cast rays from safely above any terrain
+RAY_START_Z = 30000.0   # ft - LAST-RESORT ray start when no bbox reads;
+                        # the real start is computed just above the
+                        # candidates (ReferenceIntersector silently
+                        # misses hits when the origin is kilometres
+                        # from the geometry - a fixed 9 km start found
+                        # NOTHING over a 12 m-high site)
 DEDUPE_TOL = 0.01       # ft (~3 mm) - merge coincident sample points
 MIN_HIT_PROXIMITY = 1e-9
 NUDGE_FT = 50.0 / 304.8  # ~50 mm inward retry when the slab rejects a
@@ -452,6 +457,33 @@ def make_intersector(view3d):
     return ri
 
 
+def ray_start_z(floors, topo_items, target):
+    """The rays' start level: ~3 m above the HIGHEST candidate terrain
+    (and the floors), read from bounding boxes. ReferenceIntersector
+    silently returns nothing when the origin sits kilometres above the
+    geometry, so the start must hug the model."""
+    tops = []
+    keys = [k for _lbl, k in topo_items] if target is None else [target]
+    for key in keys:
+        try:
+            el = doc.GetElement(key[1] if key[0] == "host" else key[0])
+            bb = el.get_BoundingBox(None)
+            if bb is not None:
+                tops.append(bb.Max.Z)
+        except Exception:
+            pass
+    for f in floors:
+        try:
+            bb = f.get_BoundingBox(None)
+            if bb is not None:
+                tops.append(bb.Max.Z)
+        except Exception:
+            pass
+    if not tops:
+        return RAY_START_Z
+    return max(tops) + 10.0
+
+
 def is_terrain_hit(ref_ctx, target_ids):
     ref = ref_ctx.GetReference()
     el = doc.GetElement(ref.ElementId)
@@ -603,6 +635,9 @@ def main():
     match = hit_matcher(terrain_category_ids(), target)
     ri = make_intersector(view3d)
     down = XYZ(0, 0, -1)
+    ray_z = ray_start_z(floors, topo_items, target)
+    log("Rays start at internal **{:.1f} m** (just above the "
+        "candidates).".format(ray_z * 0.3048))
 
     total_added, total_missed = 0, 0
     with revit.Transaction("Drape floors to topo"):
@@ -641,7 +676,7 @@ def main():
             added, missed, rejected, nudged = 0, 0, 0, 0
             for p in pts:
                 hit = nearest_terrain_hit(
-                    ri, XYZ(p.X, p.Y, RAY_START_Z), down, match,
+                    ri, XYZ(p.X, p.Y, ray_z), down, match,
                     lowest=lowest)
                 if hit is None:
                     missed += 1
@@ -660,7 +695,7 @@ def main():
                 h2 = None
                 if q is not None:
                     h2 = nearest_terrain_hit(
-                        ri, XYZ(q.X, q.Y, RAY_START_Z), down, match,
+                        ri, XYZ(q.X, q.Y, ray_z), down, match,
                         lowest=lowest)
                 if h2 is not None:
                     try:
