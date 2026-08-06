@@ -206,13 +206,25 @@ def get_floors():
               if isinstance(el, Floor)]
     if picked:
         return picked
-    try:
-        refs = uidoc.Selection.PickObjects(
-            ObjectType.Element, FloorFilter(),
-            "Pick floors to drape, then hit Finish")
-    except Exception:
-        return []
-    return [doc.GetElement(r) for r in refs]
+    # pick ONE BY ONE: every click adds a floor, and a single ESC (or
+    # right-click) CONTINUES with what was picked - no options-bar
+    # Finish click. (Revit never routes the Enter key to a script in
+    # pick mode, so ESC is the keyboard's 'done'.)
+    got = []
+    seen = set()
+    while True:
+        try:
+            r = uidoc.Selection.PickObject(
+                ObjectType.Element, FloorFilter(),
+                "Pick floors to drape one by one ({} picked) - press "
+                "ESC to continue".format(len(got)))
+        except Exception:               # ESC / right-click: done
+            break
+        el = doc.GetElement(r.ElementId)
+        if isinstance(el, Floor) and el.Id.IntegerValue not in seen:
+            seen.add(el.Id.IntegerValue)
+            got.append(el)
+    return got
 
 
 # ------------------------------------------------------------------- geometry

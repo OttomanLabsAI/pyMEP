@@ -531,7 +531,10 @@ sample is ray-cast straight down onto terrain, and every hit is
 added as a slab-shape point so the floor follows the ground. Floors
 with openings are handled (hole loops are respected when the grid is
 generated). Select the floors first, or click with nothing selected
-and pick them in the view; every choice is remembered between runs.
+and pick them ONE BY ONE in the view - a single ESC (or right-click)
+continues with what you picked, no options-bar Finish click (Revit
+never routes the Enter key to a script in pick mode, so ESC is the
+keyboard's 'done'). Every choice is remembered between runs.
 Rays that miss (no terrain at that plan position) are counted per
 floor in the report. Revit 2022-2026.
 
