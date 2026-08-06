@@ -3,11 +3,12 @@
 below them.
 
 Samples points along each floor's sketch boundary (and optionally an
-interior grid at the same spacing), ray-casts straight DOWN onto
-terrain in the host model or any loaded link, then adds the hits as
-slab-shape points so the floor follows the ground. Floors with
+interior grid with its OWN X / Y spacings), ray-casts straight DOWN
+onto terrain in the host model or any loaded link, then adds the hits
+as slab-shape points so the floor follows the ground. Floors with
 openings are handled - hole loops are respected when generating the
-interior grid.
+interior grid. One dialog collects everything; every value is
+remembered between runs.
 
 Works in Revit 2022-2026: targets OST_Toposolid where it exists and
 falls back to legacy OST_Topography.
@@ -17,6 +18,7 @@ __title__  = "Drape Floor\nto Topo"
 __author__ = "Fid / Glent Group"
 
 import math
+import os
 import sys
 
 for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
@@ -50,7 +52,118 @@ RAY_START_Z = 30000.0   # ft (~9 km) - cast rays from safely above any terrain
 DEDUPE_TOL = 0.01       # ft (~3 mm) - merge coincident sample points
 MIN_HIT_PROXIMITY = 1e-9
 
+XAML_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
+    "pymep_drape_floor.xaml")
+
 log("### Drape floor to topo")
+
+
+# --------------------------------------------------------------------- dialog
+class DrapeWindow(forms.WPFWindow):
+    """One dialog for everything: existing-corners-only mode, edge
+    spacing, the interior grid on/off, and the grid's OWN X / Y
+    spacings with a 'match X' tick that keeps Y equal to X."""
+
+    def __init__(self, settings, info_text):
+        forms.WPFWindow.__init__(self, XAML_PATH)
+        self.result = None
+        self.TxtInfo.Text = info_text
+        self.ChkCorners.IsChecked = bool(settings.get(
+            "drape_corners_only", False))
+        self.TxtEdge.Text = "{:g}".format(
+            float(settings.get("drape_spacing_mm", 5000.0)))
+        self.ChkGrid.IsChecked = bool(settings.get("drape_grid", False))
+        self.TxtGridX.Text = "{:g}".format(
+            float(settings.get("drape_grid_x_mm",
+                               settings.get("drape_spacing_mm", 5000.0))))
+        self.TxtGridY.Text = "{:g}".format(
+            float(settings.get("drape_grid_y_mm",
+                               settings.get("drape_spacing_mm", 5000.0))))
+        self.ChkMatch.IsChecked = bool(settings.get("drape_grid_match",
+                                                    True))
+        self.on_match(None, None)
+        self.on_corners(None, None)
+
+    @staticmethod
+    def _num(box):
+        try:
+            v = float(box.Text)
+            return v if v > 0 else None
+        except Exception:
+            return None
+
+    def read_values(self):
+        """{'corners', 'edge', 'grid', 'gx', 'gy'} (mm), or None when
+        a needed field is not a positive number."""
+        corners = bool(self.ChkCorners.IsChecked)
+        if corners:
+            return {"corners": True, "edge": None, "grid": False,
+                    "gx": None, "gy": None,
+                    "match": bool(self.ChkMatch.IsChecked)}
+        edge = self._num(self.TxtEdge)
+        if edge is None:
+            return None
+        grid = bool(self.ChkGrid.IsChecked)
+        gx = gy = None
+        if grid:
+            gx = self._num(self.TxtGridX)
+            gy = gx if self.ChkMatch.IsChecked else self._num(self.TxtGridY)
+            if gx is None or gy is None:
+                return None
+        return {"corners": False, "edge": edge, "grid": grid,
+                "gx": gx, "gy": gy,
+                "match": bool(self.ChkMatch.IsChecked)}
+
+    def on_corners(self, sender, args):
+        try:
+            corners = bool(self.ChkCorners.IsChecked)
+            self.TxtEdge.IsEnabled = not corners
+            self.ChkGrid.IsEnabled = not corners
+            if corners:
+                self.ChkGrid.IsChecked = False
+            self.on_grid(None, None)
+        except Exception:
+            pass
+
+    def on_grid(self, sender, args):
+        try:
+            on = bool(self.ChkGrid.IsChecked)
+            self.TxtGridX.IsEnabled = on
+            self.ChkMatch.IsEnabled = on
+            self.TxtGridY.IsEnabled = on and not self.ChkMatch.IsChecked
+        except Exception:
+            pass
+
+    def on_match(self, sender, args):
+        try:
+            match = bool(self.ChkMatch.IsChecked)
+            self.TxtGridY.IsEnabled = (not match
+                                       and bool(self.ChkGrid.IsChecked))
+            if match:
+                self.TxtGridY.Text = self.TxtGridX.Text
+        except Exception:
+            pass
+
+    def on_grid_x(self, sender, args):
+        try:
+            if self.ChkMatch.IsChecked:
+                self.TxtGridY.Text = self.TxtGridX.Text
+        except Exception:
+            pass
+
+    def on_drape(self, sender, args):
+        v = self.read_values()
+        if v is None:
+            self.StatusText.Text = ("Every spacing must be a positive "
+                                    "number (mm).")
+            return
+        self.result = v
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.Close()
 
 
 # ------------------------------------------------------------------ selection
@@ -124,12 +237,12 @@ def point_in_polys(x, y, polys):
     return inside
 
 
-def grid_points(floor, polys, spacing):
+def grid_points(floor, polys, spacing_x, spacing_y):
     bb = floor.get_BoundingBox(None)
     if bb is None:
         return []
-    nx = max(1, int(math.ceil((bb.Max.X - bb.Min.X) / spacing)))
-    ny = max(1, int(math.ceil((bb.Max.Y - bb.Min.Y) / spacing)))
+    nx = max(1, int(math.ceil((bb.Max.X - bb.Min.X) / spacing_x)))
+    ny = max(1, int(math.ceil((bb.Max.Y - bb.Min.Y) / spacing_y)))
     pts = []
     for i in range(nx + 1):
         x = bb.Min.X + (bb.Max.X - bb.Min.X) * i / nx
@@ -228,42 +341,48 @@ def main():
         script.exit()
     log("Draping **{}** floor(s).".format(len(floors)))
 
-    spacing_str = forms.ask_for_string(
-        default="{:g}".format(float(settings.get("drape_spacing_mm",
-                                                 5000.0))),
-        prompt="Max point spacing (mm):",
-        title="Drape Floor to Topo")
-    if not spacing_str:
+    win = DrapeWindow(settings, "{} floor(s) selected".format(
+        len(floors)))
+    win.ShowDialog()
+    if win.result is None:
+        log("Cancelled - nothing changed.")
         log.close()
         script.exit()
-    try:
-        spacing_mm = float(spacing_str)
-        spacing = UnitUtils.ConvertToInternalUnits(
-            spacing_mm, UnitTypeId.Millimeters)
-    except ValueError:
-        log.close()
-        forms.alert('"{}" is not a number.'.format(spacing_str),
-                    exitscript=True)
+    opt = win.result
 
-    grid_opt = "Edges + interior grid" \
-        if settings.get("drape_grid", False) else "Edges only"
-    mode = forms.CommandSwitchWindow.show(
-        ["Edges only", "Edges + interior grid"],
-        message="Where should drape points go? (last time: {})".format(
-            grid_opt))
-    if not mode:
-        log.close()
-        script.exit()
-    include_grid = (mode == "Edges + interior grid")
-
-    settings["drape_spacing_mm"] = spacing_mm
-    settings["drape_grid"] = include_grid
+    settings["drape_corners_only"] = opt["corners"]
+    if not opt["corners"]:
+        settings["drape_spacing_mm"] = opt["edge"]
+        settings["drape_grid"] = opt["grid"]
+        if opt["grid"]:
+            settings["drape_grid_x_mm"] = opt["gx"]
+            settings["drape_grid_y_mm"] = opt["gy"]
+        settings["drape_grid_match"] = opt["match"]
     try:
         save_settings(settings)
     except Exception:
         pass
-    log("Spacing **{:g} mm**, {}.".format(
-        spacing_mm, mode.lower()))
+
+    def _mm2ft(v):
+        return UnitUtils.ConvertToInternalUnits(v, UnitTypeId.Millimeters)
+
+    corners_only = opt["corners"]
+    include_grid = opt["grid"]
+    spacing = gx_ft = gy_ft = None
+    if corners_only:
+        log("Existing sketch CORNERS only - no extra edge points, no "
+            "grid.")
+    elif include_grid:
+        spacing = _mm2ft(opt["edge"])
+        gx_ft = _mm2ft(opt["gx"])
+        gy_ft = _mm2ft(opt["gy"])
+        log("Edges at **{:g} mm**; interior grid at **{:g} x {:g} "
+            "mm**{}.".format(opt["edge"], opt["gx"], opt["gy"],
+                             " (Y matches X)" if opt["match"] else ""))
+    else:
+        spacing = _mm2ft(opt["edge"])
+        log("Edges at **{:g} mm**, no interior grid.".format(
+            opt["edge"]))
 
     view3d = find_view3d()
     if view3d is None:
@@ -290,12 +409,17 @@ def main():
             pts = []
             for loop in loops:
                 for c in loop:
-                    pts.extend(sample_curve(c, spacing))
+                    if corners_only:
+                        pts.append(c.GetEndPoint(0))
+                        pts.append(c.GetEndPoint(1))
+                    else:
+                        pts.extend(sample_curve(c, spacing))
             pts = dedupe(pts)
 
             if include_grid:
                 polys = [loop_to_poly(l) for l in loops]
-                pts = dedupe(pts + grid_points(floor, polys, spacing))
+                pts = dedupe(pts + grid_points(floor, polys,
+                                               gx_ft, gy_ft))
 
             try:
                 editor = get_shape_editor(floor)
