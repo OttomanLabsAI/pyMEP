@@ -533,9 +533,14 @@ down, whichever way the terrain lies. The dialog also chooses WHICH
 terrain catches the rays: '(all terrain)' uses every toposolid /
 topography in the host model and links, or pick ONE surface from the
 list and only it counts; and where surfaces stack at the same plan
-position, a TOPMOST / LOWEST switch decides which one wins. Floors
-with openings are handled (hole loops are respected when the grid is
-generated). Select the floors first, or click with nothing selected
+position, a TOPMOST / LOWEST switch decides which one wins. Complex footpath-style floors work: curved and full-circle sketch
+edges are sampled at the same typed spacing along their length (a
+point every 5000 mm along a curved kerb, say), and a boundary point
+the slab rejects - shape editing approximates arcs with straight
+segments, so a point on the true arc can sit just outside - is
+retried ~50 mm inward with a fresh ray and counted in the report.
+Floors with openings are handled (hole loops are respected when the
+grid is generated and stay empty). Select the floors first, or click with nothing selected
 and pick them ONE BY ONE in the view - a single ESC (or right-click)
 continues with what you picked, no options-bar Finish click (Revit
 never routes the Enter key to a script in pick mode, so ESC is the
