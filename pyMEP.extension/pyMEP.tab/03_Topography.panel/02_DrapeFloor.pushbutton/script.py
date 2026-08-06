@@ -82,6 +82,9 @@ class DrapeWindow(forms.WPFWindow):
                                settings.get("drape_spacing_mm", 5000.0))))
         self.ChkMatch.IsChecked = bool(settings.get("drape_grid_match",
                                                     True))
+        self.ChkMatchEdge.IsChecked = bool(settings.get(
+            "drape_grid_match_edge", False))
+        self.on_match_edge(None, None)
         self.on_match(None, None)
         self.on_corners(None, None)
 
@@ -100,20 +103,23 @@ class DrapeWindow(forms.WPFWindow):
         if corners:
             return {"corners": True, "edge": None, "grid": False,
                     "gx": None, "gy": None,
-                    "match": bool(self.ChkMatch.IsChecked)}
+                    "match": bool(self.ChkMatch.IsChecked),
+                    "match_edge": bool(self.ChkMatchEdge.IsChecked)}
         edge = self._num(self.TxtEdge)
         if edge is None:
             return None
         grid = bool(self.ChkGrid.IsChecked)
         gx = gy = None
         if grid:
-            gx = self._num(self.TxtGridX)
+            gx = edge if self.ChkMatchEdge.IsChecked \
+                else self._num(self.TxtGridX)
             gy = gx if self.ChkMatch.IsChecked else self._num(self.TxtGridY)
             if gx is None or gy is None:
                 return None
         return {"corners": False, "edge": edge, "grid": grid,
                 "gx": gx, "gy": gy,
-                "match": bool(self.ChkMatch.IsChecked)}
+                "match": bool(self.ChkMatch.IsChecked),
+                "match_edge": bool(self.ChkMatchEdge.IsChecked)}
 
     def on_corners(self, sender, args):
         try:
@@ -129,9 +135,29 @@ class DrapeWindow(forms.WPFWindow):
     def on_grid(self, sender, args):
         try:
             on = bool(self.ChkGrid.IsChecked)
-            self.TxtGridX.IsEnabled = on
+            self.ChkMatchEdge.IsEnabled = on
             self.ChkMatch.IsEnabled = on
-            self.TxtGridY.IsEnabled = on and not self.ChkMatch.IsChecked
+            self.TxtGridX.IsEnabled = (on and
+                                       not self.ChkMatchEdge.IsChecked)
+            self.TxtGridY.IsEnabled = (on and
+                                       not self.ChkMatch.IsChecked)
+        except Exception:
+            pass
+
+    def on_match_edge(self, sender, args):
+        try:
+            match = bool(self.ChkMatchEdge.IsChecked)
+            self.TxtGridX.IsEnabled = (not match
+                                       and bool(self.ChkGrid.IsChecked))
+            if match:
+                self.TxtGridX.Text = self.TxtEdge.Text
+        except Exception:
+            pass
+
+    def on_edge(self, sender, args):
+        try:
+            if self.ChkMatchEdge.IsChecked:
+                self.TxtGridX.Text = self.TxtEdge.Text
         except Exception:
             pass
 
@@ -358,6 +384,7 @@ def main():
             settings["drape_grid_x_mm"] = opt["gx"]
             settings["drape_grid_y_mm"] = opt["gy"]
         settings["drape_grid_match"] = opt["match"]
+        settings["drape_grid_match_edge"] = opt["match_edge"]
     try:
         save_settings(settings)
     except Exception:
@@ -376,9 +403,15 @@ def main():
         spacing = _mm2ft(opt["edge"])
         gx_ft = _mm2ft(opt["gx"])
         gy_ft = _mm2ft(opt["gy"])
+        ties = []
+        if opt["match_edge"]:
+            ties.append("X matches the edges")
+        if opt["match"]:
+            ties.append("Y matches X")
         log("Edges at **{:g} mm**; interior grid at **{:g} x {:g} "
             "mm**{}.".format(opt["edge"], opt["gx"], opt["gy"],
-                             " (Y matches X)" if opt["match"] else ""))
+                             " ({})".format(", ".join(ties))
+                             if ties else ""))
     else:
         spacing = _mm2ft(opt["edge"])
         log("Edges at **{:g} mm**, no interior grid.".format(

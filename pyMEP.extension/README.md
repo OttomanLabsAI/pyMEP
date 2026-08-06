@@ -524,7 +524,9 @@ Toposolid / Topography below them (host model or links). One dialog
 drives it: the floor's sketch boundary is sampled at the spacing you
 type - or tick **Existing corners ONLY** to drape just the sketch's
 own corner points, nothing else - plus an optional interior grid
-with its OWN X and Y spacings ('match X' keeps Y equal to X). Each
+with its OWN X and Y spacings ('match edges' ties the X spacing to
+the edge spacing, 'match X' ties Y to X - tick both and one number
+drives everything). Each
 sample is ray-cast straight down onto terrain, and every hit is
 added as a slab-shape point so the floor follows the ground. Floors
 with openings are handled (hole loops are respected when the grid is
