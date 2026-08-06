@@ -519,14 +519,17 @@ selected MEP elements (vertical cut, +50 mm above the top so it always breaks
 the surface). Cutter instances stay in the model tagged with the comment
 `pyMEP_TopoCut`; deleting a cutter removes its cut.
 
-**Drape Floor to Topo** - pick a floor, then a toposolid / topography /
-floor to follow: every slab-shape sub-element point of the floor is
-moved to the surface's level at that X,Y (vertical projection, nearest
-hit from above). Prior shape edits are reset first so the result
-follows the surface exactly at the floor's points; add points to the
-floor (Shape Editing > Add Point) and re-run for a denser drape.
-Misses (no surface at that plan position) are reported and stay on the
-flat plane.
+**Drape Floor to Topo** - drape the selected floors onto the
+Toposolid / Topography below them (host model or links). The floor's
+sketch boundary is sampled at the spacing you type - plus an optional
+interior grid at the same spacing - each sample is ray-cast straight
+down onto terrain, and every hit is added as a slab-shape point so
+the floor follows the ground. Floors with openings are handled (hole
+loops are respected when the grid is generated). Select the floors
+first, or click with nothing selected and pick them in the view;
+spacing and the edges/grid choice are remembered between runs. Rays
+that miss (no terrain at that plan position) are counted per floor in
+the report. Revit 2022-2026.
 
 ### Chamber Drawing Setup
 
