@@ -528,7 +528,12 @@ with its OWN X and Y spacings ('match edges' ties the X spacing to
 the edge spacing, 'match X' ties Y to X - tick both and one number
 drives everything). Each
 sample is ray-cast straight down onto terrain, and every hit is
-added as a slab-shape point so the floor follows the ground. Floors
+added as a slab-shape point so the floor follows the ground - up or
+down, whichever way the terrain lies. The dialog also chooses WHICH
+terrain catches the rays: '(all terrain)' uses every toposolid /
+topography in the host model and links, or pick ONE surface from the
+list and only it counts; and where surfaces stack at the same plan
+position, a TOPMOST / LOWEST switch decides which one wins. Floors
 with openings are handled (hole loops are respected when the grid is
 generated). Select the floors first, or click with nothing selected
 and pick them ONE BY ONE in the view - a single ESC (or right-click)

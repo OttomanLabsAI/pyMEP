@@ -1,7 +1,7 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Drape Floor to Topo"
-        Width="440" Height="390" MinWidth="400" MinHeight="360"
+        Width="480" Height="640" MinWidth="440" MinHeight="560"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False"
         Background="White">
@@ -107,6 +107,24 @@
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
                                Text="Grid points inside the boundary (openings stay empty). 'match edges' keeps the X spacing the same as the edge spacing; 'match X' keeps Y the same as X."/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Terrain to drape onto">
+                <StackPanel>
+                    <ComboBox x:Name="CmbTopo" Margin="0,3,0,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock Style="{StaticResource FieldLabel}"
+                                   Margin="0,0,10,0"
+                                   Text="Where surfaces stack, hit the"/>
+                        <RadioButton x:Name="RadHitTop" Content="TOPMOST"
+                                     GroupName="hit" IsChecked="True"
+                                     Margin="0,2,14,0"/>
+                        <RadioButton x:Name="RadHitLow" Content="LOWEST"
+                                     GroupName="hit" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="'(all terrain)' ray-casts against every toposolid / topography in the host model and links; or pick ONE surface and only it catches the rays. TOPMOST takes the highest surface at each point, LOWEST the deepest."/>
                 </StackPanel>
             </GroupBox>
 
