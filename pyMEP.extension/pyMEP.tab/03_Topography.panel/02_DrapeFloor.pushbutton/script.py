@@ -55,6 +55,7 @@ MIN_HIT_PROXIMITY = 1e-9
 XAML_PATH = os.path.join(
     os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
     "pymep_drape_floor.xaml")
+ALL_TOPO = "(all terrain - host model + links)"
 
 log("### Drape floor to topo")
 
@@ -65,10 +66,24 @@ class DrapeWindow(forms.WPFWindow):
     spacing, the interior grid on/off, and the grid's OWN X / Y
     spacings with a 'match X' tick that keeps Y equal to X."""
 
-    def __init__(self, settings, info_text):
+    def __init__(self, settings, info_text, topo_labels):
         forms.WPFWindow.__init__(self, XAML_PATH)
         self.result = None
         self.TxtInfo.Text = info_text
+        self.CmbTopo.Items.Clear()
+        self.CmbTopo.Items.Add(ALL_TOPO)
+        for lbl in topo_labels:
+            self.CmbTopo.Items.Add(lbl)
+        self.CmbTopo.SelectedIndex = 0
+        want = settings.get("drape_topo") or ALL_TOPO
+        for i in range(self.CmbTopo.Items.Count):
+            if str(self.CmbTopo.Items[i]) == want:
+                self.CmbTopo.SelectedIndex = i
+                break
+        if settings.get("drape_hit", "top") == "low":
+            self.RadHitLow.IsChecked = True
+        else:
+            self.RadHitTop.IsChecked = True
         self.ChkCorners.IsChecked = bool(settings.get(
             "drape_corners_only", False))
         self.TxtEdge.Text = "{:g}".format(
@@ -100,11 +115,16 @@ class DrapeWindow(forms.WPFWindow):
         """{'corners', 'edge', 'grid', 'gx', 'gy'} (mm), or None when
         a needed field is not a positive number."""
         corners = bool(self.ChkCorners.IsChecked)
+        topo_idx = self.CmbTopo.SelectedIndex
+        topo_lbl = str(self.CmbTopo.SelectedItem or ALL_TOPO)
+        hit = "low" if self.RadHitLow.IsChecked else "top"
         if corners:
             return {"corners": True, "edge": None, "grid": False,
                     "gx": None, "gy": None,
                     "match": bool(self.ChkMatch.IsChecked),
-                    "match_edge": bool(self.ChkMatchEdge.IsChecked)}
+                    "match_edge": bool(self.ChkMatchEdge.IsChecked),
+                    "topo_idx": topo_idx, "topo_lbl": topo_lbl,
+                    "hit": hit}
         edge = self._num(self.TxtEdge)
         if edge is None:
             return None
@@ -119,7 +139,9 @@ class DrapeWindow(forms.WPFWindow):
         return {"corners": False, "edge": edge, "grid": grid,
                 "gx": gx, "gy": gy,
                 "match": bool(self.ChkMatch.IsChecked),
-                "match_edge": bool(self.ChkMatchEdge.IsChecked)}
+                "match_edge": bool(self.ChkMatchEdge.IsChecked),
+                "topo_idx": topo_idx, "topo_lbl": topo_lbl,
+                "hit": hit}
 
     def on_corners(self, sender, args):
         try:
@@ -317,6 +339,52 @@ def terrain_category_ids():
     return ids
 
 
+def _terrain_cats():
+    return [getattr(BuiltInCategory, n)
+            for n in ("OST_Toposolid", "OST_Topography")
+            if hasattr(BuiltInCategory, n)]
+
+
+def _el_label(el, prefix=""):
+    try:
+        nm = el.Name or ""
+    except Exception:
+        nm = ""
+    return "{}{} (id {})".format(prefix, nm or "Terrain",
+                                 id_value(el.Id))
+
+
+def terrain_elements():
+    """[(label, key)] for every toposolid / topography in the host
+    model and every loaded link. key = ('host', ElementId) or
+    (link_instance_ElementId, linked_ElementId)."""
+    items = []
+    for cat in _terrain_cats():
+        try:
+            for el in FilteredElementCollector(doc).OfCategory(
+                    cat).WhereElementIsNotElementType():
+                items.append((_el_label(el), ("host", el.Id)))
+        except Exception:
+            pass
+    for li in FilteredElementCollector(doc).OfClass(RevitLinkInstance):
+        ldoc = li.GetLinkDocument()
+        if ldoc is None:
+            continue
+        try:
+            title = ldoc.Title
+        except Exception:
+            title = "link"
+        for cat in _terrain_cats():
+            try:
+                for el in FilteredElementCollector(ldoc).OfCategory(
+                        cat).WhereElementIsNotElementType():
+                    items.append((_el_label(
+                        el, "{}: ".format(title)), (li.Id, el.Id)))
+            except Exception:
+                pass
+    return items
+
+
 def make_intersector(view3d):
     ri = ReferenceIntersector(view3d)
     ri.TargetType = FindReferenceTarget.Face
@@ -337,7 +405,28 @@ def is_terrain_hit(ref_ctx, target_ids):
     return id_value(el.Category.Id) in target_ids
 
 
-def nearest_terrain_hit(ri, origin, direction, target_ids):
+def hit_matcher(target_ids, target):
+    """The per-hit filter: ``target`` None accepts ANY toposolid /
+    topography (host + links); ('host', eid) only that host element;
+    (link_instance_eid, linked_eid) only that element of that link."""
+    if target is None:
+        return lambda rc: is_terrain_hit(rc, target_ids)
+
+    def match(rc):
+        ref = rc.GetReference()
+        if target[0] == "host":
+            el = doc.GetElement(ref.ElementId)
+            if isinstance(el, RevitLinkInstance):
+                return False
+            return id_value(ref.ElementId) == id_value(target[1])
+        return (id_value(ref.ElementId) == id_value(target[0]) and
+                id_value(ref.LinkedElementId) == id_value(target[1]))
+    return match
+
+
+def nearest_terrain_hit(ri, origin, direction, match, lowest=False):
+    """The ray's terrain hit: the ray starts ~9 km up, so the SMALLEST
+    proximity is the TOPMOST surface and the LARGEST the LOWEST."""
     refs = ri.Find(origin, direction)
     if refs is None or refs.Count == 0:
         return None
@@ -345,9 +434,11 @@ def nearest_terrain_hit(ri, origin, direction, target_ids):
     for rc in refs:
         if rc.Proximity <= MIN_HIT_PROXIMITY:
             continue
-        if not is_terrain_hit(rc, target_ids):
+        if not match(rc):
             continue
-        if best is None or rc.Proximity < best.Proximity:
+        if best is None or (rc.Proximity > best.Proximity
+                            if lowest else
+                            rc.Proximity < best.Proximity):
             best = rc
     if best is None:
         return None
@@ -379,8 +470,9 @@ def main():
         script.exit()
     log("Draping **{}** floor(s).".format(len(floors)))
 
+    topo_items = terrain_elements()
     win = DrapeWindow(settings, "{} floor(s) selected".format(
-        len(floors)))
+        len(floors)), [lbl for lbl, _k in topo_items])
     win.ShowDialog()
     if win.result is None:
         log("Cancelled - nothing changed.")
@@ -388,6 +480,8 @@ def main():
         script.exit()
     opt = win.result
 
+    settings["drape_topo"] = opt["topo_lbl"]
+    settings["drape_hit"] = opt["hit"]
     settings["drape_corners_only"] = opt["corners"]
     if not opt["corners"]:
         settings["drape_spacing_mm"] = opt["edge"]
@@ -434,10 +528,19 @@ def main():
         log.close()
         forms.alert("No 3D view found in the model - create one and "
                     "re-run.", exitscript=True)
-    log("Ray-casting in 3D view **{}** (toposolid / topography, host "
-        "model + links).".format(view3d.Name))
 
-    target_ids = terrain_category_ids()
+    target = None
+    if opt["topo_idx"] > 0 and opt["topo_idx"] <= len(topo_items):
+        target = topo_items[opt["topo_idx"] - 1][1]
+    lowest = (opt["hit"] == "low")
+    log("Ray-casting in 3D view **{}** onto **{}** - the **{}** "
+        "surface wins where they stack.".format(
+            view3d.Name,
+            opt["topo_lbl"] if target is not None
+            else "every toposolid / topography (host model + links)",
+            "LOWEST" if lowest else "TOPMOST"))
+
+    match = hit_matcher(terrain_category_ids(), target)
     ri = make_intersector(view3d)
     down = XYZ(0, 0, -1)
 
@@ -477,7 +580,8 @@ def main():
             added, missed = 0, 0
             for p in pts:
                 hit = nearest_terrain_hit(
-                    ri, XYZ(p.X, p.Y, RAY_START_Z), down, target_ids)
+                    ri, XYZ(p.X, p.Y, RAY_START_Z), down, match,
+                    lowest=lowest)
                 if hit is None:
                     missed += 1
                     continue
