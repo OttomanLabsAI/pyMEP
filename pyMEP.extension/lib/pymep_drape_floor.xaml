@@ -1,0 +1,125 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Drape Floor to Topo"
+        Width="440" Height="390" MinWidth="400" MinHeight="360"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Background="White">
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Padding" Value="10,8,10,10"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,6,10,0"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="DialogButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#F4F4F4" Padding="14,10">
+            <StackPanel>
+                <TextBlock FontSize="15" FontWeight="SemiBold"
+                           Text="Drape Floor to Topo"/>
+                <TextBlock x:Name="TxtInfo" Style="{StaticResource Hint}"
+                           Text="&#8212;"/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="14,12,14,12">
+            <GroupBox Header="Floor edges">
+                <StackPanel>
+                    <CheckBox x:Name="ChkCorners" Margin="0,2,0,0"
+                              Content="Existing corners ONLY (no in-between points)"
+                              Checked="on_corners" Unchecked="on_corners"/>
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Max point spacing (mm)"/>
+                        <TextBox x:Name="TxtEdge" Grid.Column="1"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Points along every sketch boundary loop, endpoints included. 'Existing corners ONLY' drapes just the sketch's own corner points - no extra edge points, no grid."/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Interior grid">
+                <StackPanel>
+                    <CheckBox x:Name="ChkGrid" Margin="0,2,0,0"
+                              Content="Add an interior grid of points"
+                              Checked="on_grid" Unchecked="on_grid"/>
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="X spacing (mm)"/>
+                        <TextBox x:Name="TxtGridX" Grid.Row="0" Grid.Column="1"
+                                 TextChanged="on_grid_x"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Y spacing (mm)"/>
+                        <TextBox x:Name="TxtGridY" Grid.Row="1" Grid.Column="1"/>
+                        <CheckBox x:Name="ChkMatch" Grid.Row="2" Grid.Column="1"
+                                  Margin="0,6,0,0" Content="match X"
+                                  Checked="on_match" Unchecked="on_match"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Grid points inside the boundary (openings stay empty). 'match X' keeps the Y spacing the same as X."/>
+                </StackPanel>
+            </GroupBox>
+
+            <TextBlock x:Name="StatusText" Foreground="#B00020"
+                       TextWrapping="Wrap" Text=""/>
+        </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" Background="#F4F4F4" Padding="14,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnDrape" Content="Drape"
+                        Style="{StaticResource DialogButton}" IsDefault="True"
+                        Click="on_drape"/>
+                <Button x:Name="BtnCancel" Content="Cancel"
+                        Style="{StaticResource DialogButton}" IsCancel="True"
+                        Click="on_cancel"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

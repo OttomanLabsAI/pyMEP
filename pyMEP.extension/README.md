@@ -520,16 +520,18 @@ the surface). Cutter instances stay in the model tagged with the comment
 `pyMEP_TopoCut`; deleting a cutter removes its cut.
 
 **Drape Floor to Topo** - drape the selected floors onto the
-Toposolid / Topography below them (host model or links). The floor's
-sketch boundary is sampled at the spacing you type - plus an optional
-interior grid at the same spacing - each sample is ray-cast straight
-down onto terrain, and every hit is added as a slab-shape point so
-the floor follows the ground. Floors with openings are handled (hole
-loops are respected when the grid is generated). Select the floors
-first, or click with nothing selected and pick them in the view;
-spacing and the edges/grid choice are remembered between runs. Rays
-that miss (no terrain at that plan position) are counted per floor in
-the report. Revit 2022-2026.
+Toposolid / Topography below them (host model or links). One dialog
+drives it: the floor's sketch boundary is sampled at the spacing you
+type - or tick **Existing corners ONLY** to drape just the sketch's
+own corner points, nothing else - plus an optional interior grid
+with its OWN X and Y spacings ('match X' keeps Y equal to X). Each
+sample is ray-cast straight down onto terrain, and every hit is
+added as a slab-shape point so the floor follows the ground. Floors
+with openings are handled (hole loops are respected when the grid is
+generated). Select the floors first, or click with nothing selected
+and pick them in the view; every choice is remembered between runs.
+Rays that miss (no terrain at that plan position) are counted per
+floor in the report. Revit 2022-2026.
 
 ### Chamber Drawing Setup
 
