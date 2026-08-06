@@ -65,7 +65,8 @@
                         <TextBlock Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
                                    Text="Max point spacing (mm)"/>
-                        <TextBox x:Name="TxtEdge" Grid.Column="1"/>
+                        <TextBox x:Name="TxtEdge" Grid.Column="1"
+                                 TextChanged="on_edge"/>
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
                                Text="Points along every sketch boundary loop, endpoints included. 'Existing corners ONLY' drapes just the sketch's own corner points - no extra edge points, no grid."/>
@@ -86,23 +87,26 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
                                    Text="X spacing (mm)"/>
                         <TextBox x:Name="TxtGridX" Grid.Row="0" Grid.Column="1"
                                  TextChanged="on_grid_x"/>
+                        <CheckBox x:Name="ChkMatchEdge" Grid.Row="0" Grid.Column="2"
+                                  Margin="10,9,0,0" Content="match edges"
+                                  Checked="on_match_edge"
+                                  Unchecked="on_match_edge"/>
                         <TextBlock Grid.Row="1" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
                                    Text="Y spacing (mm)"/>
                         <TextBox x:Name="TxtGridY" Grid.Row="1" Grid.Column="1"/>
-                        <CheckBox x:Name="ChkMatch" Grid.Row="2" Grid.Column="1"
-                                  Margin="0,6,0,0" Content="match X"
+                        <CheckBox x:Name="ChkMatch" Grid.Row="1" Grid.Column="2"
+                                  Margin="10,9,0,0" Content="match X"
                                   Checked="on_match" Unchecked="on_match"/>
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Grid points inside the boundary (openings stay empty). 'match X' keeps the Y spacing the same as X."/>
+                               Text="Grid points inside the boundary (openings stay empty). 'match edges' keeps the X spacing the same as the edge spacing; 'match X' keeps Y the same as X."/>
                 </StackPanel>
             </GroupBox>
 
