@@ -515,12 +515,17 @@ coercion.
 Both buttons drive ONE sectioned dialog. Sections: VIEW TEMPLATES,
 FILTERS, LEVELS, FILL PATTERNS, LINE PATTERNS and LINE STYLES
 (Lines subcategories: projection weight, color, line pattern by
-name) - each section has a
-Select... button opening a grouped picker (the template picker groups
-by view family, so Floor Plan / 3D / Section works as a filter; the
-fill pattern picker by Drafting / Model; ticks survive group and
-search changes), plus a tick per section choosing what actually goes
-to - or comes from - the file. The import flavour also carries the
+name) - each section carries its OWN include tick (above its
+Select... button; an emptied selection unticks it automatically) and
+a grouped picker (the template picker groups by view family, so
+Floor Plan / 3D / Section works as a filter; the fill pattern picker
+by Drafting / Model; ticks survive group and search changes). The
+export's auto tick DRIVES the filters section: with it on, the
+filters pick is exactly the filters the picked templates use -
+live, 0 templates = 0 filters - and its Select button rests; untick
+auto for manual control (Tick EVERYTHING switches it off so
+everything really means everything), and Go re-asserts it so
+templates can never export without their filters. The import flavour also carries the
 update-or-skip choice for existing same-name items, a 'Tick
 EVERYTHING' button (all sections, all items in one click), and a
 DRY pre-flight box listing what CANNOT import cleanly right now -
@@ -529,7 +534,14 @@ templates with no donor view, patterns / levels / phase filters
 that are neither in the file nor the model - before anything runs
 (the full list also lands in the report). It imports in
 the order that kills the degrade causes: patterns and line styles
-first, then levels
+first, then levels. Before the run, a NAME MAPPING window lists
+every picked file name with no exact match in this model - levels,
+filters, fill patterns, line patterns and phase filters - each with
+a dropdown of this model's names: pick one and every reference
+redirects to it (the file's own copy is reported 'mapped', not
+imported), or leave '(import as is)' to bring it in as new. Names
+that match exactly map to themselves and are not listed. It then
+imports levels
 (names + elevations; with update chosen an existing level MOVES to
 the file's elevation - reported), then filters, then templates - so
 overrides and view ranges resolve against what was just brought in.

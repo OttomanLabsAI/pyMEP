@@ -51,13 +51,10 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="14,12,14,12">
-            <!-- one GroupBox per data section, built in code -->
+            <!-- Tick-EVERYTHING button + one GroupBox per data
+                 section (each carrying its OWN include tick above the
+                 Select button), all built in code -->
             <StackPanel x:Name="PnlSections"/>
-
-            <GroupBox x:Name="GrpSections" Header="Sections to export">
-                <!-- one CheckBox per section, built in code -->
-                <StackPanel x:Name="PnlSectionTicks"/>
-            </GroupBox>
 
             <GroupBox x:Name="GrpClash" Header="Existing same-name items"
                       Visibility="Collapsed">
