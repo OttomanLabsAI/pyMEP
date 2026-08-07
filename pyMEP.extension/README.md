@@ -52,14 +52,20 @@ kept in sync with `version.txt` at every release.
 
 **Settings** - central configuration for every other button, in one WPF
 window (`SettingsWindow.xaml`): category sidebar on the left (General /
-Ducts / Pipes / Annotate / Section Dims / Updates), real controls on the
+Ducts / Pipes / Annotate / Section Dims / Updates / Ribbon Panels),
+real controls on the
 right, OK / Cancel / Apply at the bottom. Nothing is written to
 `%APPDATA%\pyRevit\pyMEP_settings.json` until OK or Apply; blank fields
 fall back to the defaults shown in each field's hint. General holds the
 folders, Python executable, *Open* for the active export folder and the
 output-window auto-close toggle; Section Dims edits the chamber
 dimension pairs in a grid; Updates holds the GitHub repo/token and the
-install-any-version picker.
+install-any-version picker. Ribbon Panels has a checkbox per pyMEP
+panel - untick one to HIDE it from the tab: applied the moment you hit
+OK / Apply (no reload), re-applied by the startup hook on every Revit
+start, and - because the settings file lives outside the extension
+folder - the choice SURVIVES update installations. The pyMEP setup
+panel itself cannot be hidden.
 
 **Install Update** - downloads the newest published pyMEP.extension from
 GitHub (latest release, else newest tag, else the default branch) and
@@ -700,6 +706,7 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `update_downloads_folder` | override the Downloads folder used by Install Update |
 | `auto_close_output` | close each command's output window when it finishes (error reports stay open) |
 | `hide_output` | never show the output window: it is hidden while the command runs and closed at the end (an error or traceback pops it open) |
+| `hidden_panels` | pyMEP ribbon panels hidden from the tab (display-title prefixes; Settings > Ribbon Panels; applied live + on every start) |
 | `topfam_label` / `topfam_delete` | Family at Pipe Top: last family type used, and whether the original is deleted afterwards |
 | `lines_*` | Lines to Pipes dialog memory (style, workset, segment, dia, default gradient, invert, types) |
 
