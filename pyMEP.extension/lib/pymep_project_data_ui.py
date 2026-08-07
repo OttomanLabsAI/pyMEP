@@ -237,7 +237,10 @@ class ProjectDataWindow(forms.WPFWindow):
 
     # ------------------------------------------------------------------
     def _build_sections(self, auto_default):
-        from System.Windows import Thickness
+        # real WPF enums only: IronPython refuses int -> enum here
+        # ('Cannot convert numeric value 2 to TextWrapping')
+        from System.Windows import (HorizontalAlignment, TextWrapping,
+                                    Thickness)
         from System.Windows.Controls import (Button, CheckBox, GroupBox,
                                              StackPanel, TextBlock,
                                              Orientation)
@@ -272,7 +275,7 @@ class ProjectDataWindow(forms.WPFWindow):
             if sec["hint"]:
                 hint = TextBlock()
                 hint.Text = sec["hint"]
-                hint.TextWrapping = 2       # TextWrapping.Wrap
+                hint.TextWrapping = TextWrapping.Wrap
                 hint.FontSize = 11.0
                 hint.Margin = Thickness(0, 4, 0, 0)
                 try:
@@ -298,7 +301,7 @@ class ProjectDataWindow(forms.WPFWindow):
         every.Content = "Tick EVERYTHING (all sections, all items)"
         every.Margin = Thickness(0, 10, 0, 2)
         every.Padding = Thickness(10, 4, 10, 4)
-        every.HorizontalAlignment = 0     # Left
+        every.HorizontalAlignment = HorizontalAlignment.Left
         every.Click += self.on_everything
         self.PnlSectionTicks.Children.Add(every)
 
@@ -314,7 +317,7 @@ class ProjectDataWindow(forms.WPFWindow):
     def _build_notices(self, notices, header):
         if not notices:
             return
-        from System.Windows import Thickness
+        from System.Windows import TextWrapping, Thickness
         from System.Windows.Controls import GroupBox, StackPanel, \
             TextBlock
         from System.Windows.Media import Brushes
@@ -327,7 +330,7 @@ class ProjectDataWindow(forms.WPFWindow):
         for line in shown:
             tb = TextBlock()
             tb.Text = u"• {}".format(line)
-            tb.TextWrapping = 2
+            tb.TextWrapping = TextWrapping.Wrap
             tb.FontSize = 11.0
             tb.Margin = Thickness(0, 2, 0, 2)
             try:
