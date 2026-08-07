@@ -228,6 +228,23 @@ if not size:
                 "See the pyMEP report.", exitscript=True)
 
 log("Written: **{}** (**{:,}** bytes)".format(path, size))
+
+# templates referencing filters NOT in this file will degrade on
+# import - say so NOW, at the source, where it can be fixed
+in_file = set(f.get("name") for f in data["filters"])
+missing_refs = set()
+for t in data["view_templates"]:
+    for row in t.get("filters") or []:
+        if row.get("name") and row["name"] not in in_file:
+            missing_refs.add(row["name"])
+if missing_refs:
+    log("! **{}** filter(s) referenced by the exported templates are "
+        "NOT in this file - the import will flag every one. "
+        "Re-export with the auto tick ON (or Tick EVERYTHING) to "
+        "include them: {}".format(
+            len(missing_refs),
+            ", ".join(sorted(missing_refs)[:10]) +
+            (" ..." if len(missing_refs) > 10 else "")))
 log("#### Summary")
 log("| item | kind | status | notes |")
 log("|---|---|---|---|")
@@ -243,9 +260,13 @@ log.close()
 forms.alert(
     "Exported {} template(s), {} filter(s), {} level(s), {} fill "
     "pattern(s), {} line pattern(s), {} line style(s) "
-    "({:,} bytes) to:\n{}".format(
+    "({:,} bytes) to:\n{}{}".format(
         len(data["view_templates"]), len(data["filters"]),
         len(data["levels"]), len(data["fill_patterns"]),
         len(data["line_patterns"]), len(data["line_styles"]),
-        size, path),
+        size, path,
+        "\n\nWARNING: {} filter(s) the templates use are NOT in "
+        "this file - the import will flag them. Re-export with the "
+        "auto tick ON to include them.".format(len(missing_refs))
+        if missing_refs else ""),
     title="Project data exported")
