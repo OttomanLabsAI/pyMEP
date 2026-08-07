@@ -22,6 +22,7 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
 
 from pyrevit import revit, forms, script
 
+from pymep_config import load_settings, save_settings
 from pymep_log import Logger
 from pymep_project_data_ui import ProjectDataWindow
 from pymep_vt_schema import dumps, family_label
@@ -59,18 +60,39 @@ a_items = [(family_label(str(v.ViewType)), v.Name, v)
            for v in templates]
 b_items = [(None, f.Name, f) for f in filters]
 
+# which filters each template USES - drives the auto-include tick
+refs = {}
+for v in templates:
+    names = []
+    try:
+        for fid in v.GetFilters():
+            fel = doc.GetElement(fid)
+            if isinstance(fel, ParameterFilterElement):
+                names.append(fel.Name)
+    except Exception:
+        pass
+    refs[v.Name] = names
+
+settings = load_settings()
 win = ProjectDataWindow(
     "Export Project Data",
     "{} view template(s), {} filter(s) in this model - everything "
     "starts selected; refine with the Select buttons.".format(
         len(templates), len(filters)),
-    "Export", a_items, b_items, "Sections to export")
+    "Export", a_items, b_items, "Sections to export",
+    a_refs=refs,
+    auto_default=settings.get("pd_auto_filters", True))
 win.ShowDialog()
 if win.result is None:
     log("Cancelled - nothing exported.")
     log.close()
     script.exit()
 opt = win.result
+settings["pd_auto_filters"] = opt.get("auto", True)
+try:
+    save_settings(settings)
+except Exception:
+    pass
 
 path = forms.save_file(file_ext="json",
                        default_name="project_data.json")
@@ -82,8 +104,9 @@ if not path:
 views = opt["a"] if opt["a_on"] else []
 extra = opt["b"] if opt["b_on"] else []
 try:
-    data, results = export_document(doc, views, extra,
-                                    include_referenced=opt["b_on"])
+    data, results = export_document(
+        doc, views, extra,
+        include_referenced=opt["b_on"] and opt.get("auto", True))
     if not opt["b_on"] and views:
         log("Filters section UNTICKED - templates export without "
             "their filters; the import will note each missing one.")

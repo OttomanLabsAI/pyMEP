@@ -78,8 +78,12 @@
                                    Style="{StaticResource CountLabel}"
                                    Text="&#8212;"/>
                     </StackPanel>
+                    <CheckBox x:Name="ChkAutoFilters" Margin="0,8,0,0"
+                              IsChecked="True"
+                              Content="Automatically include the filters the selected view templates use"
+                              Checked="on_auto" Unchecked="on_auto"/>
                     <TextBlock x:Name="HintB" Style="{StaticResource Hint}"
-                               Text="Rule-based filters. Filters used by the chosen templates travel with them automatically."/>
+                               Text="Rule-based filters. With the tick on, changing the template selection keeps their filters ticked in this list automatically."/>
                 </StackPanel>
             </GroupBox>
 
