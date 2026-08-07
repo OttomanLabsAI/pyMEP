@@ -35,12 +35,12 @@ pyMEP.extension/
     07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (always creates) + Update Pipes (scoped in-place update) + Connect Inflow to Collector + Sync Input Nodes
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
-    05_Parameters.panel/        # Replicate Parameter
+    05_Parameters.panel/        # Export/Import View Templates (JSON), Replicate Parameter
     06_Annotate.panel/          # 4 annotation buttons
     08_Electrical.panel/        # Encasement (shown before Drainage on the ribbon)
 ```
 
-9 panels, 33 buttons, every one with its own icon.
+9 panels, 35 buttons, every one with its own icon.
 
 ## Panels
 
@@ -497,6 +497,43 @@ whether Apply Edits asks before changing the model. Saved per user.
 
 
 ### Parameters
+
+**Export View Templates** - write picked view templates (plus optional
+standalone rule-based filters) to ONE version-agnostic JSON file;
+filters referenced by the picked templates ride along automatically.
+Everything serializes by NAME, never by element id: filter rules
+(nested AND/OR logic, inverted rules, string / double / integer /
+element-id rules, built-in / shared-GUID / project parameters),
+category visibility and graphic overrides (line weights, colors, fill
+and line patterns by name, `<Solid fill>` and Solid special-cased),
+per-filter overrides, view range (plan families, levels by name),
+phase filter and the controlled-parameter scope
+(`GetNonControlledTemplateParameterIds`). The JSON crosses Revit
+versions (export from 2025, import into 2022 - API drift lives in a
+compat shim), diffs cleanly in git (`sort_keys`, 2-space indent) and
+can be hand-edited or generated. Selection filters cannot cross
+models - reported skipped. Every item exports in its own try/except;
+the report tables exported / skipped / degraded per row.
+
+**Import View Templates** - pick a JSON written by the exporter,
+choose which templates / filters to bring in (grouped list), and pick
+the clash rule up front: update existing or skip existing. Filters
+import first, then templates; a same-name filter is updated IN PLACE
+(`SetCategories` + `SetElementFilter`) and a same-name template of
+the same view family is updated in place too - views keep their
+template assignment, nothing is deleted and recreated, and importing
+the same file twice is idempotent (no "Name 1" duplicates). New
+templates are minted from a throwaway view of the right family
+(plan / 3D / drafting) or, for sections and elevations, from an
+existing view of that family as donor - the full serialized state is
+applied after creation so the donor's state never bleeds through,
+and the uncontrolled-parameter list is set last. A filter whose rules
+cannot be resolved here (missing shared parameter, category, or named
+element) is skipped whole - its logic is never silently altered.
+Missing fill / line patterns, unmatched levels, unknown phase
+filters and absent subcategories degrade that one entry with a note.
+One transaction group = one undo step; the summary table shows
+created / updated / skipped / degraded with a reason per row.
 
 **Replicate Parameter** - generic utility: pick a placed family type, a
 source parameter and a writable target parameter; the value is copied onto
