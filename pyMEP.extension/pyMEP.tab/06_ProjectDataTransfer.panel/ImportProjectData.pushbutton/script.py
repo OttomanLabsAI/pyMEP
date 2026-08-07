@@ -121,20 +121,38 @@ sections = [
              "pattern by name."},
 ]
 
-# DRY pre-flight: what cannot import cleanly right now, shown in the
-# dialog and listed in full in the report
-issues = []
+# DRY pre-flight: the SHOPPING LIST - each missing thing ONCE, who
+# needs it and how to get it - plus everything else that cannot
+# import cleanly. Shown in the dialog and in full in the report;
+# cancel the dialog and this stays a read-only look at the file.
+pf = {"needs": [], "issues": []}
 try:
-    issues = preflight(doc, data)
+    pf = preflight(doc, data)
 except Exception as ex:
     log("(pre-flight check failed: {})".format(ex))
+needs = pf["needs"]
+issues = pf["issues"]
+if needs:
+    log("#### What this transfer still needs ({})".format(
+        len(needs)))
+    log("| needed | kind | needed by | how to get it |")
+    log("|---|---|---|---|")
+    for n in needs:
+        deps = n["needed_by"]
+        shown = ", ".join(deps[:6])
+        if len(deps) > 6:
+            shown += " ... +{} more".format(len(deps) - 6)
+        log("| **{}** | {} | {} | {} |".format(
+            n["name"], n["kind"], shown, n["get"]))
 if issues:
-    log("#### Cannot import cleanly right now ({})".format(
-        len(issues)))
+    log("#### Also flagged")
     for kind, item, reason in issues:
         log("- {} '{}': {}".format(kind, item, reason))
-notices = ["{} '{}': {}".format(kind, item, reason)
-           for kind, item, reason in issues]
+notices = ["{} '{}' - {} item(s) need it".format(
+               n["kind"], n["name"], len(n["needed_by"]))
+           for n in needs]
+notices += ["{} '{}': {}".format(kind, item, reason)
+            for kind, item, reason in issues]
 
 log("Opening the dialog - if it is not in front, ALT-TAB or check "
     "the other monitor.")
@@ -148,7 +166,8 @@ try:
             len(file_templates), len(file_filters), len(file_levels),
             len(file_fills), len(file_lines), len(file_styles)),
         "Import", sections, "Sections to import", show_clash=True,
-        notices=notices)
+        notices=notices,
+        notices_header="Missing for a clean import")
     win.ShowDialog()
 except Exception as ex:
     import traceback

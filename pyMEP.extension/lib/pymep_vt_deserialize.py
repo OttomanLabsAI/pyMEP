@@ -873,52 +873,115 @@ def filter_ids_by_name(doc):
     return out
 
 
-def _ogs_pattern_misses(doc, ogs_dict, file_fills, file_lines, where,
-                        out):
+def _ogs_pattern_misses(doc, ogs_dict, file_fills, file_lines, dep,
+                        need):
     if not ogs_dict:
         return
     for key in ("projection_lines", "cut_lines"):
         nm = (ogs_dict.get(key) or {}).get("pattern")
         if nm and nm not in file_lines and \
                 line_pattern_by_name(doc, nm) is None:
-            out.append(where + ("line pattern '{}' neither in the "
-                                "file nor the model".format(nm),))
+            need("line pattern", nm, dep)
     for key in ("surface_fg", "surface_bg", "cut_fg", "cut_bg"):
         nm = (ogs_dict.get(key) or {}).get("pattern")
         if nm and nm not in file_fills and \
                 fill_pattern_by_name(doc, nm) is None:
-            out.append(where + ("fill pattern '{}' neither in the "
-                                "file nor the model".format(nm),))
+            need("fill pattern", nm, dep)
+
+
+# the shopping list's row order + the how-to-get-it column, keyed by
+# the KIND of missing thing
+_NEED_ORDER = ["filter", "fill pattern", "line pattern", "level",
+               "phase filter", "shared parameter",
+               "project parameter", "rule target", "subcategory",
+               "donor view"]
+_NEED_GET = {
+    "filter": "re-export from the source with the filters auto tick "
+              "ON (or Tick EVERYTHING) - or map it onto a filter "
+              "this model already has",
+    "fill pattern": "re-export with the Fill patterns section ticked "
+                    "- or map it at import",
+    "line pattern": "re-export with the Line patterns section ticked "
+                    "- or map it at import",
+    "level": "re-export with the Levels section ticked - or map it "
+             "at import",
+    "phase filter": "the file cannot carry phase filters - create it "
+                    "in this model or map it at import",
+    "shared parameter": "bind the shared parameter in this model "
+                        "first - the file cannot create parameter "
+                        "bindings",
+    "project parameter": "create the project parameter in this model "
+                         "first",
+    "rule target": "a filter rule matches this element BY NAME - "
+                   "create/load it in this model first",
+    "subcategory": "load a family (or enable the discipline) that "
+                   "brings this subcategory into this model",
+    "donor view": "create ONE view of this family in this model - "
+                  "the import clones it into the template",
+}
 
 
 def preflight(doc, data):
     """DRY check of a loaded file against THIS model - nothing is
-    modified. Returns [(kind, item, reason)] for everything that
-    cannot import cleanly right now: unknown categories, missing
-    shared / project parameters, unresolvable id-rule targets,
-    templates with no way to be created, filters / patterns / levels
-    / phase filters that are neither in the file nor the model. The
-    real import stays fail-soft; this is the up-front view."""
-    out = []
+    modified. Returns {"needs": [...], "issues": [(kind, item,
+    reason)]}.
+
+    needs is the transfer's SHOPPING LIST, keyed by each MISSING
+    THING itself: {"kind", "name", "needed_by": [labels], "get": how
+    to obtain it} - either re-export a section from the source model
+    or create / load / bind something in this model first. issues is
+    everything else that cannot import cleanly (version mismatches,
+    same-name clashes, missing view types). The real import stays
+    fail-soft; this is the up-front view."""
     from pymep_vt_schema import filters_used_by, family_label
+
+    issues = []
+    needs = {}
+    order = []
+
+    def need(kind, name, dep):
+        key = (kind, name)
+        row = needs.get(key)
+        if row is None:
+            row = {"kind": kind, "name": name, "needed_by": [],
+                   "get": _NEED_GET.get(kind, "")}
+            needs[key] = row
+            order.append(key)
+        if dep not in row["needed_by"]:
+            row["needed_by"].append(dep)
 
     model_filters = set(filter_ids_by_name(doc).keys())
     file_filters = set()
 
     def walk(node, name):
+        dep = "filter '{}'".format(name)
         if not node:
             return
         if node.get("logic") == "rules":
             for r in node.get("rules") or []:
+                pd = r.get("parameter") or {}
                 try:
-                    resolve_parameter(doc, r.get("parameter") or {})
+                    resolve_parameter(doc, pd)
                 except Exception as ex:
-                    out.append(("filter", name, str(ex)))
+                    pkind = pd.get("kind")
+                    if pkind == "shared":
+                        need("shared parameter",
+                             u"{} (GUID {})".format(
+                                 pd.get("name") or "?",
+                                 pd.get("guid") or "?"), dep)
+                    elif pkind == "project":
+                        need("project parameter",
+                             pd.get("name") or "?", dep)
+                    else:
+                        issues.append(("filter", name, str(ex)))
                 if r.get("rule") == "element_id":
+                    v = r.get("value") or {}
                     try:
-                        resolve_element_ref(doc, r.get("value") or {})
-                    except Exception as ex:
-                        out.append(("filter", name, str(ex)))
+                        resolve_element_ref(doc, v)
+                    except Exception:
+                        need("rule target", u"{} ({})".format(
+                            v.get("name") or "?",
+                            v.get("category") or "any category"), dep)
         else:
             for c in node.get("children") or []:
                 walk(c, name)
@@ -928,9 +991,9 @@ def preflight(doc, data):
         file_filters.add(name)
         for nm in f.get("categories") or []:
             if bic_id(nm) is None:
-                out.append(("filter", name,
-                            "category {} unknown in this "
-                            "Revit".format(nm)))
+                issues.append(("filter", name,
+                               "category {} unknown in this "
+                               "Revit".format(nm)))
         walk(f.get("element_filter"), name)
 
     file_fills = set(p.get("name")
@@ -951,8 +1014,26 @@ def preflight(doc, data):
         except Exception:
             continue
 
+    # this model's (sub)categories - the apply pass skips unknown
+    # entries, so the gap must be visible BEFORE the import
+    known_subcats = set()
+    try:
+        for cat in doc.Settings.Categories:
+            nm = bic_name(cat.Id)
+            if not nm:
+                continue
+            known_subcats.add((nm, None))
+            try:
+                for sub in cat.SubCategories:
+                    known_subcats.add((nm, sub.Name))
+            except Exception:
+                pass
+    except Exception:
+        known_subcats = None
+
     for t in data.get("view_templates") or []:
         name = t.get("name") or "?"
+        dep = "template '{}'".format(name)
         family = t.get("view_family") or ""
         existing = None
         for v in FilteredElementCollector(doc).OfClass(View):
@@ -964,25 +1045,27 @@ def preflight(doc, data):
                 continue
         if existing is not None:
             if str(existing.ViewType) != family:
-                out.append(("template", name,
-                            "a '{}' template of this name exists - "
-                            "will be skipped".format(
-                                family_label(str(existing.ViewType)))))
+                issues.append(("template", name,
+                               "a '{}' template of this name exists - "
+                               "will be skipped".format(
+                                   family_label(str(
+                                       existing.ViewType)))))
         else:
             if family in _PLAN_FAMILIES:
                 if _view_family_type(doc, _PLAN_FAMILIES[family]) \
                         is None or _first_level(doc) is None:
-                    out.append(("template", name,
-                                "no {} view type / level to create "
-                                "from".format(family_label(family))))
+                    issues.append(("template", name,
+                                   "no {} view type / level to create "
+                                   "from".format(family_label(family))))
             elif family == "ThreeD":
                 if _view_family_type(doc, "ThreeDimensional") is None:
-                    out.append(("template", name,
-                                "no 3D view type in this model"))
+                    issues.append(("template", name,
+                                   "no 3D view type in this model"))
             elif family == "DraftingView":
                 if _view_family_type(doc, "Drafting") is None:
-                    out.append(("template", name,
-                                "no drafting view type in this model"))
+                    issues.append(("template", name,
+                                   "no drafting view type in this "
+                                   "model"))
             else:
                 donor = None
                 for v in FilteredElementCollector(doc).OfClass(View):
@@ -994,48 +1077,57 @@ def preflight(doc, data):
                     except Exception:
                         continue
                 if donor is None:
-                    out.append(("template", name,
-                                "needs one existing {} view as the "
-                                "donor - none in this model".format(
-                                    family_label(family))))
+                    need("donor view", family_label(family), dep)
         for fname in filters_used_by(t):
             if fname not in file_filters and \
                     fname not in model_filters:
-                out.append(("template", name,
-                            "filter '{}' neither in the file nor "
-                            "the model".format(fname)))
+                need("filter", fname, dep)
         for row in t.get("category_overrides") or []:
             _ogs_pattern_misses(doc, row.get("overrides"), file_fills,
-                                file_lines, ("template", name), out)
+                                file_lines, dep, need)
         for row in t.get("filters") or []:
             _ogs_pattern_misses(doc, row.get("overrides"), file_fills,
-                                file_lines, ("template", name), out)
+                                file_lines, dep, need)
+        if known_subcats is not None:
+            for row in (t.get("category_visibility") or []) + \
+                    (t.get("category_overrides") or []):
+                cnm = row.get("category")
+                sub = row.get("subcategory") or None
+                if cnm is None or (cnm, sub) in known_subcats:
+                    continue
+                if sub:
+                    need("subcategory",
+                         u"{}/{}".format(cnm, sub), dep)
+                else:
+                    issues.append(("template", name,
+                                   "category {} not in this model - "
+                                   "its entries will be "
+                                   "skipped".format(cnm)))
         for entry in (t.get("view_range") or {}).values():
             lvl = entry.get("level")
             if lvl and lvl not in file_levels and \
                     lvl not in model_levels:
-                out.append(("template", name,
-                            "view range level '{}' neither in the "
-                            "file nor the model".format(lvl)))
+                need("level", lvl, dep)
         pf = t.get("phase_filter")
         if pf and pf not in model_phase_filters:
-            out.append(("template", name,
-                        "phase filter '{}' not in this "
-                        "model".format(pf)))
+            need("phase filter", pf, dep)
 
     for d in data.get("line_styles") or []:
         nm = d.get("pattern")
         if nm and nm not in file_lines and \
                 line_pattern_by_name(doc, nm) is None:
-            out.append(("line_style", d.get("name") or "?",
-                        "line pattern '{}' neither in the file nor "
-                        "the model".format(nm)))
+            need("line pattern", nm,
+                 "line style '{}'".format(d.get("name") or "?"))
 
-    # dedupe, keep order
+    # issues dedupe (keep order); needs sort by kind then name
     seen = set()
     deduped = []
-    for row in out:
+    for row in issues:
         if row not in seen:
             seen.add(row)
             deduped.append(row)
-    return deduped
+    rows = [needs[k] for k in order]
+    rows.sort(key=lambda r: (
+        _NEED_ORDER.index(r["kind"]) if r["kind"] in _NEED_ORDER
+        else len(_NEED_ORDER), r["name"]))
+    return {"needs": rows, "issues": deduped}
