@@ -131,6 +131,25 @@ class SettingsWindow(forms.WPFWindow):
         self.HintRepo.Text = "Default: {}".format(DEFAULT_GITHUB_REPO)
         self.PwdToken.Password = get_github_token()
 
+        # Ribbon Panels (ticked = shown)
+        hidden = set(s.get("hidden_panels") or [])
+        for chk, key in self._panel_checks():
+            chk.IsChecked = key not in hidden
+
+    def _panel_checks(self):
+        """[(checkbox, panel-title prefix)] - mirrors
+        pymep_ribbon.HIDEABLE_PANELS."""
+        return [(self.ChkPanCivil, "Civil 3D Conversion"),
+                (self.ChkPanElec, "Electrical"),
+                (self.ChkPanDrain, "Drainage"),
+                (self.ChkPanPipeNet, "Pipe Networks"),
+                (self.ChkPanNetworks, "Networks"),
+                (self.ChkPanTopo, "Topography"),
+                (self.ChkPanChamber, "Chamber Drawing Setup"),
+                (self.ChkPanParams, "Parameters"),
+                (self.ChkPanProjData, "Project Data Transfer"),
+                (self.ChkPanAnnotate, "Annotate")]
+
     def _refresh_active_export(self):
         try:
             active = get_export_folder(doc) if doc else "(no open document)"
@@ -197,7 +216,19 @@ class SettingsWindow(forms.WPFWindow):
 
         s["github_repo"] = self.TxtRepo.Text.strip()
         s["github_token"] = self.PwdToken.Password.strip()
+
+        hidden = [key for chk, key in self._panel_checks()
+                  if not chk.IsChecked]
+        s["hidden_panels"] = hidden
         save_settings(s)
+
+        # flip the ribbon right away - the startup hook re-applies the
+        # choice on every Revit start
+        try:
+            from pymep_ribbon import apply_panel_visibility
+            apply_panel_visibility(hidden)
+        except Exception:
+            pass
 
         # Saving [] keeps the 'fall back to the shipped defaults' baseline,
         # so an unedited default set follows future extension updates.
@@ -215,7 +246,8 @@ class SettingsWindow(forms.WPFWindow):
     # ------------------------------------------------------------------
     def on_category_changed(self, sender, args):
         panels = [self.PanelGeneral, self.PanelDucts, self.PanelPipes,
-                  self.PanelAnnotate, self.PanelDims, self.PanelUpdates]
+                  self.PanelAnnotate, self.PanelDims, self.PanelUpdates,
+                  self.PanelRibbon]
         idx = self.CatList.SelectedIndex
         for i, panel in enumerate(panels):
             panel.Visibility = (

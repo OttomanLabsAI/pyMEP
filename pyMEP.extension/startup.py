@@ -25,7 +25,8 @@ TAB_TITLE = "pyMEP"
 # versioned Setup panel ("pyMEP v1.16.0") matches on plain "pyMEP".
 PANEL_ORDER = ["pyMEP", "Civil 3D Conversion", "Electrical", "Drainage",
                "Pipe Networks", "Networks", "Topography",
-               "Chamber Drawing Setup", "Parameters", "Annotate"]
+               "Chamber Drawing Setup", "Parameters",
+               "Project Data Transfer", "Annotate"]
 
 # Stacked buttons shown with no label (their tooltips still carry the
 # names): big icons in a two-high stack, standard size in a three-high
@@ -86,6 +87,16 @@ def _reorder_pymep_panels():
                 _enlarge_stacked(panel.Source.Items)
             except Exception:
                 pass
+        # hidden-panels choice from Settings > Ribbon Panels - stored
+        # in %APPDATA%\pyRevit\pyMEP_settings.json, so it survives
+        # update installations and re-applies on every start
+        try:
+            from pymep_config import load_settings
+            from pymep_ribbon import apply_panel_visibility
+            apply_panel_visibility(
+                load_settings().get("hidden_panels") or [])
+        except Exception:
+            pass
         return True
     return False
 
