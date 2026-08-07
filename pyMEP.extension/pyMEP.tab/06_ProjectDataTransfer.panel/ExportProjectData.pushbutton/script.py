@@ -27,7 +27,8 @@ from pymep_config import load_settings, save_settings
 from pymep_log import Logger
 from pymep_project_data_ui import ProjectDataWindow
 from pymep_vt_schema import dumps, family_label
-from pymep_vt_serialize import export_document
+from pymep_vt_serialize import (export_document,
+                                line_style_subcategories)
 
 import clr
 clr.AddReference("RevitAPI")
@@ -71,8 +72,11 @@ for lpe in FilteredElementCollector(doc).OfClass(LinePatternElement):
         line_pats.append((None, lpe.Name, lpe))
     except Exception:
         continue
+line_styles = [(None, s.Name, s)
+               for s in line_style_subcategories(doc)]
 
-if not (templates or filters or levels or fills or line_pats):
+if not (templates or filters or levels or fills or line_pats or
+        line_styles):
     log("Nothing exportable in this model.")
     log.close()
     forms.alert("This model has nothing to export.", exitscript=True)
@@ -117,16 +121,20 @@ sections = [
      "items": line_pats,
      "hint": "Line patterns used by overrides (the built-in Solid "
              "exists everywhere)."},
+    {"key": "line_styles", "header": "Line styles",
+     "items": line_styles,
+     "hint": "Lines subcategories: projection weight, color and line "
+             "pattern by name."},
 ]
 
 settings = load_settings()
 win = ProjectDataWindow(
     "Export Project Data",
     "{} template(s), {} filter(s), {} level(s), {} fill pattern(s), "
-    "{} line pattern(s) - everything starts selected; refine with "
-    "the Select buttons.".format(
+    "{} line pattern(s), {} line style(s) - everything starts "
+    "selected; refine with the Select buttons.".format(
         len(templates), len(filters), len(levels), len(fills),
-        len(line_pats)),
+        len(line_pats), len(line_styles)),
     "Export", sections, "Sections to export",
     auto_link={"from": "templates", "to": "filters", "refs": refs,
                "text": "Automatically include the filters the "
@@ -166,7 +174,8 @@ try:
         and opt.get("auto", True),
         levels=_picked("levels"),
         fill_patterns=_picked("fill_patterns"),
-        line_patterns=_picked("line_patterns"))
+        line_patterns=_picked("line_patterns"),
+        line_styles=_picked("line_styles"))
     data["exported"] = datetime.datetime.now().strftime(
         "%Y-%m-%dT%H:%M:%S")
     try:
@@ -218,8 +227,10 @@ log("- " + ", ".join("{}: **{}**".format(k, v)
 log.close()
 forms.alert(
     "Exported {} template(s), {} filter(s), {} level(s), {} fill "
-    "pattern(s), {} line pattern(s) ({:,} bytes) to:\n{}".format(
+    "pattern(s), {} line pattern(s), {} line style(s) "
+    "({:,} bytes) to:\n{}".format(
         len(data["view_templates"]), len(data["filters"]),
         len(data["levels"]), len(data["fill_patterns"]),
-        len(data["line_patterns"]), size, path),
+        len(data["line_patterns"]), len(data["line_styles"]),
+        size, path),
     title="Project data exported")

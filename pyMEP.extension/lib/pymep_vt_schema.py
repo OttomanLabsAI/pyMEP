@@ -55,6 +55,7 @@ def make_document(revit_version="", revit_build=""):
         "levels": [],
         "fill_patterns": [],
         "line_patterns": [],
+        "line_styles": [],
     }
 
 

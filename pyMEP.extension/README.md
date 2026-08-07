@@ -513,14 +513,23 @@ coercion.
 ### Project Data Transfer
 
 Both buttons drive ONE sectioned dialog. Sections: VIEW TEMPLATES,
-FILTERS, LEVELS, FILL PATTERNS and LINE PATTERNS - each section has a
+FILTERS, LEVELS, FILL PATTERNS, LINE PATTERNS and LINE STYLES
+(Lines subcategories: projection weight, color, line pattern by
+name) - each section has a
 Select... button opening a grouped picker (the template picker groups
 by view family, so Floor Plan / 3D / Section works as a filter; the
 fill pattern picker by Drafting / Model; ticks survive group and
 search changes), plus a tick per section choosing what actually goes
 to - or comes from - the file. The import flavour also carries the
-update-or-skip choice for existing same-name items, and imports in
-the order that kills the degrade causes: patterns first, then levels
+update-or-skip choice for existing same-name items, a 'Tick
+EVERYTHING' button (all sections, all items in one click), and a
+DRY pre-flight box listing what CANNOT import cleanly right now -
+missing shared/project parameters, unresolvable rule targets,
+templates with no donor view, patterns / levels / phase filters
+that are neither in the file nor the model - before anything runs
+(the full list also lands in the report). It imports in
+the order that kills the degrade causes: patterns and line styles
+first, then levels
 (names + elevations; with update chosen an existing level MOVES to
 the file's elevation - reported), then filters, then templates - so
 overrides and view ranges resolve against what was just brought in.

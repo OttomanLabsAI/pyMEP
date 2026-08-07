@@ -744,6 +744,83 @@ def import_line_pattern(doc, d, update_existing=True):
         return row
 
 
+def _lines_category(doc):
+    want = bic_id("OST_Lines")
+    for cat in doc.Settings.Categories:
+        try:
+            if id_value(cat.Id) == want:
+                return cat
+        except Exception:
+            continue
+    return None
+
+
+def import_line_style(doc, d, update_existing=True):
+    """{'item','kind','status','reason'} - creates or updates one line
+    style (a Lines subcategory): projection weight, color and line
+    pattern by name. A pattern missing from the model degrades that
+    one setting with a note."""
+    from Autodesk.Revit.DB import GraphicsStyleType
+    name = d.get("name") or "(unnamed)"
+    row = {"item": name, "kind": "line_style", "status": "failed",
+           "reason": ""}
+    notes = []
+    try:
+        lines_cat = _lines_category(doc)
+        if lines_cat is None:
+            row["reason"] = "no Lines category in this model"
+            return row
+        existing = None
+        for sub in lines_cat.SubCategories:
+            try:
+                if sub.Name == name:
+                    existing = sub
+                    break
+            except Exception:
+                continue
+        created = False
+        if existing is None:
+            existing = doc.Settings.Categories.NewSubcategory(
+                lines_cat, name)
+            created = True
+        elif not update_existing:
+            row["status"] = "skipped"
+            row["reason"] = "already exists (skip existing chosen)"
+            return row
+        if d.get("weight") is not None:
+            try:
+                existing.SetLineWeight(int(d["weight"]),
+                                       GraphicsStyleType.Projection)
+            except Exception:
+                notes.append("weight not applied")
+        if d.get("color"):
+            try:
+                c = d["color"]
+                existing.LineColor = Color(
+                    System.Byte(c[0]), System.Byte(c[1]),
+                    System.Byte(c[2]))
+            except Exception:
+                notes.append("color not applied")
+        if d.get("pattern"):
+            pid = line_pattern_by_name(doc, d["pattern"])
+            if pid is None:
+                notes.append("line pattern '{}' not in this "
+                             "model".format(d["pattern"]))
+            else:
+                try:
+                    existing.SetLinePatternId(
+                        pid, GraphicsStyleType.Projection)
+                except Exception:
+                    notes.append("pattern not applied")
+        row["status"] = "degraded" if notes else (
+            "created" if created else "updated")
+        row["reason"] = "; ".join(notes)
+        return row
+    except Exception as ex:
+        row["reason"] = str(ex)
+        return row
+
+
 def filter_ids_by_name(doc):
     """{name: ElementId} of every rule-based filter in the model."""
     out = {}
@@ -754,3 +831,171 @@ def filter_ids_by_name(doc):
         except Exception:
             continue
     return out
+
+
+def _ogs_pattern_misses(doc, ogs_dict, file_fills, file_lines, where,
+                        out):
+    if not ogs_dict:
+        return
+    for key in ("projection_lines", "cut_lines"):
+        nm = (ogs_dict.get(key) or {}).get("pattern")
+        if nm and nm not in file_lines and \
+                line_pattern_by_name(doc, nm) is None:
+            out.append(where + ("line pattern '{}' neither in the "
+                                "file nor the model".format(nm),))
+    for key in ("surface_fg", "surface_bg", "cut_fg", "cut_bg"):
+        nm = (ogs_dict.get(key) or {}).get("pattern")
+        if nm and nm not in file_fills and \
+                fill_pattern_by_name(doc, nm) is None:
+            out.append(where + ("fill pattern '{}' neither in the "
+                                "file nor the model".format(nm),))
+
+
+def preflight(doc, data):
+    """DRY check of a loaded file against THIS model - nothing is
+    modified. Returns [(kind, item, reason)] for everything that
+    cannot import cleanly right now: unknown categories, missing
+    shared / project parameters, unresolvable id-rule targets,
+    templates with no way to be created, filters / patterns / levels
+    / phase filters that are neither in the file nor the model. The
+    real import stays fail-soft; this is the up-front view."""
+    out = []
+    from pymep_vt_schema import filters_used_by, family_label
+
+    model_filters = set(filter_ids_by_name(doc).keys())
+    file_filters = set()
+
+    def walk(node, name):
+        if not node:
+            return
+        if node.get("logic") == "rules":
+            for r in node.get("rules") or []:
+                try:
+                    resolve_parameter(doc, r.get("parameter") or {})
+                except Exception as ex:
+                    out.append(("filter", name, str(ex)))
+                if r.get("rule") == "element_id":
+                    try:
+                        resolve_element_ref(doc, r.get("value") or {})
+                    except Exception as ex:
+                        out.append(("filter", name, str(ex)))
+        else:
+            for c in node.get("children") or []:
+                walk(c, name)
+
+    for f in data.get("filters") or []:
+        name = f.get("name") or "?"
+        file_filters.add(name)
+        for nm in f.get("categories") or []:
+            if bic_id(nm) is None:
+                out.append(("filter", name,
+                            "category {} unknown in this "
+                            "Revit".format(nm)))
+        walk(f.get("element_filter"), name)
+
+    file_fills = set(p.get("name")
+                     for p in data.get("fill_patterns") or [])
+    file_lines = set(p.get("name")
+                     for p in data.get("line_patterns") or [])
+    file_levels = set(l.get("name") for l in data.get("levels") or [])
+    model_levels = set()
+    for lvl in FilteredElementCollector(doc).OfClass(Level):
+        try:
+            model_levels.add(lvl.Name)
+        except Exception:
+            continue
+    model_phase_filters = set()
+    for pf in FilteredElementCollector(doc).OfClass(PhaseFilter):
+        try:
+            model_phase_filters.add(pf.Name)
+        except Exception:
+            continue
+
+    for t in data.get("view_templates") or []:
+        name = t.get("name") or "?"
+        family = t.get("view_family") or ""
+        existing = None
+        for v in FilteredElementCollector(doc).OfClass(View):
+            try:
+                if v.IsTemplate and v.Name == name:
+                    existing = v
+                    break
+            except Exception:
+                continue
+        if existing is not None:
+            if str(existing.ViewType) != family:
+                out.append(("template", name,
+                            "a '{}' template of this name exists - "
+                            "will be skipped".format(
+                                family_label(str(existing.ViewType)))))
+        else:
+            if family in _PLAN_FAMILIES:
+                if _view_family_type(doc, _PLAN_FAMILIES[family]) \
+                        is None or _first_level(doc) is None:
+                    out.append(("template", name,
+                                "no {} view type / level to create "
+                                "from".format(family_label(family))))
+            elif family == "ThreeD":
+                if _view_family_type(doc, "ThreeDimensional") is None:
+                    out.append(("template", name,
+                                "no 3D view type in this model"))
+            elif family == "DraftingView":
+                if _view_family_type(doc, "Drafting") is None:
+                    out.append(("template", name,
+                                "no drafting view type in this model"))
+            else:
+                donor = None
+                for v in FilteredElementCollector(doc).OfClass(View):
+                    try:
+                        if not v.IsTemplate and \
+                                str(v.ViewType) == family:
+                            donor = v
+                            break
+                    except Exception:
+                        continue
+                if donor is None:
+                    out.append(("template", name,
+                                "needs one existing {} view as the "
+                                "donor - none in this model".format(
+                                    family_label(family))))
+        for fname in filters_used_by(t):
+            if fname not in file_filters and \
+                    fname not in model_filters:
+                out.append(("template", name,
+                            "filter '{}' neither in the file nor "
+                            "the model".format(fname)))
+        for row in t.get("category_overrides") or []:
+            _ogs_pattern_misses(doc, row.get("overrides"), file_fills,
+                                file_lines, ("template", name), out)
+        for row in t.get("filters") or []:
+            _ogs_pattern_misses(doc, row.get("overrides"), file_fills,
+                                file_lines, ("template", name), out)
+        for entry in (t.get("view_range") or {}).values():
+            lvl = entry.get("level")
+            if lvl and lvl not in file_levels and \
+                    lvl not in model_levels:
+                out.append(("template", name,
+                            "view range level '{}' neither in the "
+                            "file nor the model".format(lvl)))
+        pf = t.get("phase_filter")
+        if pf and pf not in model_phase_filters:
+            out.append(("template", name,
+                        "phase filter '{}' not in this "
+                        "model".format(pf)))
+
+    for d in data.get("line_styles") or []:
+        nm = d.get("pattern")
+        if nm and nm not in file_lines and \
+                line_pattern_by_name(doc, nm) is None:
+            out.append(("line_style", d.get("name") or "?",
+                        "line pattern '{}' neither in the file nor "
+                        "the model".format(nm)))
+
+    # dedupe, keep order
+    seen = set()
+    deduped = []
+    for row in out:
+        if row not in seen:
+            seen.add(row)
+            deduped.append(row)
+    return deduped

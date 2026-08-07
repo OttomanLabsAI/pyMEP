@@ -22,6 +22,27 @@ PICK_XAML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "pymep_pick_list.xaml")
 
 
+def _force_on_top(win):
+    """The pyRevit output window appears first (the log header) and
+    can steal the foreground, leaving a modal dialog BEHIND Revit -
+    it looks like 'nothing opened'. Topmost + Activate on load bring
+    it forward; Topmost drops again once shown so it never sits over
+    other apps."""
+    try:
+        win.Topmost = True
+
+        def _loaded(sender, args):
+            try:
+                win.Activate()
+                win.Topmost = False
+                win.Topmost = True     # re-assert above the output
+            except Exception:
+                pass
+        win.Loaded += _loaded
+    except Exception:
+        pass
+
+
 class PickListWindow(forms.WPFWindow):
     """Grouped multi-select picker whose tick state lives OUTSIDE the
     list: switching the group filter or typing in the search box only
@@ -37,6 +58,7 @@ class PickListWindow(forms.WPFWindow):
         self.result = None
         self.Title = title
         self.TxtTitle.Text = title
+        _force_on_top(self)
         self._items = list(items)
         checked = set(checked_labels if checked_labels is not None
                       else [l for _g, l, _p in self._items])
@@ -173,13 +195,15 @@ class ProjectDataWindow(forms.WPFWindow):
 
     def __init__(self, title, info, go_label, sections,
                  sections_header, show_clash=False, auto_link=None,
-                 auto_default=True):
+                 auto_default=True, notices=None,
+                 notices_header="Cannot import cleanly right now"):
         forms.WPFWindow.__init__(self, XAML_PATH)
         self.result = None
         self.Title = title
         self.TxtTitle.Text = title
         self.TxtInfo.Text = info
         self.BtnGo.Content = go_label
+        _force_on_top(self)
         self.GrpSections.Header = sections_header
         if show_clash:
             try:
@@ -201,6 +225,7 @@ class ProjectDataWindow(forms.WPFWindow):
                 "Select {}".format(s["header"].lower()),
                 "count_label": None, "tick": None, "button": None})
         self._build_sections(auto_default)
+        self._build_notices(notices, notices_header)
         self._merge_auto()
         self._refresh()
 
@@ -263,6 +288,56 @@ class ProjectDataWindow(forms.WPFWindow):
             sec["count_label"] = lbl
             sec["tick"] = tick
             sec["button"] = btn
+        every = Button()
+        every.Content = "Tick EVERYTHING (all sections, all items)"
+        every.Margin = Thickness(0, 10, 0, 2)
+        every.Padding = Thickness(10, 4, 10, 4)
+        every.HorizontalAlignment = 0     # Left
+        every.Click += self.on_everything
+        self.PnlSectionTicks.Children.Add(every)
+
+    def on_everything(self, sender, args):
+        """One click = the whole file: every section on, every item
+        picked."""
+        for sec in self._sections:
+            sec["picked"] = list(sec["items"])
+            if sec["items"]:
+                sec["tick"].IsChecked = True
+        self._refresh()
+
+    def _build_notices(self, notices, header):
+        if not notices:
+            return
+        from System.Windows import Thickness
+        from System.Windows.Controls import GroupBox, StackPanel, \
+            TextBlock
+        from System.Windows.Media import Brushes
+        box = GroupBox()
+        box.Header = "{} ({})".format(header, len(notices))
+        box.Margin = Thickness(0, 0, 0, 12)
+        box.Padding = Thickness(10, 8, 10, 10)
+        body = StackPanel()
+        shown = list(notices)[:15]
+        for line in shown:
+            tb = TextBlock()
+            tb.Text = u"• {}".format(line)
+            tb.TextWrapping = 2
+            tb.FontSize = 11.0
+            tb.Margin = Thickness(0, 2, 0, 2)
+            try:
+                tb.Foreground = Brushes.Firebrick
+            except Exception:
+                pass
+            body.Children.Add(tb)
+        if len(notices) > len(shown):
+            more = TextBlock()
+            more.Text = "... and {} more - the full list is in the " \
+                "pyMEP report.".format(len(notices) - len(shown))
+            more.FontSize = 11.0
+            more.Margin = Thickness(0, 4, 0, 0)
+            body.Children.Add(more)
+        box.Content = body
+        self.PnlSections.Children.Add(box)
 
     def _make_pick_handler(self, sec):
         def handler(sender, args):

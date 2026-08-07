@@ -457,6 +457,60 @@ def serialize_fill_pattern(fpe):
         return None, str(ex)
 
 
+def lines_category(doc):
+    """The model's Lines category (OST_Lines) - language-independent
+    lookup by built-in id."""
+    from pymep_vt_compat import bic_id as _bic_id
+    want = _bic_id("OST_Lines")
+    for cat in doc.Settings.Categories:
+        try:
+            if id_value(cat.Id) == want:
+                return cat
+        except Exception:
+            continue
+    return None
+
+
+def line_style_subcategories(doc):
+    """The line styles: every subcategory of the Lines category."""
+    cat = lines_category(doc)
+    if cat is None:
+        return []
+    try:
+        return sorted([s for s in cat.SubCategories],
+                      key=lambda s: s.Name)
+    except Exception:
+        return []
+
+
+def serialize_line_style(doc, subcat):
+    """(dict, None) or (None, reason): name + projection weight +
+    color + line pattern name."""
+    try:
+        from Autodesk.Revit.DB import GraphicsStyleType
+        d = {"name": subcat.Name}
+        try:
+            w = subcat.GetLineWeight(GraphicsStyleType.Projection)
+            if w is not None:
+                d["weight"] = int(w)
+        except Exception:
+            pass
+        c = _color_list(getattr(subcat, "LineColor", None))
+        if c is not None:
+            d["color"] = c
+        try:
+            p = line_pattern_name(
+                doc, subcat.GetLinePatternId(
+                    GraphicsStyleType.Projection))
+            if p is not None:
+                d["pattern"] = p
+        except Exception:
+            pass
+        return d, None
+    except Exception as ex:
+        return None, str(ex)
+
+
 def serialize_line_pattern(lpe):
     """(dict, None) or (None, reason). Solid is built-in."""
     try:
@@ -488,7 +542,8 @@ def referenced_filter_ids(doc, views):
 
 def export_document(doc, template_views, extra_filter_elements,
                     include_referenced=True, levels=None,
-                    fill_patterns=None, line_patterns=None):
+                    fill_patterns=None, line_patterns=None,
+                    line_styles=None):
     """(data, results): the JSON-ready dict for the picked templates
     plus any standalone filters. ``include_referenced`` also pulls in
     every filter the picked templates reference (off when the caller's
@@ -575,4 +630,16 @@ def export_document(doc, template_views, extra_filter_elements,
             results.append({"item": d["name"], "kind": "line_pattern",
                             "status": "exported", "reason": ""})
     data["line_patterns"].sort(key=lambda d: d["name"])
+
+    for sub in line_styles or []:
+        d, reason = serialize_line_style(doc, sub)
+        if d is None:
+            results.append({"item": getattr(sub, "Name", "?"),
+                            "kind": "line_style",
+                            "status": "skipped", "reason": reason})
+        else:
+            data["line_styles"].append(d)
+            results.append({"item": d["name"], "kind": "line_style",
+                            "status": "exported", "reason": ""})
+    data["line_styles"].sort(key=lambda d: d["name"])
     return data, results
