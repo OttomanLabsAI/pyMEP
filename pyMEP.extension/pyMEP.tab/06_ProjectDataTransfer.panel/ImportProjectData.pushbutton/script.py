@@ -29,7 +29,8 @@ from pymep_vt_schema import (family_label, filters_used_by, loads,
 from pymep_vt_deserialize import (filter_ids_by_name, import_filter,
                                   import_fill_pattern, import_level,
                                   import_line_pattern,
-                                  import_template)
+                                  import_line_style, import_template,
+                                  preflight)
 
 import clr
 clr.AddReference("RevitAPI")
@@ -69,8 +70,9 @@ file_filters = data.get("filters") or []
 file_levels = data.get("levels") or []
 file_fills = data.get("fill_patterns") or []
 file_lines = data.get("line_patterns") or []
+file_styles = data.get("line_styles") or []
 have_any = (file_templates or file_filters or file_levels or
-            file_fills or file_lines)
+            file_fills or file_lines or file_styles)
 if problems and not have_any:
     log.close()
     forms.alert("That file is not a project-data export:\n\n{}".format(
@@ -109,16 +111,36 @@ sections = [
     {"key": "line_patterns", "header": "Line patterns",
      "items": [(None, l.get("name") or "?", l) for l in file_lines],
      "hint": None},
+    {"key": "line_styles", "header": "Line styles",
+     "items": [(None, s.get("name") or "?", s) for s in file_styles],
+     "hint": "Lines subcategories: projection weight, color and line "
+             "pattern by name."},
 ]
+
+# DRY pre-flight: what cannot import cleanly right now, shown in the
+# dialog and listed in full in the report
+issues = []
+try:
+    issues = preflight(doc, data)
+except Exception as ex:
+    log("(pre-flight check failed: {})".format(ex))
+if issues:
+    log("#### Cannot import cleanly right now ({})".format(
+        len(issues)))
+    for kind, item, reason in issues:
+        log("- {} '{}': {}".format(kind, item, reason))
+notices = ["{} '{}': {}".format(kind, item, reason)
+           for kind, item, reason in issues]
 
 win = ProjectDataWindow(
     "Import Project Data",
     "In the file: {} template(s), {} filter(s), {} level(s), {} fill "
-    "pattern(s), {} line pattern(s) - everything starts selected; "
-    "refine with the Select buttons.".format(
+    "pattern(s), {} line pattern(s), {} line style(s) - everything "
+    "starts selected; refine with the Select buttons.".format(
         len(file_templates), len(file_filters), len(file_levels),
-        len(file_fills), len(file_lines)),
-    "Import", sections, "Sections to import", show_clash=True)
+        len(file_fills), len(file_lines), len(file_styles)),
+    "Import", sections, "Sections to import", show_clash=True,
+    notices=notices)
 win.ShowDialog()
 if win.result is None:
     log("Cancelled - nothing changed.")
@@ -162,6 +184,14 @@ try:
         for d in lines_in:
             results.append(import_line_pattern(doc, d,
                                                update_existing))
+        t.Commit()
+    styles_in = _picked("line_styles")
+    if styles_in:
+        t = Transaction(doc, "Import line styles")
+        t.Start()
+        for d in styles_in:
+            results.append(import_line_style(doc, d,
+                                             update_existing))
         t.Commit()
     levels_in = _picked("levels")
     if levels_in:
