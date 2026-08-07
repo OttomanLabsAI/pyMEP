@@ -512,13 +512,22 @@ coercion.
 
 ### Project Data Transfer
 
-Both buttons drive ONE sectioned dialog. Sections today: VIEW
-TEMPLATES and FILTERS - each section has a Select... button opening a
-grouped picker (the template picker groups by view family, so floor
-plan / 3D / section works as a filter), plus a tick per section
-choosing what actually goes to - or comes from - the file. The import
-flavour also carries the update-or-skip choice for existing same-name
-items. More sections will join the dialog as the JSON grows.
+Both buttons drive ONE sectioned dialog. Sections: VIEW TEMPLATES,
+FILTERS, LEVELS, FILL PATTERNS and LINE PATTERNS - each section has a
+Select... button opening a grouped picker (the template picker groups
+by view family, so Floor Plan / 3D / Section works as a filter; the
+fill pattern picker by Drafting / Model; ticks survive group and
+search changes), plus a tick per section choosing what actually goes
+to - or comes from - the file. The import flavour also carries the
+update-or-skip choice for existing same-name items, and imports in
+the order that kills the degrade causes: patterns first, then levels
+(names + elevations; with update chosen an existing level MOVES to
+the file's elevation - reported), then filters, then templates - so
+overrides and view ranges resolve against what was just brought in.
+Fill patterns serialize their full grid definitions (angle, origin,
+offset, shift, dash segments), line patterns their dash/space/dot
+segments; the built-in Solid and solid fill are never exported (they
+exist everywhere).
 
 **Export Project Data** - write the picked view templates (plus
 standalone rule-based filters) to ONE version-agnostic JSON file;

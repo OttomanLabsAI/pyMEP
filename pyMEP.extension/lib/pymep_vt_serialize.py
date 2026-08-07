@@ -425,6 +425,51 @@ def serialize_template(doc, view, notes):
 
 
 # ---------------------------------------------------------------------------
+# levels + patterns
+# ---------------------------------------------------------------------------
+def serialize_level(level):
+    """{'name', 'elevation_ft'} - internal feet, identical across
+    Revit versions."""
+    return {"name": level.Name, "elevation_ft": level.Elevation}
+
+
+def serialize_fill_pattern(fpe):
+    """(dict, None) or (None, reason). The solid fill is built-in
+    everywhere - reported, never exported."""
+    try:
+        pat = fpe.GetFillPattern()
+        if pat.IsSolidFill:
+            return None, "the solid fill is built-in everywhere"
+        grids = []
+        for g in pat.GetFillGrids():
+            origin = g.Origin
+            grids.append({
+                "angle": g.Angle,
+                "origin": [origin.U, origin.V],
+                "offset": g.Offset,
+                "shift": g.Shift,
+                "segments": [s for s in g.GetSegments()],
+            })
+        return {"name": pat.Name, "target": str(pat.Target),
+                "orientation": str(pat.HostOrientation),
+                "grids": grids}, None
+    except Exception as ex:
+        return None, str(ex)
+
+
+def serialize_line_pattern(lpe):
+    """(dict, None) or (None, reason). Solid is built-in."""
+    try:
+        pat = lpe.GetLinePattern()
+        segs = []
+        for s in pat.GetSegments():
+            segs.append({"type": str(s.Type), "length": s.Length})
+        return {"name": lpe.Name, "segments": segs}, None
+    except Exception as ex:
+        return None, str(ex)
+
+
+# ---------------------------------------------------------------------------
 # whole document
 # ---------------------------------------------------------------------------
 def referenced_filter_ids(doc, views):
@@ -442,7 +487,8 @@ def referenced_filter_ids(doc, views):
 
 
 def export_document(doc, template_views, extra_filter_elements,
-                    include_referenced=True):
+                    include_referenced=True, levels=None,
+                    fill_patterns=None, line_patterns=None):
     """(data, results): the JSON-ready dict for the picked templates
     plus any standalone filters. ``include_referenced`` also pulls in
     every filter the picked templates reference (off when the caller's
@@ -493,4 +539,40 @@ def export_document(doc, template_views, extra_filter_elements,
             results.append({"item": view.Name, "kind": "template",
                             "status": "skipped", "reason": str(ex)})
     data["view_templates"].sort(key=lambda d: d["name"])
+
+    for lvl in levels or []:
+        try:
+            data["levels"].append(serialize_level(lvl))
+            results.append({"item": lvl.Name, "kind": "level",
+                            "status": "exported", "reason": ""})
+        except Exception as ex:
+            results.append({"item": getattr(lvl, "Name", "?"),
+                            "kind": "level", "status": "skipped",
+                            "reason": str(ex)})
+    data["levels"].sort(key=lambda d: d["name"])
+
+    for fpe in fill_patterns or []:
+        d, reason = serialize_fill_pattern(fpe)
+        if d is None:
+            results.append({"item": getattr(fpe, "Name", "?"),
+                            "kind": "fill_pattern",
+                            "status": "skipped", "reason": reason})
+        else:
+            data["fill_patterns"].append(d)
+            results.append({"item": d["name"], "kind": "fill_pattern",
+                            "status": "exported", "reason": ""})
+    data["fill_patterns"].sort(
+        key=lambda d: (d["name"], d.get("target") or ""))
+
+    for lpe in line_patterns or []:
+        d, reason = serialize_line_pattern(lpe)
+        if d is None:
+            results.append({"item": getattr(lpe, "Name", "?"),
+                            "kind": "line_pattern",
+                            "status": "skipped", "reason": reason})
+        else:
+            data["line_patterns"].append(d)
+            results.append({"item": d["name"], "kind": "line_pattern",
+                            "status": "exported", "reason": ""})
+    data["line_patterns"].sort(key=lambda d: d["name"])
     return data, results
