@@ -14,6 +14,7 @@ __author__ = "Glent Group"
 
 import datetime
 import io
+import os
 import sys
 
 for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
@@ -79,23 +80,50 @@ if not path:
 
 views = opt["a"] if opt["a_on"] else []
 extra = opt["b"] if opt["b_on"] else []
-data, results = export_document(doc, views, extra,
-                                include_referenced=opt["b_on"])
-if not opt["b_on"] and views:
-    log("Filters section UNTICKED - templates export without their "
-        "filters; the import will note each missing one.")
-data["exported"] = datetime.datetime.now().strftime(
-    "%Y-%m-%dT%H:%M:%S")
-text = dumps(data)
-# IronPython 2.7: io text streams take unicode ONLY - a plain str
-# write throws and leaves an EMPTY file ('No JSON object could be
-# decoded' on import)
-if not isinstance(text, type(u"")):
-    text = text.decode("utf-8")
-with io.open(path, "w", encoding="utf-8") as f:
-    f.write(text)
+try:
+    data, results = export_document(doc, views, extra,
+                                    include_referenced=opt["b_on"])
+    if not opt["b_on"] and views:
+        log("Filters section UNTICKED - templates export without "
+            "their filters; the import will note each missing one.")
+    data["exported"] = datetime.datetime.now().strftime(
+        "%Y-%m-%dT%H:%M:%S")
+    try:
+        with io.open(os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(
+                    sys.modules["pymep_config"].__file__))),
+                "version.txt"), "r", encoding="utf-8") as vf:
+            data["pymep_version"] = vf.read().strip()
+    except Exception:
+        pass
+    text = dumps(data)
+    # IronPython 2.7: io text streams take unicode ONLY - a plain str
+    # write throws and leaves an EMPTY file ('No JSON object could be
+    # decoded' on import)
+    if not isinstance(text, type(u"")):
+        text = text.decode("utf-8")
+    with io.open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+except Exception as ex:
+    import traceback
+    log(traceback.format_exc())
+    log.close()
+    forms.alert("Export FAILED - the file was not written:\n\n{}"
+                "\n\nThe full traceback is in the pyMEP "
+                "report.".format(ex), exitscript=True)
 
-log("Written: **{}**".format(path))
+size = 0
+try:
+    size = os.path.getsize(path)
+except Exception:
+    pass
+if not size:
+    log("! the written file is EMPTY - export failed")
+    log.close()
+    forms.alert("The written file came out EMPTY - export failed. "
+                "See the pyMEP report.", exitscript=True)
+
+log("Written: **{}** (**{:,}** bytes)".format(path, size))
 log("#### Summary")
 log("| item | kind | status | notes |")
 log("|---|---|---|---|")
@@ -108,6 +136,8 @@ for r in results:
 log("- " + ", ".join("{}: **{}**".format(k, v)
                      for k, v in sorted(counts.items())))
 log.close()
-forms.alert("Exported {} template(s) and {} filter(s) to:\n{}".format(
-    len(data["view_templates"]), len(data["filters"]), path),
-    title="Project data exported")
+forms.alert("Exported {} template(s) and {} filter(s) "
+            "({:,} bytes) to:\n{}".format(
+                len(data["view_templates"]), len(data["filters"]),
+                size, path),
+            title="Project data exported")

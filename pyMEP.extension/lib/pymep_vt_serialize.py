@@ -111,14 +111,9 @@ def _serialize_rule(doc, rule):
                 "rule": "double", "evaluator": ev,
                 "value": rule.RuleValue, "epsilon": rule.Epsilon,
                 "inverted": inverted}
-    if isinstance(rule, FilterIntegerRule):
-        ev = NUMERIC_EVALUATORS.get(rule.GetEvaluator().GetType().Name)
-        if ev is None:
-            raise ValueError("unknown integer evaluator {}".format(
-                rule.GetEvaluator().GetType().Name))
-        return {"parameter": _param_identity(doc, rule.GetRuleParameter()),
-                "rule": "integer", "evaluator": ev,
-                "value": rule.RuleValue, "inverted": inverted}
+    # id rules BEFORE integer rules: an ElementId value leaking into
+    # the JSON as an integer-rule would poison dumps() - the id rule
+    # match must win any isinstance overlap
     if isinstance(rule, FilterElementIdRule):
         ev = NUMERIC_EVALUATORS.get(rule.GetEvaluator().GetType().Name)
         if ev is None:
@@ -128,6 +123,14 @@ def _serialize_rule(doc, rule):
                 "rule": "element_id", "evaluator": ev,
                 "value": _element_ref(doc, rule.RuleValue),
                 "inverted": inverted}
+    if isinstance(rule, FilterIntegerRule):
+        ev = NUMERIC_EVALUATORS.get(rule.GetEvaluator().GetType().Name)
+        if ev is None:
+            raise ValueError("unknown integer evaluator {}".format(
+                rule.GetEvaluator().GetType().Name))
+        return {"parameter": _param_identity(doc, rule.GetRuleParameter()),
+                "rule": "integer", "evaluator": ev,
+                "value": rule.RuleValue, "inverted": inverted}
     raise ValueError("unsupported rule type {}".format(
         rule.GetType().Name))
 
