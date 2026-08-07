@@ -52,6 +52,9 @@ def make_document(revit_version="", revit_build=""):
         "exported": "",
         "filters": [],
         "view_templates": [],
+        "levels": [],
+        "fill_patterns": [],
+        "line_patterns": [],
     }
 
 

@@ -1,7 +1,7 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Project Data"
-        Width="480" Height="560" MinWidth="440" MinHeight="500"
+        Width="500" Height="700" MinWidth="450" MinHeight="520"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False"
         Background="White">
@@ -51,51 +51,12 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="14,12,14,12">
-            <GroupBox x:Name="GrpA" Header="View templates">
-                <StackPanel>
-                    <StackPanel Orientation="Horizontal">
-                        <Button x:Name="BtnPickA"
-                                Style="{StaticResource PickButton}"
-                                Content="Select view templates..."
-                                Click="on_pick_a"/>
-                        <TextBlock x:Name="LblA"
-                                   Style="{StaticResource CountLabel}"
-                                   Text="&#8212;"/>
-                    </StackPanel>
-                    <TextBlock x:Name="HintA" Style="{StaticResource Hint}"
-                               Text="The picker filters by view family (floor plan, 3D, section, ...)."/>
-                </StackPanel>
-            </GroupBox>
-
-            <GroupBox x:Name="GrpB" Header="Filters">
-                <StackPanel>
-                    <StackPanel Orientation="Horizontal">
-                        <Button x:Name="BtnPickB"
-                                Style="{StaticResource PickButton}"
-                                Content="Select filters..."
-                                Click="on_pick_b"/>
-                        <TextBlock x:Name="LblB"
-                                   Style="{StaticResource CountLabel}"
-                                   Text="&#8212;"/>
-                    </StackPanel>
-                    <CheckBox x:Name="ChkAutoFilters" Margin="0,8,0,0"
-                              IsChecked="True"
-                              Content="Automatically include the filters the selected view templates use"
-                              Checked="on_auto" Unchecked="on_auto"/>
-                    <TextBlock x:Name="HintB" Style="{StaticResource Hint}"
-                               Text="Rule-based filters. With the tick on, changing the template selection keeps their filters ticked in this list automatically."/>
-                </StackPanel>
-            </GroupBox>
+            <!-- one GroupBox per data section, built in code -->
+            <StackPanel x:Name="PnlSections"/>
 
             <GroupBox x:Name="GrpSections" Header="Sections to export">
-                <StackPanel>
-                    <CheckBox x:Name="ChkA" IsChecked="True"
-                              Content="View templates" Margin="0,2,0,0"
-                              Checked="on_sections" Unchecked="on_sections"/>
-                    <CheckBox x:Name="ChkB" IsChecked="True"
-                              Content="Filters" Margin="0,6,0,0"
-                              Checked="on_sections" Unchecked="on_sections"/>
-                </StackPanel>
+                <!-- one CheckBox per section, built in code -->
+                <StackPanel x:Name="PnlSectionTicks"/>
             </GroupBox>
 
             <GroupBox x:Name="GrpClash" Header="Existing same-name items"

@@ -21,12 +21,14 @@ from System.Collections.Generic import List
 
 from Autodesk.Revit.DB import (
     BuiltInParameter, Color, ElementFilter, ElementId,
-    ElementParameterFilter, FilterInverseRule, FilterRule,
-    FilteredElementCollector, Level, LogicalAndFilter,
-    LogicalOrFilter, OverrideGraphicSettings, ParameterElement,
-    ParameterFilterElement, PhaseFilter, PlanViewPlane,
-    SharedParameterElement, View, ViewDrafting, ViewFamily,
-    ViewFamilyType, ViewPlan, View3D,
+    ElementParameterFilter, FillGrid, FillPattern, FillPatternElement,
+    FillPatternHostOrientation, FillPatternTarget, FilterInverseRule,
+    FilterRule, FilteredElementCollector, Level, LinePattern,
+    LinePatternElement, LinePatternSegment, LinePatternSegmentType,
+    LogicalAndFilter, LogicalOrFilter, OverrideGraphicSettings,
+    ParameterElement, ParameterFilterElement, PhaseFilter,
+    PlanViewPlane, SharedParameterElement, UV, View, ViewDrafting,
+    ViewFamily, ViewFamilyType, ViewPlan, View3D,
 )
 
 import Autodesk.Revit.DB as DB
@@ -604,6 +606,138 @@ def import_template(doc, tdict, filter_ids_by_name,
                     pass
         row["status"] = "degraded" if notes else "created"
         row["reason"] = "; ".join(notes)
+        return row
+    except Exception as ex:
+        row["reason"] = str(ex)
+        return row
+
+
+def import_level(doc, ldict, update_existing=True):
+    """{'item','kind','status','reason'} - creates the level or, with
+    update chosen, moves an existing one's elevation (moving a level
+    moves what sits on it - the report says so)."""
+    name = ldict.get("name") or "(unnamed)"
+    row = {"item": name, "kind": "level", "status": "failed",
+           "reason": ""}
+    try:
+        elev = float(ldict.get("elevation_ft"))
+        existing = None
+        for lvl in FilteredElementCollector(doc).OfClass(Level):
+            if lvl.Name == name:
+                existing = lvl
+                break
+        if existing is not None:
+            if abs(existing.Elevation - elev) < 1e-9:
+                row["status"] = "updated"
+                row["reason"] = "already at this elevation"
+                return row
+            if not update_existing:
+                row["status"] = "skipped"
+                row["reason"] = "exists at a different elevation " \
+                    "(skip existing chosen)"
+                return row
+            existing.Elevation = elev
+            row["status"] = "updated"
+            row["reason"] = "elevation MOVED to match the file - " \
+                "everything hosted on it moved too"
+            return row
+        lvl = Level.Create(doc, elev)
+        try:
+            lvl.Name = name
+        except Exception:
+            row["status"] = "degraded"
+            row["reason"] = "created but the name '{}' could not be " \
+                "set".format(name)
+            return row
+        row["status"] = "created"
+        return row
+    except Exception as ex:
+        row["reason"] = str(ex)
+        return row
+
+
+def import_fill_pattern(doc, d, update_existing=True):
+    name = d.get("name") or "(unnamed)"
+    row = {"item": name, "kind": "fill_pattern", "status": "failed",
+           "reason": ""}
+    try:
+        target = getattr(FillPatternTarget, d.get("target") or
+                         "Drafting")
+        orientation = getattr(FillPatternHostOrientation,
+                              d.get("orientation") or "ToView")
+        pat = FillPattern(name, target, orientation)
+        grids = List[FillGrid]()
+        for g in d.get("grids") or []:
+            fg = FillGrid()
+            fg.Angle = float(g.get("angle") or 0.0)
+            o = g.get("origin") or [0.0, 0.0]
+            fg.Origin = UV(float(o[0]), float(o[1]))
+            fg.Offset = float(g.get("offset") or 0.0)
+            fg.Shift = float(g.get("shift") or 0.0)
+            segs = List[float]()
+            for s in g.get("segments") or []:
+                segs.Add(float(s))
+            fg.SetSegments(segs)
+            grids.Add(fg)
+        pat.SetFillGrids(grids)
+        existing = None
+        for fpe in FilteredElementCollector(doc).OfClass(
+                FillPatternElement):
+            try:
+                p = fpe.GetFillPattern()
+                if p.Name == name and p.Target == target:
+                    existing = fpe
+                    break
+            except Exception:
+                continue
+        if existing is not None:
+            if not update_existing:
+                row["status"] = "skipped"
+                row["reason"] = "already exists (skip existing chosen)"
+                return row
+            existing.SetFillPattern(pat)
+            row["status"] = "updated"
+            return row
+        FillPatternElement.Create(doc, pat)
+        row["status"] = "created"
+        return row
+    except Exception as ex:
+        row["reason"] = str(ex)
+        return row
+
+
+def import_line_pattern(doc, d, update_existing=True):
+    name = d.get("name") or "(unnamed)"
+    row = {"item": name, "kind": "line_pattern", "status": "failed",
+           "reason": ""}
+    try:
+        pat = LinePattern(name)
+        segs = List[LinePatternSegment]()
+        for s in d.get("segments") or []:
+            stype = getattr(LinePatternSegmentType,
+                            s.get("type") or "Dash")
+            segs.Add(LinePatternSegment(stype,
+                                        float(s.get("length") or 0.0)))
+        pat.SetSegments(segs)
+        existing = None
+        for lpe in FilteredElementCollector(doc).OfClass(
+                LinePatternElement):
+            try:
+                if lpe.Name == name:
+                    existing = lpe
+                    break
+            except Exception:
+                continue
+        if existing is not None:
+            if not update_existing:
+                row["status"] = "skipped"
+                row["reason"] = "already exists (skip existing chosen)"
+                return row
+            existing.SetLinePattern(pat)
+            row["status"] = "updated"
+            return row
+        LinePatternElement.Create(doc, pat)
+        row["status"] = "created"
         return row
     except Exception as ex:
         row["reason"] = str(ex)

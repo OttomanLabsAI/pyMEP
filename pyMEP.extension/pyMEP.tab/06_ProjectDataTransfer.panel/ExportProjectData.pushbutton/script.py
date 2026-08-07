@@ -2,11 +2,12 @@
 """Export Project Data - one sectioned dialog writes picked project
 data to a version-agnostic JSON.
 
-Sections (today): VIEW TEMPLATES and FILTERS. Each section has a
-Select... button - the template picker filters by view family (floor
-plan, 3D, section, ...) - and a tick deciding whether that section
-goes to the file at all. The JSON crosses Revit versions, diffs
-cleanly in git and can be hand-edited.
+Sections: VIEW TEMPLATES, FILTERS, LEVELS, FILL PATTERNS and LINE
+PATTERNS. Each section has a Select... button - the template picker
+filters by view family, the fill pattern picker by Drafting / Model -
+and a tick deciding whether that section goes to the file at all.
+Exporting levels and patterns lets the import rebuild them first, so
+view ranges and overrides land without degrading.
 """
 
 __title__  = "Export Project\nData"
@@ -31,6 +32,8 @@ from pymep_vt_serialize import export_document
 import clr
 clr.AddReference("RevitAPI")
 from Autodesk.Revit.DB import (FilteredElementCollector,
+                               FillPatternElement, Level,
+                               LinePatternElement,
                                ParameterFilterElement, View)
 
 output = script.get_output()
@@ -49,16 +52,30 @@ for v in FilteredElementCollector(doc).OfClass(View):
 filters = sorted(
     [f for f in FilteredElementCollector(doc).OfClass(
         ParameterFilterElement)], key=lambda f: f.Name)
+levels = sorted(
+    [l for l in FilteredElementCollector(doc).OfClass(Level)],
+    key=lambda l: l.Elevation)
+fills = []
+for fpe in FilteredElementCollector(doc).OfClass(FillPatternElement):
+    try:
+        pat = fpe.GetFillPattern()
+        if pat.IsSolidFill:
+            continue
+        fills.append((str(pat.Target), "{} ({})".format(
+            pat.Name, pat.Target), fpe))
+    except Exception:
+        continue
+line_pats = []
+for lpe in FilteredElementCollector(doc).OfClass(LinePatternElement):
+    try:
+        line_pats.append((None, lpe.Name, lpe))
+    except Exception:
+        continue
 
-if not templates and not filters:
-    log("No view templates or filters in this model.")
+if not (templates or filters or levels or fills or line_pats):
+    log("Nothing exportable in this model.")
     log.close()
-    forms.alert("This model has no view templates and no rule-based "
-                "filters - nothing to export.", exitscript=True)
-
-a_items = [(family_label(str(v.ViewType)), v.Name, v)
-           for v in templates]
-b_items = [(None, f.Name, f) for f in filters]
+    forms.alert("This model has nothing to export.", exitscript=True)
 
 # which filters each template USES - drives the auto-include tick
 refs = {}
@@ -73,14 +90,47 @@ for v in templates:
         pass
     refs[v.Name] = names
 
+sections = [
+    {"key": "templates", "header": "View templates",
+     "items": [(family_label(str(v.ViewType)), v.Name, v)
+               for v in templates],
+     "hint": "The picker filters by view family (Floor Plan, 3D, "
+             "Section, ...).",
+     "pick_title": "Select view templates - the dropdown filters by "
+                   "view family"},
+    {"key": "filters", "header": "Filters",
+     "items": [(None, f.Name, f) for f in filters],
+     "hint": "Rule-based filters. With the tick on, changing the "
+             "template selection keeps their filters ticked "
+             "automatically."},
+    {"key": "levels", "header": "Levels",
+     "items": [(None, "{}  ({:.3f} m)".format(
+         l.Name, l.Elevation * 0.3048), l) for l in levels],
+     "hint": "Names + elevations, so imported view ranges resolve "
+             "instead of degrading."},
+    {"key": "fill_patterns", "header": "Fill patterns",
+     "items": fills,
+     "hint": "Drafting and model fill patterns (the built-in solid "
+             "fill exists everywhere). The picker filters by "
+             "Drafting / Model."},
+    {"key": "line_patterns", "header": "Line patterns",
+     "items": line_pats,
+     "hint": "Line patterns used by overrides (the built-in Solid "
+             "exists everywhere)."},
+]
+
 settings = load_settings()
 win = ProjectDataWindow(
     "Export Project Data",
-    "{} view template(s), {} filter(s) in this model - everything "
-    "starts selected; refine with the Select buttons.".format(
-        len(templates), len(filters)),
-    "Export", a_items, b_items, "Sections to export",
-    a_refs=refs,
+    "{} template(s), {} filter(s), {} level(s), {} fill pattern(s), "
+    "{} line pattern(s) - everything starts selected; refine with "
+    "the Select buttons.".format(
+        len(templates), len(filters), len(levels), len(fills),
+        len(line_pats)),
+    "Export", sections, "Sections to export",
+    auto_link={"from": "templates", "to": "filters", "refs": refs,
+               "text": "Automatically include the filters the "
+                       "selected view templates use"},
     auto_default=settings.get("pd_auto_filters", True))
 win.ShowDialog()
 if win.result is None:
@@ -88,6 +138,7 @@ if win.result is None:
     log.close()
     script.exit()
 opt = win.result
+sec = opt["sections"]
 settings["pd_auto_filters"] = opt.get("auto", True)
 try:
     save_settings(settings)
@@ -101,15 +152,21 @@ if not path:
     log.close()
     script.exit()
 
-views = opt["a"] if opt["a_on"] else []
-extra = opt["b"] if opt["b_on"] else []
+
+def _picked(key):
+    d = sec.get(key) or {}
+    return d.get("picked") or [] if d.get("on") else []
+
+
+views = _picked("templates")
 try:
     data, results = export_document(
-        doc, views, extra,
-        include_referenced=opt["b_on"] and opt.get("auto", True))
-    if not opt["b_on"] and views:
-        log("Filters section UNTICKED - templates export without "
-            "their filters; the import will note each missing one.")
+        doc, views, _picked("filters"),
+        include_referenced=bool((sec.get("filters") or {}).get("on"))
+        and opt.get("auto", True),
+        levels=_picked("levels"),
+        fill_patterns=_picked("fill_patterns"),
+        line_patterns=_picked("line_patterns"))
     data["exported"] = datetime.datetime.now().strftime(
         "%Y-%m-%dT%H:%M:%S")
     try:
@@ -122,8 +179,7 @@ try:
         pass
     text = dumps(data)
     # IronPython 2.7: io text streams take unicode ONLY - a plain str
-    # write throws and leaves an EMPTY file ('No JSON object could be
-    # decoded' on import)
+    # write throws and leaves an EMPTY file
     if not isinstance(text, type(u"")):
         text = text.decode("utf-8")
     with io.open(path, "w", encoding="utf-8") as f:
@@ -160,8 +216,10 @@ for r in results:
 log("- " + ", ".join("{}: **{}**".format(k, v)
                      for k, v in sorted(counts.items())))
 log.close()
-forms.alert("Exported {} template(s) and {} filter(s) "
-            "({:,} bytes) to:\n{}".format(
-                len(data["view_templates"]), len(data["filters"]),
-                size, path),
-            title="Project data exported")
+forms.alert(
+    "Exported {} template(s), {} filter(s), {} level(s), {} fill "
+    "pattern(s), {} line pattern(s) ({:,} bytes) to:\n{}".format(
+        len(data["view_templates"]), len(data["filters"]),
+        len(data["levels"]), len(data["fill_patterns"]),
+        len(data["line_patterns"]), size, path),
+    title="Project data exported")

@@ -148,17 +148,31 @@ class PickListWindow(forms.WPFWindow):
 
 
 class ProjectDataWindow(forms.WPFWindow):
-    """result is None (cancel) or:
-      {"a_on": bool, "a": [payloads],   # view templates
-       "b_on": bool, "b": [payloads],   # filters
-       "clash": "update" | "skip"}      # import flavour only
+    """The sectioned Project Data dialog, DATA-DRIVEN: one GroupBox
+    per section (Select... button + live count + optional hint), a
+    'Sections to ...' group with a tick per section, and - for the
+    import flavour - the update-or-skip choice for existing items.
 
-    a_items / b_items: [(label, payload)] or, for a grouped picker,
-    [(group, label, payload)] - groups become the picker's family
-    dropdown. Everything starts selected."""
+    sections: list of dicts
+      {"key":   "templates",
+       "header": "View templates",
+       "items":  [(group, label, payload)],   # group None = flat list
+       "hint":   "..." or None,
+       "pick_title": "Select view templates..."}
 
-    def __init__(self, title, info, go_label, a_items, b_items,
-                 sections_header, show_clash=False, a_refs=None,
+    auto_link (optional) ties two sections together with an
+    auto-include tick INSIDE the 'to' section's box:
+      {"from": "templates", "to": "filters",
+       "refs": {from_label: [to_labels]},
+       "text": "Automatically include ..."}
+
+    result is None (cancel) or:
+      {"sections": {key: {"on": bool, "picked": [payloads]}},
+       "auto": bool, "clash": "update" | "skip"}
+    """
+
+    def __init__(self, title, info, go_label, sections,
+                 sections_header, show_clash=False, auto_link=None,
                  auto_default=True):
         forms.WPFWindow.__init__(self, XAML_PATH)
         self.result = None
@@ -173,59 +187,134 @@ class ProjectDataWindow(forms.WPFWindow):
                 self.GrpClash.Visibility = Visibility.Visible
             except Exception:
                 pass
-        self._a_items = [i if len(i) == 3 else (None, i[0], i[1])
-                         for i in a_items]
-        self._b_items = [i if len(i) == 3 else (None, i[0], i[1])
-                         for i in b_items]
-        self._a_picked = list(self._a_items)     # all in, until refined
-        self._b_picked = list(self._b_items)
-        # a_refs: {a-label: [b-labels]} - which filters each template
-        # USES; drives the auto-include tick. None hides the tick.
-        self._a_refs = a_refs
-        if a_refs is None:
-            try:
-                from System.Windows import Visibility
-                self.ChkAutoFilters.Visibility = Visibility.Collapsed
-            except Exception:
-                pass
-        else:
-            self.ChkAutoFilters.IsChecked = bool(auto_default)
-        if not self._a_items:
-            self.ChkA.IsChecked = False
-            self.ChkA.IsEnabled = False
-            self.BtnPickA.IsEnabled = False
-        if not self._b_items:
-            self.ChkB.IsChecked = False
-            self.ChkB.IsEnabled = False
-            self.BtnPickB.IsEnabled = False
+        self._auto_link = auto_link
+        self._auto_box = None
+        self._sections = []
+        for s in sections:
+            items = [i if len(i) == 3 else (None, i[0], i[1])
+                     for i in s["items"]]
+            self._sections.append({
+                "key": s["key"], "header": s["header"],
+                "items": items, "picked": list(items),
+                "hint": s.get("hint"),
+                "pick_title": s.get("pick_title") or
+                "Select {}".format(s["header"].lower()),
+                "count_label": None, "tick": None, "button": None})
+        self._build_sections(auto_default)
         self._merge_auto()
         self._refresh()
 
     # ------------------------------------------------------------------
+    def _build_sections(self, auto_default):
+        from System.Windows import Thickness
+        from System.Windows.Controls import (Button, CheckBox, GroupBox,
+                                             StackPanel, TextBlock,
+                                             Orientation)
+        for sec in self._sections:
+            box = GroupBox()
+            box.Header = sec["header"]
+            box.Margin = Thickness(0, 0, 0, 12)
+            box.Padding = Thickness(10, 8, 10, 10)
+            body = StackPanel()
+            row = StackPanel()
+            row.Orientation = Orientation.Horizontal
+            btn = Button()
+            btn.Content = "Select..."
+            btn.MinWidth = 150
+            btn.Padding = Thickness(10, 4, 10, 4)
+            btn.Click += self._make_pick_handler(sec)
+            lbl = TextBlock()
+            lbl.Margin = Thickness(12, 4, 0, 0)
+            row.Children.Add(btn)
+            row.Children.Add(lbl)
+            body.Children.Add(row)
+            if self._auto_link and self._auto_link.get("to") == sec["key"]:
+                auto = CheckBox()
+                auto.Content = self._auto_link.get(
+                    "text", "Automatically include referenced items")
+                auto.Margin = Thickness(0, 8, 0, 0)
+                auto.IsChecked = bool(auto_default)
+                auto.Checked += self.on_auto
+                auto.Unchecked += self.on_auto
+                body.Children.Add(auto)
+                self._auto_box = auto
+            if sec["hint"]:
+                hint = TextBlock()
+                hint.Text = sec["hint"]
+                hint.TextWrapping = 2       # TextWrapping.Wrap
+                hint.FontSize = 11.0
+                hint.Margin = Thickness(0, 4, 0, 0)
+                try:
+                    from System.Windows.Media import Brushes
+                    hint.Foreground = Brushes.Gray
+                except Exception:
+                    pass
+                body.Children.Add(hint)
+            box.Content = body
+            self.PnlSections.Children.Add(box)
+            tick = CheckBox()
+            tick.Content = sec["header"]
+            tick.Margin = Thickness(0, 4, 0, 2)
+            tick.IsChecked = bool(sec["items"])
+            if not sec["items"]:
+                tick.IsEnabled = False
+                btn.IsEnabled = False
+            self.PnlSectionTicks.Children.Add(tick)
+            sec["count_label"] = lbl
+            sec["tick"] = tick
+            sec["button"] = btn
+
+    def _make_pick_handler(self, sec):
+        def handler(sender, args):
+            ordered = sorted(sec["items"],
+                             key=lambda i: ((i[0] or ""), i[1]))
+            win = PickListWindow(
+                sec["pick_title"], ordered,
+                checked_labels=[l for _g, l, _p in sec["picked"]])
+            win.ShowDialog()
+            if win.result is not None:
+                sec["picked"] = win.result
+                if win.result:
+                    sec["tick"].IsChecked = True
+                if self._auto_link and \
+                        self._auto_link.get("from") == sec["key"]:
+                    self._merge_auto()
+            self._refresh()
+        return handler
+
+    def _section(self, key):
+        for sec in self._sections:
+            if sec["key"] == key:
+                return sec
+        return None
+
+    # ------------------------------------------------------------------
     def _merge_auto(self):
-        """With the auto tick ON, every filter the picked templates
-        USE joins the filters pick (never removes anything the user
-        ticked themselves)."""
-        try:
-            on = bool(self.ChkAutoFilters.IsChecked)
-        except Exception:
-            on = False
-        if not on or not self._a_refs:
+        """Auto tick ON: every 'to' item the picked 'from' items
+        reference joins the 'to' pick - additive only."""
+        link = self._auto_link
+        if not link or self._auto_box is None or \
+                not bool(self._auto_box.IsChecked):
             return
+        src = self._section(link.get("from"))
+        dst = self._section(link.get("to"))
+        if src is None or dst is None:
+            return
+        refs = link.get("refs") or {}
         needed = set()
-        for _g, label, _p in self._a_picked:
-            for fname in self._a_refs.get(label) or []:
-                needed.add(fname)
+        for _g, label, _p in src["picked"]:
+            for name in refs.get(label) or []:
+                needed.add(name)
         if not needed:
             return
-        have = set(l for _g, l, _p in self._b_picked)
+        have = set(l for _g, l, _p in dst["picked"])
         added = False
-        for item in self._b_items:
+        for item in dst["items"]:
             if item[1] in needed and item[1] not in have:
-                self._b_picked.append(item)
+                dst["picked"].append(item)
                 added = True
-        if added and self._b_picked:
-            self.ChkB.IsChecked = True
+        if added and dst["picked"]:
+            dst["tick"].IsChecked = True
 
     def on_auto(self, sender, args):
         self._merge_auto()
@@ -233,89 +322,44 @@ class ProjectDataWindow(forms.WPFWindow):
 
     # ------------------------------------------------------------------
     def _refresh(self):
-        def label(picked, items):
-            if not items:
-                return "none available"
-            if len(picked) == len(items):
-                return "all {} selected".format(len(items))
-            return "{} of {} selected".format(len(picked), len(items))
-        try:
-            self.LblA.Text = label(self._a_picked, self._a_items)
-            self.LblB.Text = label(self._b_picked, self._b_items)
-        except Exception:
-            pass
-
-    @staticmethod
-    def _run_picker(title, items, picked_now):
-        """items: [(group, label, payload)] - the group dropdown
-        filters by view family and ticks SURVIVE group / search
-        changes. Opens with the current pick ticked. Returns the new
-        picked list or None on cancel."""
-        ordered = sorted(items, key=lambda i: ((i[0] or ""), i[1]))
-        win = PickListWindow(
-            title, ordered,
-            checked_labels=[l for _g, l, _p in picked_now])
-        win.ShowDialog()
-        return win.result
-
-    # ------------------------------------------------------------------
-    def on_pick_a(self, sender, args):
-        got = self._run_picker("Select view templates - the dropdown "
-                               "filters by view family", self._a_items,
-                               self._a_picked)
-        if got is not None:
-            self._a_picked = got
-            if got:
-                self.ChkA.IsChecked = True
-            self._merge_auto()
-        self._refresh()
-
-    def on_pick_b(self, sender, args):
-        got = self._run_picker("Select filters", self._b_items,
-                               self._b_picked)
-        if got is not None:
-            self._b_picked = got
-            if got:
-                self.ChkB.IsChecked = True
-        self._refresh()
-
-    def on_sections(self, sender, args):
-        try:
-            self.BtnPickA.IsEnabled = bool(self.ChkA.IsChecked) and \
-                bool(self._a_items)
-            self.BtnPickB.IsEnabled = bool(self.ChkB.IsChecked) and \
-                bool(self._b_items)
-        except Exception:
-            pass
+        for sec in self._sections:
+            try:
+                n, m = len(sec["picked"]), len(sec["items"])
+                if not m:
+                    sec["count_label"].Text = "none available"
+                elif n == m:
+                    sec["count_label"].Text = \
+                        "all {} selected".format(m)
+                else:
+                    sec["count_label"].Text = \
+                        "{} of {} selected".format(n, m)
+            except Exception:
+                pass
 
     def on_go(self, sender, args):
-        a_on = bool(self.ChkA.IsChecked)
-        b_on = bool(self.ChkB.IsChecked)
-        if not a_on and not b_on:
+        out = {}
+        any_on = False
+        for sec in self._sections:
+            on = bool(sec["tick"].IsChecked)
+            if on and not sec["picked"]:
+                self.StatusText.Text = (
+                    "The {} section is ticked but nothing is selected "
+                    "- use its Select button.".format(sec["header"]))
+                return
+            any_on = any_on or (on and bool(sec["picked"]))
+            out[sec["key"]] = {
+                "on": on,
+                "picked": [p for _g, _l, p in sec["picked"]]
+                if on else []}
+        if not any_on:
             self.StatusText.Text = ("Tick at least one section - "
                                     "nothing is chosen to transfer.")
             return
-        if a_on and not self._a_picked:
-            self.StatusText.Text = ("The view templates section is "
-                                    "ticked but nothing is selected - "
-                                    "use its Select button.")
-            return
-        if b_on and not self._b_picked:
-            self.StatusText.Text = ("The filters section is ticked "
-                                    "but nothing is selected - use "
-                                    "its Select button.")
-            return
-        try:
-            auto = bool(self.ChkAutoFilters.IsChecked)
-        except Exception:
-            auto = False
         self.result = {
-            "a_on": a_on,
-            "a": [p for _g, _l, p in self._a_picked] if a_on else [],
-            "b_on": b_on,
-            "b": [p for _g, _l, p in self._b_picked] if b_on else [],
+            "sections": out,
+            "auto": bool(self._auto_box.IsChecked)
+            if self._auto_box is not None else False,
             "clash": "skip" if self.RadSkip.IsChecked else "update",
-            "auto": auto,
         }
         self.Close()
 
