@@ -132,16 +132,28 @@ if issues:
 notices = ["{} '{}': {}".format(kind, item, reason)
            for kind, item, reason in issues]
 
-win = ProjectDataWindow(
-    "Import Project Data",
-    "In the file: {} template(s), {} filter(s), {} level(s), {} fill "
-    "pattern(s), {} line pattern(s), {} line style(s) - everything "
-    "starts selected; refine with the Select buttons.".format(
-        len(file_templates), len(file_filters), len(file_levels),
-        len(file_fills), len(file_lines), len(file_styles)),
-    "Import", sections, "Sections to import", show_clash=True,
-    notices=notices)
-win.ShowDialog()
+log("Opening the dialog - if it is not in front, ALT-TAB or check "
+    "the other monitor.")
+try:
+    win = ProjectDataWindow(
+        "Import Project Data",
+        "In the file: {} template(s), {} filter(s), {} level(s), {} "
+        "fill pattern(s), {} line pattern(s), {} line style(s) - "
+        "everything starts selected; refine with the Select "
+        "buttons.".format(
+            len(file_templates), len(file_filters), len(file_levels),
+            len(file_fills), len(file_lines), len(file_styles)),
+        "Import", sections, "Sections to import", show_clash=True,
+        notices=notices)
+    win.ShowDialog()
+except Exception as ex:
+    import traceback
+    log(traceback.format_exc())
+    log.close()
+    forms.alert("The Import Project Data dialog FAILED to open:\n\n"
+                "{}\n\nThe full traceback is in the pyMEP "
+                "report.".format(ex), exitscript=True)
+log("Dialog closed.")
 if win.result is None:
     log("Cancelled - nothing changed.")
     log.close()
