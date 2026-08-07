@@ -158,7 +158,8 @@ class ProjectDataWindow(forms.WPFWindow):
     dropdown. Everything starts selected."""
 
     def __init__(self, title, info, go_label, a_items, b_items,
-                 sections_header, show_clash=False):
+                 sections_header, show_clash=False, a_refs=None,
+                 auto_default=True):
         forms.WPFWindow.__init__(self, XAML_PATH)
         self.result = None
         self.Title = title
@@ -178,6 +179,17 @@ class ProjectDataWindow(forms.WPFWindow):
                          for i in b_items]
         self._a_picked = list(self._a_items)     # all in, until refined
         self._b_picked = list(self._b_items)
+        # a_refs: {a-label: [b-labels]} - which filters each template
+        # USES; drives the auto-include tick. None hides the tick.
+        self._a_refs = a_refs
+        if a_refs is None:
+            try:
+                from System.Windows import Visibility
+                self.ChkAutoFilters.Visibility = Visibility.Collapsed
+            except Exception:
+                pass
+        else:
+            self.ChkAutoFilters.IsChecked = bool(auto_default)
         if not self._a_items:
             self.ChkA.IsChecked = False
             self.ChkA.IsEnabled = False
@@ -186,6 +198,37 @@ class ProjectDataWindow(forms.WPFWindow):
             self.ChkB.IsChecked = False
             self.ChkB.IsEnabled = False
             self.BtnPickB.IsEnabled = False
+        self._merge_auto()
+        self._refresh()
+
+    # ------------------------------------------------------------------
+    def _merge_auto(self):
+        """With the auto tick ON, every filter the picked templates
+        USE joins the filters pick (never removes anything the user
+        ticked themselves)."""
+        try:
+            on = bool(self.ChkAutoFilters.IsChecked)
+        except Exception:
+            on = False
+        if not on or not self._a_refs:
+            return
+        needed = set()
+        for _g, label, _p in self._a_picked:
+            for fname in self._a_refs.get(label) or []:
+                needed.add(fname)
+        if not needed:
+            return
+        have = set(l for _g, l, _p in self._b_picked)
+        added = False
+        for item in self._b_items:
+            if item[1] in needed and item[1] not in have:
+                self._b_picked.append(item)
+                added = True
+        if added and self._b_picked:
+            self.ChkB.IsChecked = True
+
+    def on_auto(self, sender, args):
+        self._merge_auto()
         self._refresh()
 
     # ------------------------------------------------------------------
@@ -224,6 +267,7 @@ class ProjectDataWindow(forms.WPFWindow):
             self._a_picked = got
             if got:
                 self.ChkA.IsChecked = True
+            self._merge_auto()
         self._refresh()
 
     def on_pick_b(self, sender, args):
@@ -261,12 +305,17 @@ class ProjectDataWindow(forms.WPFWindow):
                                     "but nothing is selected - use "
                                     "its Select button.")
             return
+        try:
+            auto = bool(self.ChkAutoFilters.IsChecked)
+        except Exception:
+            auto = False
         self.result = {
             "a_on": a_on,
             "a": [p for _g, _l, p in self._a_picked] if a_on else [],
             "b_on": b_on,
             "b": [p for _g, _l, p in self._b_picked] if b_on else [],
             "clash": "skip" if self.RadSkip.IsChecked else "update",
+            "auto": auto,
         }
         self.Close()
 
