@@ -29,6 +29,8 @@ TRUE invert - pipe centreline = invert + dia/2. IronPython 2.7 safe.
 """
 
 import json
+
+import pymep_json
 import math
 import os
 
@@ -75,7 +77,7 @@ def save_lines_record(base, record):
     if not os.path.isdir(base):
         os.makedirs(base)
     with open(os.path.join(base, LINES_REGISTRY), "w") as f:
-        json.dump(record, f, indent=2, sort_keys=True)
+        pymep_json.dump(record, f, indent=2, sort_keys=True)
 
 
 def parse_style_slope(name):

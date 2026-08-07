@@ -16,6 +16,8 @@ IronPython 2.7: pure ASCII, no f-strings, LF endings.
 
 import os
 import json
+
+import pymep_json
 import math
 
 from Autodesk.Revit import DB
@@ -99,7 +101,7 @@ def save_links(doc, data):
     tmp = path + ".tmp"
     f = open(tmp, "w")
     try:
-        json.dump(data, f, indent=2, sort_keys=True)
+        pymep_json.dump(data, f, indent=2, sort_keys=True)
     finally:
         f.close()
     # py2/Windows os.rename fails if the destination exists - remove it first.

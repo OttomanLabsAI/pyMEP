@@ -11,6 +11,8 @@ diff cleanly in git).
 
 import json
 
+from pymep_json import dumps as _ascii_dumps
+
 SCHEMA_VERSION = 1
 
 # FilterStringRuleEvaluator / FilterNumericRuleEvaluator class name ->
@@ -75,9 +77,11 @@ def dumps(data):
     """Canonical JSON text: sorted keys, 2-space indent, no trailing
     spaces - identical input produces byte-identical output, so two
     exports diff cleanly in git. .NET numerics are coerced, never
-    fatal."""
-    return json.dumps(data, sort_keys=True, indent=2,
-                      separators=(",", ": "), default=_coerce)
+    fatal. Pure ASCII on disk: accented names become \\uXXXX escapes
+    (the stdlib's ensure_ascii path CRASHES on them under
+    IronPython)."""
+    return _ascii_dumps(data, sort_keys=True, indent=2,
+                        separators=(",", ": "), default=_coerce)
 
 
 def loads(text):

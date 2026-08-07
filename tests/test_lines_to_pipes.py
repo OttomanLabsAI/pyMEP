@@ -25,7 +25,10 @@ LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 SRC_PATH = os.path.join(LIB, "pymep_lines_to_pipes.py")
 
 import json
-ns = {"math": math, "json": json, "os": os}
+import sys
+sys.path.insert(0, LIB)
+import pymep_json
+ns = {"math": math, "json": json, "os": os, "pymep_json": pymep_json}
 _src = io.open(SRC_PATH, encoding="utf-8").read()
 for node in ast.parse(_src).body:
     if isinstance(node, ast.FunctionDef):
