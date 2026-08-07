@@ -132,3 +132,25 @@ def filters_used_by(template):
     """The filter names a template dict references."""
     return [f.get("name") for f in template.get("filters", [])
             if f.get("name")]
+
+
+_FAMILY_LABELS = {
+    "ThreeD": "3D",
+    "DraftingView": "Drafting",
+    "EngineeringPlan": "Structural Plan",
+}
+
+
+def family_label(view_family):
+    """Human label for a view_family value (str(ViewType) names): the
+    JSON keeps the machine name, people see '3D' and 'Floor Plan'."""
+    if not view_family:
+        return "Other"
+    if view_family in _FAMILY_LABELS:
+        return _FAMILY_LABELS[view_family]
+    out = []
+    for ch in view_family:
+        if out and ch.isupper():
+            out.append(" ")
+        out.append(ch)
+    return "".join(out)

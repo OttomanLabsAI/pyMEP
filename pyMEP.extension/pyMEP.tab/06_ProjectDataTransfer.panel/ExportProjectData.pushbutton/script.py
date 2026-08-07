@@ -24,7 +24,7 @@ from pyrevit import revit, forms, script
 
 from pymep_log import Logger
 from pymep_project_data_ui import ProjectDataWindow
-from pymep_vt_schema import dumps
+from pymep_vt_schema import dumps, family_label
 from pymep_vt_serialize import export_document
 
 import clr
@@ -55,7 +55,8 @@ if not templates and not filters:
     forms.alert("This model has no view templates and no rule-based "
                 "filters - nothing to export.", exitscript=True)
 
-a_items = [(str(v.ViewType), v.Name, v) for v in templates]
+a_items = [(family_label(str(v.ViewType)), v.Name, v)
+           for v in templates]
 b_items = [(None, f.Name, f) for f in filters]
 
 win = ProjectDataWindow(

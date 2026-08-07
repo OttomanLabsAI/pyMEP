@@ -37,6 +37,7 @@ from pymep_vt_compat import (
     create_integer_rule, create_string_rule, fill_pattern_by_name,
     id_value, line_pattern_by_name, make_id,
 )
+from pymep_vt_schema import family_label
 
 _VIEW_RANGE_PLANES = {
     "top": "TopClipPlane",
@@ -577,7 +578,9 @@ def import_template(doc, tdict, filter_ids_by_name,
             if str(existing.ViewType) != family:
                 row["status"] = "skipped"
                 row["reason"] = "a '{}' template of this name exists " \
-                    "(file wants {})".format(existing.ViewType, family)
+                    "(file wants {})".format(
+                        family_label(str(existing.ViewType)),
+                        family_label(family))
                 return row
             if not update_existing:
                 row["status"] = "skipped"
