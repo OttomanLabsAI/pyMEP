@@ -128,19 +128,34 @@ sections = [
 ]
 
 settings = load_settings()
-win = ProjectDataWindow(
-    "Export Project Data",
+log("Model scanned: {} template(s), {} filter(s), {} level(s), {} "
+    "fill pattern(s), {} line pattern(s), {} line style(s).".format(
+        len(templates), len(filters), len(levels), len(fills),
+        len(line_pats), len(line_styles)))
+log("Opening the dialog - if it is not in front, ALT-TAB or check "
+    "the other monitor.")
+try:
+    win = ProjectDataWindow(
+        "Export Project Data",
     "{} template(s), {} filter(s), {} level(s), {} fill pattern(s), "
     "{} line pattern(s), {} line style(s) - everything starts "
     "selected; refine with the Select buttons.".format(
         len(templates), len(filters), len(levels), len(fills),
         len(line_pats), len(line_styles)),
-    "Export", sections, "Sections to export",
-    auto_link={"from": "templates", "to": "filters", "refs": refs,
-               "text": "Automatically include the filters the "
-                       "selected view templates use"},
-    auto_default=settings.get("pd_auto_filters", True))
-win.ShowDialog()
+        "Export", sections, "Sections to export",
+        auto_link={"from": "templates", "to": "filters", "refs": refs,
+                   "text": "Automatically include the filters the "
+                           "selected view templates use"},
+        auto_default=settings.get("pd_auto_filters", True))
+    win.ShowDialog()
+except Exception as ex:
+    import traceback
+    log(traceback.format_exc())
+    log.close()
+    forms.alert("The Export Project Data dialog FAILED to open:\n\n"
+                "{}\n\nThe full traceback is in the pyMEP "
+                "report.".format(ex), exitscript=True)
+log("Dialog closed.")
 if win.result is None:
     log("Cancelled - nothing exported.")
     log.close()

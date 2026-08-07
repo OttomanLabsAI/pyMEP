@@ -23,11 +23,17 @@ PICK_XAML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 
 def _force_on_top(win):
-    """The pyRevit output window appears first (the log header) and
-    can steal the foreground, leaving a modal dialog BEHIND Revit -
-    it looks like 'nothing opened'. Topmost + Activate on load bring
-    it forward; Topmost drops again once shown so it never sits over
-    other apps."""
+    """Keep the dialog in FRONT of Revit. The load-bearing part is the
+    OWNER: parenting the WPF window to Revit's main window is exactly
+    what pyRevit's own dialogs do, and without it a modal window can
+    open BEHIND Revit ('nothing opened'). Topmost + Activate are the
+    belt on top."""
+    try:
+        from pyrevit import HOST_APP
+        from System.Windows.Interop import WindowInteropHelper
+        WindowInteropHelper(win).Owner = HOST_APP.proc_window
+    except Exception:
+        pass
     try:
         win.Topmost = True
 
