@@ -18,12 +18,133 @@ from pyrevit import forms
 
 XAML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "pymep_project_data.xaml")
+PICK_XAML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "pymep_pick_list.xaml")
 
 
-class _Pick(object):
-    def __init__(self, label, payload):
-        self.name = label
-        self.payload = payload
+class PickListWindow(forms.WPFWindow):
+    """Grouped multi-select picker whose tick state lives OUTSIDE the
+    list: switching the group filter or typing in the search box only
+    changes what is VISIBLE - ticks made in any group survive until
+    OK / Cancel. items: [(group, label, payload)]; checked_labels
+    seeds the ticks. result: picked [(group, label, payload)] in the
+    input order, or None on cancel."""
+
+    ALL = "(all groups)"
+
+    def __init__(self, title, items, checked_labels=None):
+        forms.WPFWindow.__init__(self, PICK_XAML_PATH)
+        self.result = None
+        self.Title = title
+        self.TxtTitle.Text = title
+        self._items = list(items)
+        checked = set(checked_labels if checked_labels is not None
+                      else [l for _g, l, _p in self._items])
+        self._state = [l in checked for _g, l, _p in self._items]
+        self._boxes = []          # (checkbox, index) currently visible
+        groups = sorted(set(g for g, _l, _p in self._items if g))
+        self.CmbGroup.Items.Clear()
+        self.CmbGroup.Items.Add("{} ({})".format(self.ALL,
+                                                 len(self._items)))
+        for g in groups:
+            n = sum(1 for gg, _l, _p in self._items if gg == g)
+            self.CmbGroup.Items.Add("{} ({})".format(g, n))
+        self.CmbGroup.SelectedIndex = 0
+        try:
+            from System.Windows import Visibility
+            if not groups:
+                self.CmbGroup.Visibility = Visibility.Collapsed
+        except Exception:
+            pass
+        self._rebuild()
+
+    # ------------------------------------------------------------------
+    def _current_group(self):
+        idx = self.CmbGroup.SelectedIndex
+        if idx <= 0:
+            return None
+        label = str(self.CmbGroup.Items[idx])
+        return label.rsplit(" (", 1)[0]
+
+    def _visible_indexes(self):
+        group = self._current_group()
+        needle = ""
+        try:
+            needle = (self.TxtSearch.Text or "").strip().lower()
+        except Exception:
+            pass
+        out = []
+        for i, (g, label, _p) in enumerate(self._items):
+            if group is not None and g != group:
+                continue
+            if needle and needle not in label.lower():
+                continue
+            out.append(i)
+        return out
+
+    def _rebuild(self):
+        try:
+            from System.Windows.Controls import CheckBox
+        except Exception:
+            return
+        self.PnlItems.Children.Clear()
+        self._boxes = []
+        for i in self._visible_indexes():
+            _g, label, _p = self._items[i]
+            cb = CheckBox()
+            cb.Content = label
+            cb.IsChecked = self._state[i]
+            cb.Margin = self._box_margin()
+            cb.Checked += self._on_box
+            cb.Unchecked += self._on_box
+            cb.Tag = i
+            self.PnlItems.Children.Add(cb)
+            self._boxes.append((cb, i))
+        self._refresh_count()
+
+    @staticmethod
+    def _box_margin():
+        from System.Windows import Thickness
+        return Thickness(0, 3, 0, 3)
+
+    def _on_box(self, sender, args):
+        try:
+            self._state[int(sender.Tag)] = bool(sender.IsChecked)
+        except Exception:
+            pass
+        self._refresh_count()
+
+    def _refresh_count(self):
+        try:
+            self.TxtCount.Text = "{} of {} ticked".format(
+                sum(1 for s in self._state if s), len(self._state))
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    def on_group(self, sender, args):
+        self._rebuild()
+
+    def on_search(self, sender, args):
+        self._rebuild()
+
+    def on_all(self, sender, args):
+        for cb, i in self._boxes:
+            cb.IsChecked = True          # handler updates state
+
+    def on_none(self, sender, args):
+        for cb, i in self._boxes:
+            cb.IsChecked = False
+
+    def on_ok(self, sender, args):
+        self.result = [self._items[i]
+                       for i in range(len(self._items))
+                       if self._state[i]]
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.Close()
 
 
 class ProjectDataWindow(forms.WPFWindow):
@@ -82,35 +203,23 @@ class ProjectDataWindow(forms.WPFWindow):
             pass
 
     @staticmethod
-    def _run_picker(title, items):
-        """items: [(group, label, payload)] - grouped when any group is
-        set (the group dropdown filters by view family). Returns the
-        picked [(group, label, payload)] or None on cancel."""
-        grouped = any(g for g, _l, _p in items)
-        if grouped:
-            src = {}
-            for g, l, p in items:
-                src.setdefault(g or "Other", []).append(
-                    _Pick(l, (g, l, p)))
-            for k in src:
-                src[k] = sorted(src[k], key=lambda x: x.name)
-            all_key = "All ({} items)".format(len(items))
-            src[all_key] = sorted(
-                (_Pick(l, (g, l, p)) for g, l, p in items),
-                key=lambda x: x.name)
-        else:
-            src = sorted((_Pick(l, (g, l, p)) for g, l, p in items),
-                         key=lambda x: x.name)
-        picked = forms.SelectFromList.show(
-            src, title=title, multiselect=True, button_name="Keep these")
-        if picked is None:
-            return None
-        return [p.payload for p in picked]
+    def _run_picker(title, items, picked_now):
+        """items: [(group, label, payload)] - the group dropdown
+        filters by view family and ticks SURVIVE group / search
+        changes. Opens with the current pick ticked. Returns the new
+        picked list or None on cancel."""
+        ordered = sorted(items, key=lambda i: ((i[0] or ""), i[1]))
+        win = PickListWindow(
+            title, ordered,
+            checked_labels=[l for _g, l, _p in picked_now])
+        win.ShowDialog()
+        return win.result
 
     # ------------------------------------------------------------------
     def on_pick_a(self, sender, args):
         got = self._run_picker("Select view templates - the dropdown "
-                               "filters by view family", self._a_items)
+                               "filters by view family", self._a_items,
+                               self._a_picked)
         if got is not None:
             self._a_picked = got
             if got:
@@ -118,7 +227,8 @@ class ProjectDataWindow(forms.WPFWindow):
         self._refresh()
 
     def on_pick_b(self, sender, args):
-        got = self._run_picker("Select filters", self._b_items)
+        got = self._run_picker("Select filters", self._b_items,
+                               self._b_picked)
         if got is not None:
             self._b_picked = got
             if got:
