@@ -26,6 +26,8 @@ the base folder from the document and calls in. IronPython 2.7 safe.
 
 import datetime
 import json
+
+import pymep_json
 import os
 import shutil
 
@@ -71,7 +73,7 @@ def load_registry(base):
 def save_registry(base, reg):
     ensure_dir(base)
     with open(_registry_path(base), "w") as f:
-        json.dump(reg, f, indent=2, sort_keys=True)
+        pymep_json.dump(reg, f, indent=2, sort_keys=True)
 
 
 def store_file(base, slot, src_path):

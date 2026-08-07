@@ -25,6 +25,8 @@ import clr
 clr.AddReference("RevitAPI")
 
 import json
+
+import pymep_json
 import math
 import os
 
@@ -71,7 +73,7 @@ def save_branches(base, data):
     if not os.path.isdir(base):
         os.makedirs(base)
     with open(os.path.join(base, REGISTRY), "w") as f:
-        json.dump(data, f, indent=2, sort_keys=True)
+        pymep_json.dump(data, f, indent=2, sort_keys=True)
 
 
 def add_branch(base, record):

@@ -25,6 +25,10 @@ def load(names):
     ns = {"math": math, "os": os, "REGISTRY": "node_branches.json"}
     import json as _json
     ns["json"] = _json
+    import sys
+    sys.path.insert(0, LIB)
+    import pymep_json
+    ns["pymep_json"] = pymep_json
     tree = ast.parse(src)
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name in names:

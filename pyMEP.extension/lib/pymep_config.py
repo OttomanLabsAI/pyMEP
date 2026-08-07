@@ -24,6 +24,8 @@ auto-detected paths:
 
 import os
 import json
+
+import pymep_json
 import shutil
 
 # ---------------------------------------------------------------------------
@@ -99,7 +101,7 @@ def save_settings(settings):
         try: os.makedirs(d)
         except: pass
     with open(CONFIG_FILE, "w") as f:
-        json.dump(settings, f, indent=2)
+        pymep_json.dump(settings, f, indent=2)
 
 
 # ---------------------------------------------------------------------------

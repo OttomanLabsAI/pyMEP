@@ -27,6 +27,8 @@ import clr
 clr.AddReference("RevitAPI")
 
 import json
+
+import pymep_json
 import math
 import os
 
@@ -656,7 +658,7 @@ def write_networks_json(base, data):
     path = os.path.join(base, NETWORKS_JSON)
     f = open(path, "w")
     try:
-        json.dump(data, f, indent=1, sort_keys=True)
+        pymep_json.dump(data, f, indent=1, sort_keys=True)
     finally:
         f.close()
     return path

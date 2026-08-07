@@ -15,6 +15,8 @@ every launch, so it always carries the CURRENT stored file. Everything
 is plain file IO - IronPython 2.7 safe, no Revit API."""
 
 import json
+
+import pymep_json
 import os
 
 
@@ -33,8 +35,9 @@ def write_preload_html(viewer_path, data_path, out_dir,
     html = _read_text(viewer_path)
     text = _read_text(data_path)
     tag = ('<script>window.__OL_PRELOAD__ = {{"name": {}, "text": {}}};'
-           '</script>'.format(json.dumps(os.path.basename(data_path)),
-                              json.dumps(text)))
+           '</script>'.format(
+               pymep_json.dumps(os.path.basename(data_path)),
+               pymep_json.dumps(text)))
     if "</head>" in html:
         html = html.replace("</head>", tag + "</head>", 1)
     else:
