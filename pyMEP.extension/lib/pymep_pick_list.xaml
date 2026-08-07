@@ -1,0 +1,89 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Select"
+        Width="520" Height="620" MinWidth="460" MinHeight="480"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Background="White">
+    <Window.Resources>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="DialogButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+        <Style x:Key="SmallButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="70"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="8,2"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#F4F4F4" Padding="14,10">
+            <StackPanel>
+                <TextBlock x:Name="TxtTitle" FontSize="15"
+                           FontWeight="SemiBold" Text="Select"/>
+                <TextBlock x:Name="TxtInfo" Style="{StaticResource Hint}"
+                           Text="Ticks are KEPT when you switch group or search."/>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="1" Margin="14,10,14,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <ComboBox x:Name="CmbGroup" Grid.Row="0" Grid.Column="0"
+                      SelectionChanged="on_group"/>
+            <Button Grid.Row="0" Grid.Column="1" Content="Tick all"
+                    Style="{StaticResource SmallButton}" Click="on_all"/>
+            <Button Grid.Row="0" Grid.Column="2" Content="Untick all"
+                    Style="{StaticResource SmallButton}" Click="on_none"/>
+            <TextBox x:Name="TxtSearch" Grid.Row="1" Grid.Column="0"
+                     Grid.ColumnSpan="3" Height="24" Margin="0,8,0,0"
+                     VerticalContentAlignment="Center"
+                     TextChanged="on_search"/>
+        </Grid>
+
+        <Border Grid.Row="2" Margin="14,4,14,6" BorderThickness="1"
+                BorderBrush="#DDDDDD">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="PnlItems" Margin="8,6,8,6"/>
+            </ScrollViewer>
+        </Border>
+
+        <Border Grid.Row="3" Background="#F4F4F4" Padding="14,10">
+            <Grid>
+                <TextBlock x:Name="TxtCount" VerticalAlignment="Center"
+                           Text="0 ticked"/>
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button x:Name="BtnOk" Content="Keep these"
+                            Style="{StaticResource DialogButton}"
+                            IsDefault="True" Click="on_ok"/>
+                    <Button x:Name="BtnCancel" Content="Cancel"
+                            Style="{StaticResource DialogButton}"
+                            IsCancel="True" Click="on_cancel"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
