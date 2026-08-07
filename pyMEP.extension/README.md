@@ -35,12 +35,13 @@ pyMEP.extension/
     07_PipeNetworks.panel/      # 'Pipe Networks': Lines to Pipes (always creates) + Update Pipes (scoped in-place update) + Connect Inflow to Collector + Sync Input Nodes
     03_Topography.panel/        # Align to Topo, Cut Toposolid, Drape Floor
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
-    05_Parameters.panel/        # Export/Import View Templates (JSON), Replicate Parameter
+    05_Parameters.panel/        # Replicate Parameter
+    06_ProjectDataTransfer.panel/ # 'Project Data Transfer': Export/Import Project Data (view templates + filters as JSON)
     06_Annotate.panel/          # 4 annotation buttons
     08_Electrical.panel/        # Encasement (shown before Drainage on the ribbon)
 ```
 
-9 panels, 35 buttons, every one with its own icon.
+10 panels, 35 buttons, every one with its own icon.
 
 ## Panels
 
@@ -498,9 +499,25 @@ whether Apply Edits asks before changing the model. Saved per user.
 
 ### Parameters
 
-**Export View Templates** - write picked view templates (plus optional
+**Replicate Parameter** - generic utility: pick a placed family type, a
+source parameter and a writable target parameter; the value is copied onto
+every placed instance of that type, with a preview table and safe type
+coercion.
+
+### Project Data Transfer
+
+Both buttons drive ONE sectioned dialog. Sections today: VIEW
+TEMPLATES and FILTERS - each section has a Select... button opening a
+grouped picker (the template picker groups by view family, so floor
+plan / 3D / section works as a filter), plus a tick per section
+choosing what actually goes to - or comes from - the file. The import
+flavour also carries the update-or-skip choice for existing same-name
+items. More sections will join the dialog as the JSON grows.
+
+**Export Project Data** - write the picked view templates (plus
 standalone rule-based filters) to ONE version-agnostic JSON file;
-filters referenced by the picked templates ride along automatically.
+filters referenced by the picked templates ride along automatically
+while the filters section is ticked.
 Everything serializes by NAME, never by element id: filter rules
 (nested AND/OR logic, inverted rules, string / double / integer /
 element-id rules, built-in / shared-GUID / project parameters),

@@ -1,0 +1,125 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Project Data"
+        Width="480" Height="560" MinWidth="440" MinHeight="500"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Background="White">
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Padding" Value="10,8,10,10"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="CountLabel" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="12,0,0,0"/>
+        </Style>
+        <Style x:Key="PickButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="150"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+        </Style>
+        <Style x:Key="DialogButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#F4F4F4" Padding="14,10">
+            <StackPanel>
+                <TextBlock x:Name="TxtTitle" FontSize="15"
+                           FontWeight="SemiBold" Text="Project Data"/>
+                <TextBlock x:Name="TxtInfo" Style="{StaticResource Hint}"
+                           Text="&#8212;"/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="14,12,14,12">
+            <GroupBox x:Name="GrpA" Header="View templates">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="BtnPickA"
+                                Style="{StaticResource PickButton}"
+                                Content="Select view templates..."
+                                Click="on_pick_a"/>
+                        <TextBlock x:Name="LblA"
+                                   Style="{StaticResource CountLabel}"
+                                   Text="&#8212;"/>
+                    </StackPanel>
+                    <TextBlock x:Name="HintA" Style="{StaticResource Hint}"
+                               Text="The picker filters by view family (floor plan, 3D, section, ...)."/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox x:Name="GrpB" Header="Filters">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="BtnPickB"
+                                Style="{StaticResource PickButton}"
+                                Content="Select filters..."
+                                Click="on_pick_b"/>
+                        <TextBlock x:Name="LblB"
+                                   Style="{StaticResource CountLabel}"
+                                   Text="&#8212;"/>
+                    </StackPanel>
+                    <TextBlock x:Name="HintB" Style="{StaticResource Hint}"
+                               Text="Rule-based filters. Filters used by the chosen templates travel with them automatically."/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox x:Name="GrpSections" Header="Sections to export">
+                <StackPanel>
+                    <CheckBox x:Name="ChkA" IsChecked="True"
+                              Content="View templates" Margin="0,2,0,0"
+                              Checked="on_sections" Unchecked="on_sections"/>
+                    <CheckBox x:Name="ChkB" IsChecked="True"
+                              Content="Filters" Margin="0,6,0,0"
+                              Checked="on_sections" Unchecked="on_sections"/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox x:Name="GrpClash" Header="Existing same-name items"
+                      Visibility="Collapsed">
+                <StackPanel>
+                    <RadioButton x:Name="RadUpdate" GroupName="clash"
+                                 IsChecked="True" Margin="0,2,0,0"
+                                 Content="Update them IN PLACE (views keep their template)"/>
+                    <RadioButton x:Name="RadSkip" GroupName="clash"
+                                 Margin="0,6,0,0"
+                                 Content="Skip them (only bring in new names)"/>
+                </StackPanel>
+            </GroupBox>
+
+            <TextBlock x:Name="StatusText" Foreground="#B00020"
+                       TextWrapping="Wrap" Text=""/>
+        </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" Background="#F4F4F4" Padding="14,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnGo" Content="Export"
+                        Style="{StaticResource DialogButton}" IsDefault="True"
+                        Click="on_go"/>
+                <Button x:Name="BtnCancel" Content="Cancel"
+                        Style="{StaticResource DialogButton}" IsCancel="True"
+                        Click="on_cancel"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

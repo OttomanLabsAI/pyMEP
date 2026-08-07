@@ -436,19 +436,24 @@ def referenced_filter_ids(doc, views):
     return seen
 
 
-def export_document(doc, template_views, extra_filter_elements):
+def export_document(doc, template_views, extra_filter_elements,
+                    include_referenced=True):
     """(data, results): the JSON-ready dict for the picked templates
-    (their referenced filters auto-included) plus any standalone
-    filters. results rows: {'item', 'kind', 'status', 'reason'}."""
+    plus any standalone filters. ``include_referenced`` also pulls in
+    every filter the picked templates reference (off when the caller's
+    filters section is unticked - templates then export without their
+    filters and the import notes each missing one). results rows:
+    {'item', 'kind', 'status', 'reason'}."""
     results = []
     ver, build = revit_version(doc)
     data = make_document(ver, build)
 
     filter_els = []
     seen_ids = set()
-    for fid in referenced_filter_ids(doc, template_views):
-        filter_els.append(doc.GetElement(fid))
-        seen_ids.add(id_value(fid))
+    if include_referenced:
+        for fid in referenced_filter_ids(doc, template_views):
+            filter_els.append(doc.GetElement(fid))
+            seen_ids.add(id_value(fid))
     for fel in extra_filter_elements or []:
         if id_value(fel.Id) not in seen_ids:
             filter_els.append(fel)
