@@ -175,6 +175,109 @@ class PickListWindow(forms.WPFWindow):
         self.Close()
 
 
+MAP_XAML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "pymep_map_list.xaml")
+AS_IS = "(import as is)"
+
+
+class MappingWindow(forms.WPFWindow):
+    """Map file names onto THIS model's names. rows: [(kind_key,
+    kind_header, file_name, [model candidates])] - only names without
+    an exact model match belong here. result: {kind_key: {file_name:
+    model_name}} holding ONLY the redirected rows, or None on
+    cancel."""
+
+    def __init__(self, rows):
+        forms.WPFWindow.__init__(self, MAP_XAML_PATH)
+        self.result = None
+        _force_on_top(self)
+        self._rows = []      # (kind, name, combo, container, header?)
+        try:
+            self._build(rows)
+        except Exception:
+            pass
+        self._refresh_count()
+
+    def _build(self, rows):
+        from System.Windows import (FontWeights, TextWrapping,
+                                    Thickness)
+        from System.Windows.Controls import (ComboBox, Grid,
+                                             ColumnDefinition,
+                                             TextBlock)
+        last_kind = None
+        for kind, header, name, candidates in rows:
+            if kind != last_kind:
+                hdr = TextBlock()
+                hdr.Text = header
+                hdr.FontWeight = FontWeights.SemiBold
+                hdr.Margin = Thickness(0, 8, 0, 4)
+                self.PnlRows.Children.Add(hdr)
+                self._rows.append((None, None, None, hdr, header))
+                last_kind = kind
+            grid = Grid()
+            grid.Margin = Thickness(0, 2, 0, 2)
+            c0 = ColumnDefinition()
+            c1 = ColumnDefinition()
+            grid.ColumnDefinitions.Add(c0)
+            grid.ColumnDefinitions.Add(c1)
+            lbl = TextBlock()
+            lbl.Text = name
+            lbl.TextWrapping = TextWrapping.Wrap
+            lbl.Margin = Thickness(0, 4, 10, 0)
+            Grid.SetColumn(lbl, 0)
+            cmb = ComboBox()
+            cmb.Items.Add(AS_IS)
+            for cand in candidates:
+                cmb.Items.Add(cand)
+            cmb.SelectedIndex = 0
+            Grid.SetColumn(cmb, 1)
+            grid.Children.Add(lbl)
+            grid.Children.Add(cmb)
+            self.PnlRows.Children.Add(grid)
+            self._rows.append((kind, name, cmb, grid, None))
+
+    def _refresh_count(self):
+        try:
+            n = sum(1 for k, _n, c, _g, _h in self._rows
+                    if k is not None and c.SelectedIndex > 0)
+            total = sum(1 for k, _n, _c, _g, _h in self._rows
+                        if k is not None)
+            self.TxtCount.Text = "{} of {} redirected".format(n, total)
+        except Exception:
+            pass
+
+    def on_search(self, sender, args):
+        try:
+            from System.Windows import Visibility
+            needle = (self.TxtSearch.Text or "").strip().lower()
+            for kind, name, _c, container, _h in self._rows:
+                if kind is None:
+                    continue
+                show = (not needle) or (needle in name.lower())
+                container.Visibility = (Visibility.Visible if show
+                                        else Visibility.Collapsed)
+        except Exception:
+            pass
+
+    def on_ok(self, sender, args):
+        out = {}
+        for kind, name, cmb, _g, _h in self._rows:
+            if kind is None:
+                continue
+            try:
+                pick = str(cmb.SelectedItem or AS_IS)
+            except Exception:
+                pick = AS_IS
+            if pick != AS_IS:
+                out.setdefault(kind, {})[name] = pick
+        self.result = out
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.Close()
+
+
 class ProjectDataWindow(forms.WPFWindow):
     """The sectioned Project Data dialog, DATA-DRIVEN: one GroupBox
     per section (Select... button + live count + optional hint), a
@@ -210,7 +313,6 @@ class ProjectDataWindow(forms.WPFWindow):
         self.TxtInfo.Text = info
         self.BtnGo.Content = go_label
         _force_on_top(self)
-        self.GrpSections.Header = sections_header
         if show_clash:
             try:
                 from System.Windows import Visibility
@@ -244,12 +346,24 @@ class ProjectDataWindow(forms.WPFWindow):
         from System.Windows.Controls import (Button, CheckBox, GroupBox,
                                              StackPanel, TextBlock,
                                              Orientation)
+        every = Button()
+        every.Content = "Tick EVERYTHING (all sections, all items)"
+        every.Margin = Thickness(0, 0, 0, 12)
+        every.Padding = Thickness(10, 4, 10, 4)
+        every.HorizontalAlignment = HorizontalAlignment.Left
+        every.Click += self.on_everything
+        self.PnlSections.Children.Add(every)
         for sec in self._sections:
             box = GroupBox()
             box.Header = sec["header"]
             box.Margin = Thickness(0, 0, 0, 12)
             box.Padding = Thickness(10, 8, 10, 10)
             body = StackPanel()
+            tick = CheckBox()
+            tick.Content = "Include this section"
+            tick.Margin = Thickness(0, 2, 0, 8)
+            tick.IsChecked = bool(sec["items"])
+            body.Children.Add(tick)
             row = StackPanel()
             row.Orientation = Orientation.Horizontal
             btn = Button()
@@ -257,11 +371,16 @@ class ProjectDataWindow(forms.WPFWindow):
             btn.MinWidth = 150
             btn.Padding = Thickness(10, 4, 10, 4)
             btn.Click += self._make_pick_handler(sec)
+            btn.IsEnabled = bool(sec["items"])
             lbl = TextBlock()
             lbl.Margin = Thickness(12, 4, 0, 0)
             row.Children.Add(btn)
             row.Children.Add(lbl)
             body.Children.Add(row)
+            if not sec["items"]:
+                tick.IsEnabled = False
+            tick.Checked += self._make_tick_handler(sec)
+            tick.Unchecked += self._make_tick_handler(sec)
             if self._auto_link and self._auto_link.get("to") == sec["key"]:
                 auto = CheckBox()
                 auto.Content = self._auto_link.get(
@@ -286,32 +405,36 @@ class ProjectDataWindow(forms.WPFWindow):
                 body.Children.Add(hint)
             box.Content = body
             self.PnlSections.Children.Add(box)
-            tick = CheckBox()
-            tick.Content = sec["header"]
-            tick.Margin = Thickness(0, 4, 0, 2)
-            tick.IsChecked = bool(sec["items"])
-            if not sec["items"]:
-                tick.IsEnabled = False
-                btn.IsEnabled = False
-            self.PnlSectionTicks.Children.Add(tick)
             sec["count_label"] = lbl
             sec["tick"] = tick
             sec["button"] = btn
-        every = Button()
-        every.Content = "Tick EVERYTHING (all sections, all items)"
-        every.Margin = Thickness(0, 10, 0, 2)
-        every.Padding = Thickness(10, 4, 10, 4)
-        every.HorizontalAlignment = HorizontalAlignment.Left
-        every.Click += self.on_everything
-        self.PnlSectionTicks.Children.Add(every)
+
+    def _make_tick_handler(self, sec):
+        def handler(sender, args):
+            try:
+                sec["button"].IsEnabled = \
+                    bool(sec["tick"].IsChecked) and bool(sec["items"])
+            except Exception:
+                pass
+        return handler
 
     def on_everything(self, sender, args):
         """One click = the whole file: every section on, every item
-        picked."""
+        picked. Auto-managed filters switch to manual so 'everything'
+        really means everything."""
+        if self._auto_box is not None:
+            try:
+                self._auto_box.IsChecked = False
+            except Exception:
+                pass
         for sec in self._sections:
             sec["picked"] = list(sec["items"])
             if sec["items"]:
                 sec["tick"].IsChecked = True
+                try:
+                    sec["button"].IsEnabled = True
+                except Exception:
+                    pass
         self._refresh()
 
     def _build_notices(self, notices, header):
@@ -358,8 +481,9 @@ class ProjectDataWindow(forms.WPFWindow):
             win.ShowDialog()
             if win.result is not None:
                 sec["picked"] = win.result
-                if win.result:
-                    sec["tick"].IsChecked = True
+                # the section tick FOLLOWS the pick: something picked
+                # ticks it on, an emptied pick unticks it - no nagging
+                sec["tick"].IsChecked = bool(win.result)
                 if self._auto_link and \
                         self._auto_link.get("from") == sec["key"]:
                     self._merge_auto()
@@ -373,32 +497,41 @@ class ProjectDataWindow(forms.WPFWindow):
         return None
 
     # ------------------------------------------------------------------
+    def _auto_on(self):
+        return self._auto_box is not None and \
+            bool(self._auto_box.IsChecked)
+
     def _merge_auto(self):
-        """Auto tick ON: every 'to' item the picked 'from' items
-        reference joins the 'to' pick - additive only."""
+        """Auto tick ON: the 'to' section is DRIVEN - its pick becomes
+        EXACTLY the items the picked 'from' items reference (0
+        templates = 0 filters, never 'all'), its Select button rests.
+        Untick auto for manual control."""
         link = self._auto_link
-        if not link or self._auto_box is None or \
-                not bool(self._auto_box.IsChecked):
+        if not link:
+            return
+        dst = self._section(link.get("to"))
+        if dst is None:
+            return
+        if not self._auto_on():
+            try:
+                dst["button"].IsEnabled = \
+                    bool(dst["tick"].IsChecked) and bool(dst["items"])
+            except Exception:
+                pass
             return
         src = self._section(link.get("from"))
-        dst = self._section(link.get("to"))
-        if src is None or dst is None:
-            return
         refs = link.get("refs") or {}
         needed = set()
-        for _g, label, _p in src["picked"]:
+        for _g, label, _p in (src["picked"] if src else []):
             for name in refs.get(label) or []:
                 needed.add(name)
-        if not needed:
-            return
-        have = set(l for _g, l, _p in dst["picked"])
-        added = False
-        for item in dst["items"]:
-            if item[1] in needed and item[1] not in have:
-                dst["picked"].append(item)
-                added = True
-        if added and dst["picked"]:
-            dst["tick"].IsChecked = True
+        dst["picked"] = [item for item in dst["items"]
+                         if item[1] in needed]
+        try:
+            dst["tick"].IsChecked = bool(dst["picked"])
+            dst["button"].IsEnabled = False
+        except Exception:
+            pass
 
     def on_auto(self, sender, args):
         self._merge_auto()
@@ -406,10 +539,16 @@ class ProjectDataWindow(forms.WPFWindow):
 
     # ------------------------------------------------------------------
     def _refresh(self):
+        auto_key = (self._auto_link or {}).get("to") \
+            if self._auto_on() else None
         for sec in self._sections:
             try:
                 n, m = len(sec["picked"]), len(sec["items"])
-                if not m:
+                if sec["key"] == auto_key:
+                    sec["count_label"].Text = (
+                        "{} used by the picked templates "
+                        "(auto)".format(n))
+                elif not m:
                     sec["count_label"].Text = "none available"
                 elif n == m:
                     sec["count_label"].Text = \
@@ -421,15 +560,18 @@ class ProjectDataWindow(forms.WPFWindow):
                 pass
 
     def on_go(self, sender, args):
+        # auto ON re-asserts itself right before collecting, so
+        # templates can never leave without the filters they use
+        self._merge_auto()
         out = {}
         any_on = False
         for sec in self._sections:
             on = bool(sec["tick"].IsChecked)
             if on and not sec["picked"]:
-                self.StatusText.Text = (
-                    "The {} section is ticked but nothing is selected "
-                    "- use its Select button.".format(sec["header"]))
-                return
+                # empty selection = the section is OFF - untick it
+                # quietly instead of nagging
+                sec["tick"].IsChecked = False
+                on = False
             any_on = any_on or (on and bool(sec["picked"]))
             out[sec["key"]] = {
                 "on": on,

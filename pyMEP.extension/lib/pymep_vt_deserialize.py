@@ -41,6 +41,15 @@ from pymep_vt_compat import (
 )
 from pymep_vt_schema import family_label
 
+def map_name(mapping, kind, name):
+    """The import-time name redirect: mapping = {kind: {file_name:
+    model_name}}. Unmapped names pass through unchanged."""
+    try:
+        return (mapping or {}).get(kind, {}).get(name) or name
+    except Exception:
+        return name
+
+
 _VIEW_RANGE_PLANES = {
     "top": "TopClipPlane",
     "cut": "CutPlane",
@@ -234,9 +243,10 @@ def import_filter(doc, fdict, update_existing=True):
 # ---------------------------------------------------------------------------
 # override graphic settings
 # ---------------------------------------------------------------------------
-def build_ogs(doc, d, notes, where):
+def build_ogs(doc, d, notes, where, mapping=None):
     """dict -> OverrideGraphicSettings, applying ONLY set values.
-    Missing patterns drop that one piece with a note (degraded)."""
+    Pattern names go through the mapping first; missing patterns drop
+    that one piece with a note (degraded)."""
     ogs = OverrideGraphicSettings()
     if not d:
         return ogs
@@ -265,10 +275,11 @@ def build_ogs(doc, d, notes, where):
         if sub.get("color"):
             set_color(color_of(sub["color"]))
         if sub.get("pattern"):
-            pid = line_pattern_by_name(doc, sub["pattern"])
+            nm = map_name(mapping, "line_patterns", sub["pattern"])
+            pid = line_pattern_by_name(doc, nm)
             if pid is None:
                 notes.append("{}: line pattern '{}' not in this "
-                             "model".format(where, sub["pattern"]))
+                             "model".format(where, nm))
             else:
                 set_pattern(pid)
 
@@ -276,10 +287,11 @@ def build_ogs(doc, d, notes, where):
         if not sub:
             return
         if sub.get("pattern"):
-            pid = fill_pattern_by_name(doc, sub["pattern"])
+            nm = map_name(mapping, "fill_patterns", sub["pattern"])
+            pid = fill_pattern_by_name(doc, nm)
             if pid is None:
                 notes.append("{}: fill pattern '{}' not in this "
-                             "model".format(where, sub["pattern"]))
+                             "model".format(where, nm))
             else:
                 set_pattern(pid)
         if sub.get("color"):
@@ -374,9 +386,11 @@ def _make_template_for_family(doc, view_family, name):
     return tmpl, temp.Id
 
 
-def _apply_template_state(doc, view, tdict, filter_ids_by_name, notes):
+def _apply_template_state(doc, view, tdict, filter_ids_by_name, notes,
+                          mapping=None):
     """Write the FULL serialized state onto the template - creation
-    inherits the donor view's state, so nothing is assumed."""
+    inherits the donor view's state, so nothing is assumed. Names go
+    through ``mapping`` (levels, patterns, filters, phase filters)."""
     name = tdict.get("name")
     props = tdict.get("properties") or {}
     if props.get("scale"):
@@ -434,7 +448,8 @@ def _apply_template_state(doc, view, tdict, filter_ids_by_name, notes):
                 if key in over:
                     view.SetCategoryOverrides(
                         cid, build_ogs(doc, over[key], notes,
-                                       "{} {}".format(name, key)))
+                                       "{} {}".format(name, key),
+                                       mapping))
                 else:
                     view.SetCategoryOverrides(cid, default_ogs)
             except Exception:
@@ -456,10 +471,11 @@ def _apply_template_state(doc, view, tdict, filter_ids_by_name, notes):
             notes.append("subcategory {}/{} not in this model - "
                          "entry skipped".format(key[0], key[1]))
 
-    # filters: serialized set becomes THE set - extras come off
+    # filters: serialized set becomes THE set - extras come off. Every
+    # file name goes through the mapping before resolution.
     want = {}
     for row in tdict.get("filters", []):
-        want[row.get("name")] = row
+        want[map_name(mapping, "filters", row.get("name"))] = row
     try:
         for fid in list(view.GetFilters()):
             fel = doc.GetElement(fid)
@@ -482,7 +498,8 @@ def _apply_template_state(doc, view, tdict, filter_ids_by_name, notes):
                 view.AddFilter(fid)
             view.SetFilterOverrides(
                 fid, build_ogs(doc, row.get("overrides") or {}, notes,
-                               "{} filter {}".format(name, fname)))
+                               "{} filter {}".format(name, fname),
+                               mapping))
             if row.get("visible") is not None:
                 view.SetFilterVisibility(fid, bool(row["visible"]))
             if row.get("enabled") is not None:
@@ -506,16 +523,17 @@ def _apply_template_state(doc, view, tdict, filter_ids_by_name, notes):
                 if entry.get("special") is not None:
                     vr.SetLevelId(plane, make_id(entry["special"]))
                 elif entry.get("level"):
+                    lname = map_name(mapping, "levels",
+                                     entry["level"])
                     lid = None
                     for lvl in FilteredElementCollector(doc).OfClass(
                             Level):
-                        if lvl.Name == entry["level"]:
+                        if lvl.Name == lname:
                             lid = lvl.Id
                             break
                     if lid is None:
                         notes.append("view range: no level '{}' - "
-                                     "plane kept as is".format(
-                                         entry["level"]))
+                                     "plane kept as is".format(lname))
                         continue
                     vr.SetLevelId(plane, lid)
                 if entry.get("offset") is not None:
@@ -526,14 +544,16 @@ def _apply_template_state(doc, view, tdict, filter_ids_by_name, notes):
 
     if tdict.get("phase_filter"):
         try:
+            pf_name = map_name(mapping, "phase_filters",
+                               tdict["phase_filter"])
             target = None
             for pf in FilteredElementCollector(doc).OfClass(PhaseFilter):
-                if pf.Name == tdict["phase_filter"]:
+                if pf.Name == pf_name:
                     target = pf.Id
                     break
             if target is None:
                 notes.append("phase filter '{}' not in this "
-                             "model".format(tdict["phase_filter"]))
+                             "model".format(pf_name))
             else:
                 p = view.get_Parameter(
                     BuiltInParameter.VIEW_PHASE_FILTER)
@@ -559,9 +579,10 @@ def _apply_template_state(doc, view, tdict, filter_ids_by_name, notes):
 
 
 def import_template(doc, tdict, filter_ids_by_name,
-                    update_existing=True):
+                    update_existing=True, mapping=None):
     """{'item', 'kind', 'status', 'reason'} - creates or updates ONE
-    view template and applies the full serialized state."""
+    view template and applies the full serialized state (names via
+    ``mapping``)."""
     name = tdict.get("name") or "(unnamed)"
     family = tdict.get("view_family") or ""
     row = {"item": name, "kind": "template", "status": "failed",
@@ -589,7 +610,7 @@ def import_template(doc, tdict, filter_ids_by_name,
                 row["reason"] = "already exists (skip existing chosen)"
                 return row
             _apply_template_state(doc, existing, tdict,
-                                  filter_ids_by_name, notes)
+                                  filter_ids_by_name, notes, mapping)
             row["status"] = "degraded" if notes else "updated"
             row["reason"] = "; ".join(notes)
             return row
@@ -597,7 +618,7 @@ def import_template(doc, tdict, filter_ids_by_name,
         tmpl, temp_id = _make_template_for_family(doc, family, name)
         try:
             _apply_template_state(doc, tmpl, tdict,
-                                  filter_ids_by_name, notes)
+                                  filter_ids_by_name, notes, mapping)
         finally:
             if temp_id is not None:
                 try:
@@ -612,13 +633,19 @@ def import_template(doc, tdict, filter_ids_by_name,
         return row
 
 
-def import_level(doc, ldict, update_existing=True):
+def import_level(doc, ldict, update_existing=True, mapping=None):
     """{'item','kind','status','reason'} - creates the level or, with
     update chosen, moves an existing one's elevation (moving a level
     moves what sits on it - the report says so)."""
     name = ldict.get("name") or "(unnamed)"
     row = {"item": name, "kind": "level", "status": "failed",
            "reason": ""}
+    mapped = map_name(mapping, "levels", name)
+    if mapped != name:
+        row["status"] = "mapped"
+        row["reason"] = "references redirect to level '{}' - not " \
+            "imported".format(mapped)
+        return row
     try:
         elev = float(ldict.get("elevation_ft"))
         existing = None
@@ -656,10 +683,16 @@ def import_level(doc, ldict, update_existing=True):
         return row
 
 
-def import_fill_pattern(doc, d, update_existing=True):
+def import_fill_pattern(doc, d, update_existing=True, mapping=None):
     name = d.get("name") or "(unnamed)"
     row = {"item": name, "kind": "fill_pattern", "status": "failed",
            "reason": ""}
+    mapped = map_name(mapping, "fill_patterns", name)
+    if mapped != name:
+        row["status"] = "mapped"
+        row["reason"] = "references redirect to fill pattern '{}' - " \
+            "not imported".format(mapped)
+        return row
     try:
         target = getattr(FillPatternTarget, d.get("target") or
                          "Drafting")
@@ -706,10 +739,16 @@ def import_fill_pattern(doc, d, update_existing=True):
         return row
 
 
-def import_line_pattern(doc, d, update_existing=True):
+def import_line_pattern(doc, d, update_existing=True, mapping=None):
     name = d.get("name") or "(unnamed)"
     row = {"item": name, "kind": "line_pattern", "status": "failed",
            "reason": ""}
+    mapped = map_name(mapping, "line_patterns", name)
+    if mapped != name:
+        row["status"] = "mapped"
+        row["reason"] = "references redirect to line pattern '{}' - " \
+            "not imported".format(mapped)
+        return row
     try:
         pat = LinePattern(name)
         segs = List[LinePatternSegment]()
@@ -755,7 +794,7 @@ def _lines_category(doc):
     return None
 
 
-def import_line_style(doc, d, update_existing=True):
+def import_line_style(doc, d, update_existing=True, mapping=None):
     """{'item','kind','status','reason'} - creates or updates one line
     style (a Lines subcategory): projection weight, color and line
     pattern by name. A pattern missing from the model degrades that
@@ -802,10 +841,11 @@ def import_line_style(doc, d, update_existing=True):
             except Exception:
                 notes.append("color not applied")
         if d.get("pattern"):
-            pid = line_pattern_by_name(doc, d["pattern"])
+            nm = map_name(mapping, "line_patterns", d["pattern"])
+            pid = line_pattern_by_name(doc, nm)
             if pid is None:
                 notes.append("line pattern '{}' not in this "
-                             "model".format(d["pattern"]))
+                             "model".format(nm))
             else:
                 try:
                     existing.SetLinePatternId(

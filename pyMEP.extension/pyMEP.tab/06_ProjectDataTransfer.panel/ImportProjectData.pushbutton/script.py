@@ -23,18 +23,22 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
 from pyrevit import revit, forms, script
 
 from pymep_log import Logger
-from pymep_project_data_ui import ProjectDataWindow
+from pymep_project_data_ui import MappingWindow, ProjectDataWindow
 from pymep_vt_schema import (family_label, filters_used_by, loads,
                              validate_document)
 from pymep_vt_deserialize import (filter_ids_by_name, import_filter,
                                   import_fill_pattern, import_level,
                                   import_line_pattern,
                                   import_line_style, import_template,
-                                  preflight)
+                                  map_name, preflight)
 
 import clr
 clr.AddReference("RevitAPI")
-from Autodesk.Revit.DB import Transaction, TransactionGroup
+from Autodesk.Revit.DB import (FilteredElementCollector,
+                               FillPatternElement, Level,
+                               LinePatternElement,
+                               ParameterFilterElement, PhaseFilter,
+                               Transaction, TransactionGroup)
 
 output = script.get_output()
 log = Logger(output, "ImportProjectData")
@@ -181,7 +185,88 @@ for t in _picked("templates"):
         if fname in by_name and fname not in want_filters:
             want_filters[fname] = by_name[fname]
 
+
+# ---------------------------------------------------------------------------
+# name MAPPING: every picked file name WITHOUT an exact match in this
+# model gets a row - map it onto a model name (references redirect,
+# the file's copy is not imported) or leave it '(import as is)'
+# ---------------------------------------------------------------------------
+def _model_names(cls):
+    out = set()
+    for el in FilteredElementCollector(doc).OfClass(cls):
+        try:
+            out.add(el.Name)
+        except Exception:
+            continue
+    return out
+
+
+model_levels = _model_names(Level)
+model_filters = _model_names(ParameterFilterElement)
+model_phase = _model_names(PhaseFilter)
+model_line_pats = _model_names(LinePatternElement)
+model_fills = set()
+for _fpe in FilteredElementCollector(doc).OfClass(FillPatternElement):
+    try:
+        model_fills.add(_fpe.GetFillPattern().Name)
+    except Exception:
+        continue
+
+map_rows = []
+for d in _picked("levels"):
+    nm = d.get("name")
+    if nm and nm not in model_levels:
+        map_rows.append(("levels", "Levels", nm,
+                         sorted(model_levels)))
+for fname in sorted(want_filters):
+    if fname not in model_filters:
+        map_rows.append(("filters", "Filters", fname,
+                         sorted(model_filters)))
+for d in _picked("fill_patterns"):
+    nm = d.get("name")
+    if nm and nm not in model_fills:
+        map_rows.append(("fill_patterns", "Fill patterns", nm,
+                         sorted(model_fills)))
+for d in _picked("line_patterns"):
+    nm = d.get("name")
+    if nm and nm not in model_line_pats:
+        map_rows.append(("line_patterns", "Line patterns", nm,
+                         sorted(model_line_pats)))
+_pf_seen = set()
+for t in _picked("templates"):
+    nm = t.get("phase_filter")
+    if nm and nm not in model_phase and nm not in _pf_seen:
+        _pf_seen.add(nm)
+        map_rows.append(("phase_filters", "Phase filters", nm,
+                         sorted(model_phase)))
+
+mapping = {}
+if map_rows:
+    log("Mapping: **{}** file name(s) have no exact match here - "
+        "opening the mapping window.".format(len(map_rows)))
+    mwin = MappingWindow(map_rows)
+    mwin.ShowDialog()
+    if mwin.result is None:
+        log("Cancelled at the mapping window - nothing changed.")
+        log.close()
+        script.exit()
+    mapping = mwin.result
+    for kind in sorted(mapping):
+        for src, dst in sorted(mapping[kind].items()):
+            log("- map {} '{}' -> '{}'".format(kind, src, dst))
+else:
+    log("Mapping: every picked name matches this model exactly.")
+
 results = []
+# filters mapped onto model filters are NOT imported - references
+# redirect instead
+for fname in sorted(want_filters):
+    if map_name(mapping, "filters", fname) != fname:
+        results.append({"item": fname, "kind": "filter",
+                        "status": "mapped",
+                        "reason": "references redirect to '{}'".format(
+                            map_name(mapping, "filters", fname))})
+        del want_filters[fname]
 tg = TransactionGroup(doc, "Import Project Data")
 tg.Start()
 try:
@@ -192,10 +277,12 @@ try:
         t.Start()
         for d in fills_in:
             results.append(import_fill_pattern(doc, d,
-                                               update_existing))
+                                               update_existing,
+                                               mapping))
         for d in lines_in:
             results.append(import_line_pattern(doc, d,
-                                               update_existing))
+                                               update_existing,
+                                               mapping))
         t.Commit()
     styles_in = _picked("line_styles")
     if styles_in:
@@ -203,14 +290,16 @@ try:
         t.Start()
         for d in styles_in:
             results.append(import_line_style(doc, d,
-                                             update_existing))
+                                             update_existing,
+                                             mapping))
         t.Commit()
     levels_in = _picked("levels")
     if levels_in:
         t = Transaction(doc, "Import levels")
         t.Start()
         for d in levels_in:
-            results.append(import_level(doc, d, update_existing))
+            results.append(import_level(doc, d, update_existing,
+                                        mapping))
         t.Commit()
     if want_filters:
         t = Transaction(doc, "Import filters")
@@ -226,7 +315,7 @@ try:
         t.Start()
         for tdict in templates_in:
             results.append(import_template(doc, tdict, lookup,
-                                           update_existing))
+                                           update_existing, mapping))
         t.Commit()
     tg.Assimilate()
 except Exception:
