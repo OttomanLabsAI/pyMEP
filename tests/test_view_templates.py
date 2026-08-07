@@ -95,6 +95,27 @@ class CanonicalJson(unittest.TestCase):
             self.assertIn(key, doc)
         self.assertEqual(doc["schema_version"], S.SCHEMA_VERSION)
 
+    def test_dotnet_numerics_are_coerced_not_fatal(self):
+        # Color.Red/Green/Blue arrive as System.Byte under IronPython
+        # - json rejects them ('0 is not JSON serializable'); dumps
+        # must coerce any int-able / float-able stranger instead
+        class _Byte(object):
+            def __init__(self, v):
+                self._v = v
+
+            def __int__(self):
+                return self._v
+
+        class _Weird(object):
+            def __str__(self):
+                return "weird"
+
+        text = S.dumps({"color": [_Byte(0), _Byte(128), _Byte(255)],
+                        "odd": _Weird()})
+        back = S.loads(text)
+        self.assertEqual(back["color"], [0, 128, 255])
+        self.assertEqual(back["odd"], "weird")
+
 
 class Validation(unittest.TestCase):
 

@@ -55,12 +55,25 @@ def make_document(revit_version="", revit_build=""):
     }
 
 
+def _coerce(obj):
+    """Last-resort encoder for values json does not know - .NET
+    numerics (System.Byte from Color channels, Int64 ids) reach here
+    under IronPython. Ints first, then floats, then text."""
+    for conv in (int, float):
+        try:
+            return conv(obj)
+        except Exception:
+            pass
+    return str(obj)
+
+
 def dumps(data):
     """Canonical JSON text: sorted keys, 2-space indent, no trailing
     spaces - identical input produces byte-identical output, so two
-    exports diff cleanly in git."""
+    exports diff cleanly in git. .NET numerics are coerced, never
+    fatal."""
     return json.dumps(data, sort_keys=True, indent=2,
-                      separators=(",", ": "))
+                      separators=(",", ": "), default=_coerce)
 
 
 def loads(text):

@@ -172,9 +172,11 @@ def serialize_filter(doc, pfe):
 # override graphic settings
 # ---------------------------------------------------------------------------
 def _color_list(color):
+    # int() each channel: Color.Red/Green/Blue are System.Byte, which
+    # IronPython's json rejects ('0 is not JSON serializable')
     try:
         if color is not None and color.IsValid:
-            return [color.Red, color.Green, color.Blue]
+            return [int(color.Red), int(color.Green), int(color.Blue)]
     except Exception:
         pass
     return None
