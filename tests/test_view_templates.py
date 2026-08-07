@@ -159,5 +159,24 @@ class Validation(unittest.TestCase):
         self.assertEqual(S.filters_used_by(t), ["A", "B"])
 
 
+class FamilyLabels(unittest.TestCase):
+    """People see '3D' and 'Floor Plan'; the JSON keeps the machine
+    names (str(ViewType)) so existing files stay valid."""
+
+    def test_threed_reads_3d(self):
+        self.assertEqual(S.family_label("ThreeD"), "3D")
+
+    def test_camel_case_splits(self):
+        self.assertEqual(S.family_label("FloorPlan"), "Floor Plan")
+        self.assertEqual(S.family_label("CeilingPlan"), "Ceiling Plan")
+        self.assertEqual(S.family_label("Section"), "Section")
+
+    def test_specials(self):
+        self.assertEqual(S.family_label("DraftingView"), "Drafting")
+        self.assertEqual(S.family_label("EngineeringPlan"),
+                         "Structural Plan")
+        self.assertEqual(S.family_label(None), "Other")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

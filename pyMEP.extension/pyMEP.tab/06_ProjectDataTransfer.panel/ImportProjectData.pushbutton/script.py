@@ -25,7 +25,8 @@ from pyrevit import revit, forms, script
 
 from pymep_log import Logger
 from pymep_project_data_ui import ProjectDataWindow
-from pymep_vt_schema import filters_used_by, loads, validate_document
+from pymep_vt_schema import (family_label, filters_used_by, loads,
+                             validate_document)
 from pymep_vt_deserialize import (filter_ids_by_name, import_filter,
                                   import_template)
 
@@ -75,7 +76,7 @@ if not (file_templates or file_filters):
 log("File: **{}** (exported from Revit {} on {})".format(
     path, data.get("revit_version") or "?", data.get("exported") or "?"))
 
-a_items = [(t.get("view_family") or "Other", t.get("name") or "?", t)
+a_items = [(family_label(t.get("view_family")), t.get("name") or "?", t)
            for t in file_templates]
 b_items = [(None, f.get("name") or "?", f) for f in file_filters]
 
