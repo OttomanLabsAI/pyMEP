@@ -31,7 +31,9 @@ DEFAULT_NAME = "Default"
 DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "rotation_deg": 0.0, "post": "", "foundation": "",
                   "same_ends": True, "end_post": "",
-                  "end_foundation": ""}
+                  "end_foundation": "",
+                  "line_style": "", "dia_mm": 0.0,
+                  "end_dia_mm": 0.0, "priority": 99}
 
 # the categories a POST may come from / the FOUNDATION must come from
 POST_CATEGORIES = ["OST_GenericModel", "OST_Columns",
@@ -156,6 +158,13 @@ def point_at(poly, dist):
 # ---------------------------------------------------------------------------
 # configuration store (operates on the pyMEP settings dict)
 # ---------------------------------------------------------------------------
+def _num(v, default):
+    try:
+        return float(v)
+    except Exception:
+        return default
+
+
 def get_configs(settings):
     """The saved configs as {name: {spacing_mm, endpoints}} - ALWAYS
     at least 'Default'."""
@@ -184,7 +193,15 @@ def get_configs(settings):
                                       str(c.get("end_post") or ""),
                                   "end_foundation":
                                       str(c.get("end_foundation")
-                                          or "")}
+                                          or ""),
+                                  "line_style":
+                                      str(c.get("line_style") or ""),
+                                  "dia_mm": _num(
+                                      c.get("dia_mm"), 0.0),
+                                  "end_dia_mm": _num(
+                                      c.get("end_dia_mm"), 0.0),
+                                  "priority": int(_num(
+                                      c.get("priority"), 99))}
             except Exception:
                 continue
     if not out:
@@ -194,7 +211,9 @@ def get_configs(settings):
 
 def upsert_config(settings, name, spacing_mm, endpoints,
                   rotation_deg=0.0, foundation="", post="",
-                  same_ends=True, end_post="", end_foundation=""):
+                  same_ends=True, end_post="", end_foundation="",
+                  line_style="", dia_mm=0.0, end_dia_mm=0.0,
+                  priority=99):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
@@ -216,6 +235,19 @@ def upsert_config(settings, name, spacing_mm, endpoints,
         rotation_deg = float(rotation_deg or 0.0)
     except Exception:
         raise ValueError("rotation must be a number (degrees)")
+    try:
+        dia_mm = float(dia_mm or 0.0)
+        end_dia_mm = float(end_dia_mm or 0.0)
+    except Exception:
+        raise ValueError("diameters must be numbers (mm)")
+    if dia_mm < 0 or end_dia_mm < 0:
+        raise ValueError("diameters cannot be negative")
+    try:
+        priority = int(float(priority if priority not in
+                             (None, "") else 99))
+    except Exception:
+        raise ValueError("priority must be a whole number "
+                         "(1 = highest)")
     cfgs = get_configs(settings)
     cfgs[name] = {"spacing_mm": spacing_mm,
                   "endpoints": bool(endpoints),
@@ -225,7 +257,11 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   "same_ends": bool(same_ends),
                   "end_post": str(end_post or "").strip(),
                   "end_foundation":
-                      str(end_foundation or "").strip()}
+                      str(end_foundation or "").strip(),
+                  "line_style": str(line_style or "").strip(),
+                  "dia_mm": dia_mm,
+                  "end_dia_mm": end_dia_mm,
+                  "priority": priority}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
 
@@ -280,7 +316,11 @@ def effective_config(settings, name, snapshot):
             "same_ends": bool(snapshot.get("same_ends", True)),
             "end_post": str(snapshot.get("end_post") or ""),
             "end_foundation":
-                str(snapshot.get("end_foundation") or "")}
+                str(snapshot.get("end_foundation") or ""),
+            "line_style": str(snapshot.get("line_style") or ""),
+            "dia_mm": _num(snapshot.get("dia_mm"), 0.0),
+            "end_dia_mm": _num(snapshot.get("end_dia_mm"), 0.0),
+            "priority": int(_num(snapshot.get("priority"), 99))}
 
 
 def delete_config(settings, name):
@@ -353,12 +393,85 @@ def drop_fence(base, fence_id):
 
 def fence_label(rec):
     """One-line description for pickers and reports."""
+    if rec.get("kind") == "network":
+        return "Fence network {} - {} line(s) ({} post(s))".format(
+            rec.get("id") or "?", len(rec.get("lines") or []),
+            len(rec.get("instances") or []))
     what = rec.get("family") or rec.get("foundation") or "?"
     return "Fence {} - {} @ {:g} mm, {} ({} post(s))".format(
         rec.get("id") or "?", what,
         float(rec.get("spacing_mm") or 0.0),
         rec.get("justify") or "start",
         len(rec.get("instances") or []))
+
+
+# ---------------------------------------------------------------------------
+# fence NETWORK - lines grouped by shared endpoints, posts packed so
+# their circles TOUCH (tangent), corner posts by priority
+# ---------------------------------------------------------------------------
+def config_for_style(cfgs, style):
+    """(name, cfg) of the configuration bound to a line style name,
+    or None. Exact match on the config's 'line_style'."""
+    if not style:
+        return None
+    for name in sorted(cfgs.keys()):
+        if cfgs[name].get("line_style") == style:
+            return name, cfgs[name]
+    return None
+
+
+def pick_priority(named_cfgs):
+    """The winning (name, cfg) - SMALLEST priority number wins (1 =
+    highest, e.g. impact rated); ties break on the config name so
+    the answer is stable."""
+    best = None
+    for name, cfg in named_cfgs:
+        pr = int(_num(cfg.get("priority"), 99))
+        if best is None or (pr, name) < (int(_num(
+                best[1].get("priority"), 99)), best[0]):
+            best = (name, cfg)
+    return best
+
+
+def cluster_nodes(points, tol):
+    """Group endpoint coordinates into NODES: [(x, y)] -> (centers,
+    index_per_point). Points within ``tol`` of a node join it (the
+    node keeps its first point's position - fence corner clicks are
+    either snapped or not, chains of near-misses do not occur)."""
+    centers = []
+    idx = []
+    for x, y in points:
+        found = None
+        for i, (cx, cy) in enumerate(centers):
+            if ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 <= tol:
+                found = i
+                break
+        if found is None:
+            centers.append((x, y))
+            found = len(centers) - 1
+        idx.append(found)
+    return centers, idx
+
+
+def tangent_chain(length, r_start, r_end, dia, tol=1e-6):
+    """Intermediate post centers along an edge so every circle
+    TOUCHES its neighbours at a single point: the first post is
+    tangent to the start node's circle (radius ``r_start``), each
+    next tangent to the previous, packed while staying clear of the
+    far node's circle (radius ``r_end``). Returns (stations, gap):
+    stations measured from the start, gap = what is LEFT between the
+    last circle and the far node circle (0 <= gap < dia when
+    anything fits; the whole clear run when nothing does; negative
+    when the two node circles themselves overlap)."""
+    if length is None or length <= tol or not dia or dia <= tol:
+        return [], 0.0
+    a = r_start + dia / 2.0            # first permissible center
+    b = length - r_end - dia / 2.0     # last permissible center
+    if b < a - tol:
+        return [], length - r_start - r_end
+    n = int((b - a) / dia + tol) + 1
+    stations = [a + k * dia for k in range(n)]
+    return stations, b - stations[-1]
 
 
 def pair_stations(instances, dists, tol=1e-6):

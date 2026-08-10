@@ -18,6 +18,9 @@ NOW:
   - line or terrain DELETED -> reported; a record with no surviving
     posts is dropped.
 
+Fence NETWORK records are re-solved from scratch - current lines,
+styles, priorities and touching-circle packing - and rebuilt.
+
 The dialog lists each fence with what WILL happen before you commit.
 IronPython 2.7 / Revit 2022-2026.
 """
@@ -153,6 +156,43 @@ def _families_changed(rec, eff):
 # ---- resolve every record against the model + the CURRENT config ----
 rows = []   # dicts: rec, line_el, terrain, survivors, eff, plan text
 for rec in data["fences"]:
+    if rec.get("kind") == "network":
+        terrain = _by_uid(rec.get("terrain_uid"))
+        net_lines = []
+        gone_lines = 0
+        for l in rec.get("lines") or []:
+            el = _by_uid(l.get("uid"))
+            if el is None:
+                gone_lines += 1
+            else:
+                net_lines.append(el)
+        survivors = []
+        for inst_d in rec.get("instances") or []:
+            el = _by_uid(inst_d.get("uid"))
+            if el is not None:
+                survivors.append((inst_d, el))
+        notes = []
+        if gone_lines:
+            notes.append("{} line(s) deleted".format(gone_lines))
+        if terrain is None:
+            plan = ("record will be DROPPED (terrain gone, no "
+                    "posts left)" if not survivors else
+                    "SKIP - the terrain was deleted")
+        elif not net_lines:
+            plan = ("record will be DROPPED (all lines gone, no "
+                    "posts left)" if not survivors else
+                    "SKIP - every line was deleted")
+        else:
+            plan = ("REBUILD network: {} line(s), currently {} "
+                    "post(s) - re-solved against the lines, "
+                    "terrain and configs as they are now".format(
+                        len(net_lines), len(survivors)))
+        rows.append({"rec": rec, "line": None, "terrain": terrain,
+                     "survivors": survivors, "eff": None,
+                     "net_lines": net_lines,
+                     "plan": plan + ("; " + "; ".join(notes)
+                                     if notes else "")})
+        continue
     line_el = _by_uid(rec.get("line_uid"))
     terrain = _by_uid(rec.get("terrain_uid"))
     survivors = []
@@ -194,6 +234,7 @@ for rec in data["fences"]:
                     len(survivors), len(dists))
     rows.append({"rec": rec, "line": line_el, "terrain": terrain,
                  "survivors": survivors, "eff": eff,
+                 "net_lines": None,
                  "plan": plan + ("; " + "; ".join(notes)
                                  if notes else "")})
 
@@ -301,6 +342,55 @@ try:
         survivors, eff = row["survivors"], row["eff"]
         label = F.fence_label(rec)
         fid = rec.get("id")
+        if rec.get("kind") == "network":
+            if terrain is None or not row["net_lines"]:
+                if not survivors:
+                    drops.append(fid)
+                    results.append((label, "dropped",
+                                    "terrain / lines gone and no "
+                                    "posts left - record removed"))
+                else:
+                    results.append((label, "skipped",
+                                    "terrain or every line deleted "
+                                    "- re-model with Fence "
+                                    "Network"))
+                continue
+            for inst_d, el in survivors:
+                try:
+                    doc.Delete(el.Id)
+                except Exception:
+                    pass
+                f_el = _by_uid(inst_d.get("foundation_uid"))
+                if f_el is not None:
+                    try:
+                        doc.Delete(f_el.Id)
+                    except Exception:
+                        pass
+            try:
+                records, net_notes, placed, missed_n = \
+                    FR.model_network(doc, row["net_lines"], terrain,
+                                     F.get_configs(settings),
+                                     view3d)
+            except ValueError as ex:
+                results.append((label, "failed", str(ex)))
+                continue
+            for nn in net_notes:
+                log("- network {}: {}".format(fid, nn))
+            rec = dict(rec)
+            rec["instances"] = records
+            rec["lines"] = [{"uid": el.UniqueId,
+                             "style": FR.line_style_name(el)}
+                            for el in row["net_lines"]]
+            rec["updated"] = datetime.datetime.now().strftime(
+                "%Y-%m-%dT%H:%M:%S")
+            updates.append(rec)
+            results.append((label, "rebuilt",
+                            "{} -> {} post(s){}".format(
+                                len(survivors), placed,
+                                "; {} point(s) missed the "
+                                "terrain".format(missed_n)
+                                if missed_n else "")))
+            continue
         if line_el is None or terrain is None:
             if not survivors:
                 drops.append(fid)

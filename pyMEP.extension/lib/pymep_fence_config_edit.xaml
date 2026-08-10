@@ -139,6 +139,48 @@
                 </StackPanel>
             </GroupBox>
 
+            <GroupBox Header="Fence Network (line-style driven)">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Line style"/>
+                        <ComboBox x:Name="CmbLineStyle" Grid.Row="0"
+                                  Grid.Column="1" Margin="0,3,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Post diameter (mm)"/>
+                        <TextBox x:Name="TxtDia" Grid.Row="1"
+                                 Grid.Column="1" Width="130"
+                                 HorizontalAlignment="Left"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="End post diameter (mm)"/>
+                        <TextBox x:Name="TxtEndDia" Grid.Row="2"
+                                 Grid.Column="1" Width="130"
+                                 HorizontalAlignment="Left"/>
+                        <TextBlock Grid.Row="3" Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Priority (1 = highest)"/>
+                        <TextBox x:Name="TxtPriority" Grid.Row="3"
+                                 Grid.Column="1" Width="130"
+                                 HorizontalAlignment="Left"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Used by the Fence Network button: model lines drawn with this LINE STYLE get this configuration. Posts are packed so their circles TOUCH at a single point - the diameters drive the spacing (post diameter for the in-between posts, end post diameter for corner / node posts). At a corner where different styles meet, the configuration with the SMALLEST priority number wins the corner post (put the impact rated one at 1)."/>
+                </StackPanel>
+            </GroupBox>
+
             <TextBlock x:Name="StatusText" Foreground="#B00020"
                        TextWrapping="Wrap" Margin="0,0,0,8" Text=""/>
         </StackPanel>
