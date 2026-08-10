@@ -121,11 +121,13 @@ class ConfigStore(unittest.TestCase):
     def test_upsert_creates_and_updates(self):
         s = {}
         F.upsert_config(s, "Posts 3m", "3000", True)
-        F.upsert_config(s, "Posts 3m", 2500.0, False, "90")
+        F.upsert_config(s, "Posts 3m", 2500.0, False, "90",
+                        "Pad : 600x600")
         cfgs = F.get_configs(s)
         self.assertEqual(cfgs["Posts 3m"],
                          {"spacing_mm": 2500.0, "endpoints": False,
-                          "rotation_deg": 90.0})
+                          "rotation_deg": 90.0,
+                          "foundation": "Pad : 600x600"})
 
     def test_upsert_validates(self):
         self.assertRaises(ValueError, F.upsert_config, {}, "  ",
@@ -161,20 +163,21 @@ class ConfigStore(unittest.TestCase):
         self.assertEqual(list(cfgs.keys()), ["ok"])
         self.assertEqual(cfgs["ok"],
                          {"spacing_mm": 500.0, "endpoints": False,
-                          "rotation_deg": 0.0})
+                          "rotation_deg": 0.0, "foundation": ""})
 
 
 class EffectiveConfig(unittest.TestCase):
     SNAP = {"spacing_mm": 2000.0, "endpoints": True,
-            "rotation_deg": 0.0}
+            "rotation_deg": 0.0, "foundation": ""}
 
     def test_current_config_wins(self):
         s = {}
-        F.upsert_config(s, "Gate", 3000, False, 90)
+        F.upsert_config(s, "Gate", 3000, False, 90, "Pad : 600")
         eff = F.effective_config(s, "Gate", self.SNAP)
         self.assertEqual(eff, {"spacing_mm": 3000.0,
                                "endpoints": False,
-                               "rotation_deg": 90.0})
+                               "rotation_deg": 90.0,
+                               "foundation": "Pad : 600"})
 
     def test_missing_config_falls_back_to_snapshot(self):
         eff = F.effective_config({}, "Deleted", self.SNAP)
@@ -186,7 +189,8 @@ class EffectiveConfig(unittest.TestCase):
                                   "endpoints": False})
         self.assertEqual(eff, {"spacing_mm": 1500.0,
                                "endpoints": False,
-                               "rotation_deg": 0.0})
+                               "rotation_deg": 0.0,
+                               "foundation": ""})
 
 
 class Registry(unittest.TestCase):

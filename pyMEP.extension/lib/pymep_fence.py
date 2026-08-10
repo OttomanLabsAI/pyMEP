@@ -29,7 +29,7 @@ SETTINGS_FAMILY = "fence_family"     # last family label
 
 DEFAULT_NAME = "Default"
 DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
-                  "rotation_deg": 0.0}
+                  "rotation_deg": 0.0, "foundation": ""}
 
 JUSTIFY_START = "start"
 JUSTIFY_CENTRE = "centre"
@@ -167,7 +167,9 @@ def get_configs(settings):
                 out[str(name)] = {"spacing_mm": sp,
                                   "endpoints": bool(
                                       c.get("endpoints", True)),
-                                  "rotation_deg": rot}
+                                  "rotation_deg": rot,
+                                  "foundation":
+                                      str(c.get("foundation") or "")}
             except Exception:
                 continue
     if not out:
@@ -176,12 +178,13 @@ def get_configs(settings):
 
 
 def upsert_config(settings, name, spacing_mm, endpoints,
-                  rotation_deg=0.0):
+                  rotation_deg=0.0, foundation=""):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
     of line-aligned (90 = across the line); any number, also
-    negative."""
+    negative. ``foundation`` is a family label ('Family : Type') to
+    place UNDER every post - empty = posts only."""
     name = (name or "").strip()
     if not name:
         raise ValueError("the configuration needs a name")
@@ -198,7 +201,8 @@ def upsert_config(settings, name, spacing_mm, endpoints,
     cfgs = get_configs(settings)
     cfgs[name] = {"spacing_mm": spacing_mm,
                   "endpoints": bool(endpoints),
-                  "rotation_deg": rotation_deg}
+                  "rotation_deg": rotation_deg,
+                  "foundation": str(foundation or "").strip()}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
 
@@ -207,7 +211,8 @@ def effective_config(settings, name, snapshot):
     """The values an update should USE: the CURRENT saved config of
     that name when it still exists (so edits made with Fence
     Configurations flow into Update Fence), else the record's stored
-    snapshot. Returns {spacing_mm, endpoints, rotation_deg}."""
+    snapshot. Returns {spacing_mm, endpoints, rotation_deg,
+    foundation}."""
     raw = settings.get(SETTINGS_CONFIGS)
     if isinstance(raw, dict) and name and name in raw:
         cfg = get_configs(settings).get(name)
@@ -219,7 +224,8 @@ def effective_config(settings, name, snapshot):
         rot = 0.0
     return {"spacing_mm": float(snapshot.get("spacing_mm") or 0.0),
             "endpoints": bool(snapshot.get("endpoints", True)),
-            "rotation_deg": rot}
+            "rotation_deg": rot,
+            "foundation": str(snapshot.get("foundation") or "")}
 
 
 def delete_config(settings, name):
