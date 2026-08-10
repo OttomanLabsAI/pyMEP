@@ -7,8 +7,11 @@ a point + tangent, and the spacing-configuration store.
 Run:  python3 tests/test_fence.py
 """
 
+import json
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(
@@ -149,6 +152,87 @@ class ConfigStore(unittest.TestCase):
         self.assertEqual(list(cfgs.keys()), ["ok"])
         self.assertEqual(cfgs["ok"],
                          {"spacing_mm": 500.0, "endpoints": False})
+
+
+class Registry(unittest.TestCase):
+    def setUp(self):
+        self.base = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.base, ignore_errors=True)
+
+    @staticmethod
+    def _rec(**kw):
+        rec = {"line_uid": "L1", "terrain_uid": "T1",
+               "family": "Post : 100mm", "spacing_mm": 2000.0,
+               "endpoints": True, "justify": "start",
+               "config": "Default",
+               "instances": [{"uid": "a", "station_ft": 0.0,
+                              "angle": 0.0}],
+               "updated": "2026-08-10T00:00:00"}
+        rec.update(kw)
+        return rec
+
+    def test_missing_registry_is_empty(self):
+        self.assertEqual(F.load_fences(self.base), {"fences": []})
+
+    def test_add_assigns_sequential_ids(self):
+        self.assertEqual(F.add_fence(self.base, self._rec()), 1)
+        self.assertEqual(F.add_fence(self.base, self._rec()), 2)
+        data = F.load_fences(self.base)
+        self.assertEqual([r["id"] for r in data["fences"]], [1, 2])
+
+    def test_update_replaces_by_id(self):
+        F.add_fence(self.base, self._rec())
+        rec = self._rec(id=1, spacing_mm=999.0)
+        F.update_fence(self.base, rec)
+        data = F.load_fences(self.base)
+        self.assertEqual(len(data["fences"]), 1)
+        self.assertEqual(data["fences"][0]["spacing_mm"], 999.0)
+
+    def test_drop(self):
+        F.add_fence(self.base, self._rec())
+        F.add_fence(self.base, self._rec())
+        F.drop_fence(self.base, 1)
+        data = F.load_fences(self.base)
+        self.assertEqual([r["id"] for r in data["fences"]], [2])
+
+    def test_corrupt_file_never_raises(self):
+        with open(os.path.join(self.base, F.REGISTRY), "w") as f:
+            f.write("{nope")
+        self.assertEqual(F.load_fences(self.base), {"fences": []})
+
+    def test_file_is_ascii_json(self):
+        F.add_fence(self.base, self._rec(family=u"Clôture : bois"))
+        with open(os.path.join(self.base, F.REGISTRY), "rb") as f:
+            raw = f.read()
+        self.assertTrue(all(b < 128 for b in bytearray(raw)))
+        data = F.load_fences(self.base)
+        self.assertEqual(data["fences"][0]["family"],
+                         u"Clôture : bois")
+
+
+class PairStations(unittest.TestCase):
+    INST = [{"uid": "b", "station_ft": 5.0, "angle": 0.1},
+            {"uid": "a", "station_ft": 0.0, "angle": 0.0},
+            {"uid": "c", "station_ft": 10.0, "angle": 0.2}]
+
+    def test_pairs_in_station_order(self):
+        pairs = F.pair_stations(self.INST, [12.0, 0.0, 6.0])
+        self.assertEqual([(p[0]["uid"], p[1]) for p in pairs],
+                         [("a", 0.0), ("b", 6.0), ("c", 12.0)])
+
+    def test_count_mismatch_means_rebuild(self):
+        self.assertIsNone(F.pair_stations(self.INST, [0.0, 5.0]))
+        self.assertIsNone(F.pair_stations([], []))
+
+    def test_label_mentions_count(self):
+        lbl = F.fence_label({"id": 3, "family": "Post : 100",
+                             "spacing_mm": 2000.0,
+                             "justify": "centre",
+                             "instances": self.INST})
+        self.assertIn("Fence 3", lbl)
+        self.assertIn("3 post(s)", lbl)
 
 
 if __name__ == "__main__":

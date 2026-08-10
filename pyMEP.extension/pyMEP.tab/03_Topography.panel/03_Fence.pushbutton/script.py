@@ -9,14 +9,16 @@ the LINE and the TERRAIN in the view. Every station is ray-cast
 straight down onto the picked terrain and the instance lands ON the
 ground, rotated so its X axis follows the line's direction there.
 
-Works on straight, curved and closed model lines (tessellated and
-walked by distance). Revit 2022-2026.
+Every fence is RECORDED (line, terrain, settings, instances) in the
+project's file store, so Update Fence re-drapes it after the line or
+the terrain changes. Straight, curved and closed model lines all
+work. Revit 2022-2026.
 """
 
 __title__  = "Fence"
 __author__ = "Glent Group"
 
-import math
+import datetime
 import os
 import sys
 
@@ -25,29 +27,20 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
 
 from pyrevit import revit, forms, script
 
-from pymep_config import load_settings, save_settings
+from pymep_config import load_settings, save_settings, get_export_folder
 from pymep_log import Logger
 import pymep_fence as F
+import pymep_fence_revit as FR
 
 from Autodesk.Revit.DB import (
     BuiltInCategory,
-    BuiltInParameter,
     CurveElement,
-    ElementTransformUtils,
     FamilySymbol,
     FilteredElementCollector,
-    FindReferenceTarget,
-    Level,
-    Line,
-    ReferenceIntersector,
-    RevitLinkInstance,
     Transaction,
     UnitTypeId,
     UnitUtils,
-    View3D,
-    XYZ,
 )
-from Autodesk.Revit.DB.Structure import StructuralType
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 
 doc = revit.doc
@@ -59,16 +52,7 @@ XAML_PATH = os.path.join(
     os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
     "pymep_fence.xaml")
 
-MIN_HIT_PROXIMITY = 1e-9
-
 log("### Fence")
-
-
-def id_value(eid):
-    try:
-        return eid.Value            # Revit 2024+
-    except AttributeError:
-        return eid.IntegerValue     # Revit 2023 and earlier
 
 
 def _name(el):
@@ -267,7 +251,7 @@ for _n in ("OST_Toposolid", "OST_Topography", "OST_Floors",
 class TerrainFilter(ISelectionFilter):
     def AllowElement(self, elem):
         try:
-            return id_value(elem.Category.Id) in _TERRAIN_CATS
+            return FR.id_value(elem.Category.Id) in _TERRAIN_CATS
         except Exception:
             return False
 
@@ -282,40 +266,6 @@ def pick_one(sel_filter, prompt):
         return doc.GetElement(r.ElementId)
     except Exception:            # ESC / right-click
         return None
-
-
-# ----------------------------------------------------------------- raybounce
-def find_view3d():
-    av = doc.ActiveView
-    if isinstance(av, View3D) and not av.IsTemplate:
-        return av
-    for v in FilteredElementCollector(doc).OfClass(View3D):
-        if not v.IsTemplate:
-            return v
-    return None
-
-
-def topmost_hit(ri, origin, direction, terrain_id):
-    """The picked terrain's TOP surface under the ray - smallest
-    proximity among hits on that element only."""
-    refs = ri.Find(origin, direction)
-    if refs is None or refs.Count == 0:
-        return None
-    best = None
-    for rc in refs:
-        if rc.Proximity <= MIN_HIT_PROXIMITY:
-            continue
-        ref = rc.GetReference()
-        el = doc.GetElement(ref.ElementId)
-        if isinstance(el, RevitLinkInstance):
-            continue
-        if id_value(ref.ElementId) != terrain_id:
-            continue
-        if best is None or rc.Proximity < best.Proximity:
-            best = rc
-    if best is None:
-        return None
-    return best.GetReference().GlobalPoint
 
 
 # ----------------------------------------------------------------------- run
@@ -366,12 +316,11 @@ def main():
         log.close()
         script.exit()
 
-    curve = line_el.GeometryCurve
-    if curve is None:
+    poly = FR.tessellate(line_el)
+    if not poly:
         log.close()
         forms.alert("That line has no geometry curve.",
                     exitscript=True)
-    poly = [(p.X, p.Y, p.Z) for p in curve.Tessellate()]
     length = F.poly_length(poly)
     if length <= 1e-9:
         log.close()
@@ -401,90 +350,25 @@ def main():
                     exitscript=True)
     log("**{}** station(s) along the line.".format(len(dists)))
 
-    view3d = find_view3d()
+    view3d = FR.find_view3d(doc)
     if view3d is None:
         log.close()
         forms.alert("No 3D view found in the model - create one and "
                     "re-run.", exitscript=True)
 
-    ri = ReferenceIntersector(view3d)
-    ri.TargetType = FindReferenceTarget.Face
-    down = XYZ(0, 0, -1)
-    # ray start: just above the terrain + line (ReferenceIntersector
-    # silently misses when the origin is kilometres from the geometry)
-    tops = []
-    for el in (terrain, line_el):
-        try:
-            bb = el.get_BoundingBox(None)
-            if bb is not None:
-                tops.append(bb.Max.Z)
-        except Exception:
-            pass
-    ray_z = (max(tops) + 10.0) if tops else 30000.0
-    terrain_id = id_value(terrain.Id)
+    ri = FR.make_intersector(view3d)
+    ray_z = FR.ray_start_z([terrain, line_el])
+    terrain_id = FR.id_value(terrain.Id)
     log("Ray-casting in 3D view **{}** onto **{}** (id {}).".format(
         view3d.Name, _name(terrain), terrain_id))
+    levels = FR.sorted_levels(doc)
 
-    levels = sorted(
-        [l for l in FilteredElementCollector(doc).OfClass(Level)],
-        key=lambda l: l.Elevation)
-
-    def level_for(z):
-        best = None
-        for l in levels:
-            if l.Elevation <= z + 1e-6:
-                best = l
-        return best or (levels[0] if levels else None)
-
-    placed, missed, failed = 0, [], 0
-    symbol = opt["symbol"]
     t = Transaction(doc, "Fence")
     t.Start()
     try:
-        try:
-            if not symbol.IsActive:
-                symbol.Activate()
-                doc.Regenerate()
-        except Exception:
-            pass
-        for d in dists:
-            p, tang = F.point_at(poly, d)
-            hit = topmost_hit(ri, XYZ(p[0], p[1], ray_z), down,
-                              terrain_id)
-            if hit is None:
-                missed.append(d)
-                continue
-            lvl = level_for(hit.Z)
-            try:
-                inst = doc.Create.NewFamilyInstance(
-                    XYZ(hit.X, hit.Y, hit.Z), symbol, lvl,
-                    StructuralType.NonStructural)
-                # belt and braces: the level overload usually honours
-                # the Z, but forcing the offset makes it certain
-                if lvl is not None:
-                    for bip in ("INSTANCE_FREE_HOST_OFFSET_PARAM",
-                                "INSTANCE_ELEVATION_PARAM"):
-                        try:
-                            par = inst.get_Parameter(
-                                getattr(BuiltInParameter, bip))
-                            if par is not None and not par.IsReadOnly:
-                                par.Set(hit.Z - lvl.Elevation)
-                                break
-                        except Exception:
-                            continue
-                ang = math.atan2(tang[1], tang[0])
-                if abs(ang) > 1e-9:
-                    axis = Line.CreateBound(
-                        XYZ(hit.X, hit.Y, hit.Z),
-                        XYZ(hit.X, hit.Y, hit.Z + 1.0))
-                    ElementTransformUtils.RotateElement(
-                        doc, inst.Id, axis, ang)
-                placed += 1
-            except Exception as ex:
-                failed += 1
-                if failed == 1:
-                    log("! placement failed at {:.3f} m: {}".format(
-                        d * 0.3048, ex))
+        records, missed, failed, why = FR.place_instances(
+            doc, opt["symbol"], poly, dists, terrain_id, ri, ray_z,
+            levels)
         t.Commit()
     except Exception:
         try:
@@ -501,21 +385,49 @@ def main():
                           for d in missed[:12]) +
                 (" ..." if len(missed) > 12 else "")))
     if failed:
-        log("! **{}** placement(s) failed (family not placeable "
-            "by point + level?).".format(failed))
-    log("**{}** instance(s) placed.".format(placed))
+        log("! **{}** placement(s) failed ({})".format(
+            failed, why or "family not placeable by point + level?"))
+    log("**{}** instance(s) placed.".format(len(records)))
+
+    fence_id = None
+    if records:
+        try:
+            base = os.path.join(get_export_folder(doc),
+                                "project_files")
+            rec = {
+                "line_uid": line_el.UniqueId,
+                "terrain_uid": terrain.UniqueId,
+                "family": opt["label"],
+                "spacing_mm": opt["spacing_mm"],
+                "endpoints": opt["endpoints"],
+                "justify": opt["justify"],
+                "config": opt["config"],
+                "instances": records,
+                "updated": datetime.datetime.now().strftime(
+                    "%Y-%m-%dT%H:%M:%S"),
+            }
+            fence_id = F.add_fence(base, rec)
+            log("Recorded as **fence {}** - move the line or reshape "
+                "the terrain, then run **Update Fence**.".format(
+                    fence_id))
+        except Exception as ex:
+            log("! could not record the fence for updates: "
+                "{}".format(ex))
+
     log.close()
-    if placed == 0:
+    if not records:
         forms.alert("Nothing placed - no terrain hits under the "
                     "line. Check the terrain is visible in the 3D "
                     "view used for ray-casting ('{}') and the line "
                     "runs above it.".format(view3d.Name))
     else:
-        forms.alert("Fence done: {} instance(s) placed{}{}.".format(
-            placed,
+        forms.alert("Fence done: {} instance(s) placed{}{}{}.".format(
+            len(records),
             ", {} station(s) missed the terrain".format(len(missed))
             if missed else "",
-            ", {} failed".format(failed) if failed else ""))
+            ", {} failed".format(failed) if failed else "",
+            " - recorded as fence {} for Update Fence".format(
+                fence_id) if fence_id else ""))
 
 
 main()
