@@ -129,7 +129,9 @@ class ConfigStore(unittest.TestCase):
                           "rotation_deg": 90.0, "post": "",
                           "foundation": "Pad : 600x600",
                           "same_ends": True, "end_post": "",
-                          "end_foundation": ""})
+                          "end_foundation": "", "line_style": "",
+                          "dia_mm": 0.0, "end_dia_mm": 0.0,
+                          "priority": 99})
 
     def test_upsert_validates(self):
         self.assertRaises(ValueError, F.upsert_config, {}, "  ",
@@ -167,13 +169,17 @@ class ConfigStore(unittest.TestCase):
                          {"spacing_mm": 500.0, "endpoints": False,
                           "rotation_deg": 0.0, "post": "",
                           "foundation": "", "same_ends": True,
-                          "end_post": "", "end_foundation": ""})
+                          "end_post": "", "end_foundation": "",
+                          "line_style": "", "dia_mm": 0.0,
+                          "end_dia_mm": 0.0, "priority": 99})
 
 
 class EffectiveConfig(unittest.TestCase):
     SNAP = {"spacing_mm": 2000.0, "endpoints": True,
             "rotation_deg": 0.0, "post": "", "foundation": "",
-            "same_ends": True, "end_post": "", "end_foundation": ""}
+            "same_ends": True, "end_post": "", "end_foundation": "",
+            "line_style": "", "dia_mm": 0.0, "end_dia_mm": 0.0,
+            "priority": 99}
 
     def test_current_config_wins(self):
         s = {}
@@ -186,7 +192,9 @@ class EffectiveConfig(unittest.TestCase):
                                "post": "Post : 100x100",
                                "foundation": "Pad : 600",
                                "same_ends": True, "end_post": "",
-                               "end_foundation": ""})
+                               "end_foundation": "",
+                               "line_style": "", "dia_mm": 0.0,
+                               "end_dia_mm": 0.0, "priority": 99})
 
     def test_missing_config_falls_back_to_snapshot(self):
         eff = F.effective_config({}, "Deleted", self.SNAP)
@@ -201,7 +209,9 @@ class EffectiveConfig(unittest.TestCase):
                                "rotation_deg": 0.0, "post": "",
                                "foundation": "", "same_ends": True,
                                "end_post": "",
-                               "end_foundation": ""})
+                               "end_foundation": "",
+                               "line_style": "", "dia_mm": 0.0,
+                               "end_dia_mm": 0.0, "priority": 99})
 
     def test_snapshot_family_becomes_the_post(self):
         # records from before posts joined configs carry 'family'
@@ -257,6 +267,68 @@ class EndFamilies(unittest.TestCase):
             {"post": "", "foundation": "", "endpoints": True,
              "same_ends": True, "end_post": "EP",
              "end_foundation": "EF"}))
+
+
+class NetworkMaths(unittest.TestCase):
+    def test_tangent_chain_exact_fit(self):
+        # nodes r=1, posts dia=2: length 10 fits centers 2,4,6,8
+        sts, gap = F.tangent_chain(10.0, 1.0, 1.0, 2.0)
+        self.assertEqual(sts, [2.0, 4.0, 6.0, 8.0])
+        self.assertAlmostEqual(gap, 0.0)
+
+    def test_tangent_chain_leftover_gap(self):
+        sts, gap = F.tangent_chain(10.5, 1.0, 1.0, 2.0)
+        self.assertEqual(sts, [2.0, 4.0, 6.0, 8.0])
+        self.assertAlmostEqual(gap, 0.5)
+
+    def test_tangent_chain_nothing_fits(self):
+        sts, gap = F.tangent_chain(3.0, 1.0, 1.0, 2.0)
+        self.assertEqual(sts, [])
+        self.assertAlmostEqual(gap, 1.0)
+
+    def test_tangent_chain_asymmetric_nodes(self):
+        # impact-rated node r=2 at the start, standard r=1 far
+        sts, gap = F.tangent_chain(10.0, 2.0, 1.0, 2.0)
+        self.assertEqual(sts, [3.0, 5.0, 7.0])
+        self.assertAlmostEqual(gap, 1.0)
+
+    def test_tangent_chain_no_dia(self):
+        self.assertEqual(F.tangent_chain(10.0, 1.0, 1.0, 0.0),
+                         ([], 0.0))
+
+    def test_cluster_nodes(self):
+        pts = [(0.0, 0.0), (10.0, 0.0), (10.005, 0.0), (0.0, 0.002),
+               (5.0, 5.0)]
+        centers, idx = F.cluster_nodes(pts, 0.01)
+        self.assertEqual(len(centers), 3)
+        self.assertEqual(idx, [0, 1, 1, 0, 2])
+
+    def test_config_for_style(self):
+        cfgs = {"Std": {"line_style": "FENCE - STANDARD"},
+                "Imp": {"line_style": "FENCE - IMPACT RATED"},
+                "Plain": {"line_style": ""}}
+        self.assertEqual(
+            F.config_for_style(cfgs, "FENCE - IMPACT RATED")[0],
+            "Imp")
+        self.assertIsNone(F.config_for_style(cfgs, "OTHER"))
+        self.assertIsNone(F.config_for_style(cfgs, ""))
+
+    def test_pick_priority_smallest_wins(self):
+        named = [("Std", {"priority": 5}), ("Imp", {"priority": 1}),
+                 ("Mid", {"priority": 3})]
+        self.assertEqual(F.pick_priority(named)[0], "Imp")
+
+    def test_pick_priority_tie_is_stable_by_name(self):
+        named = [("B", {"priority": 2}), ("A", {"priority": 2})]
+        self.assertEqual(F.pick_priority(named)[0], "A")
+
+    def test_network_fence_label(self):
+        lbl = F.fence_label({"kind": "network", "id": 4,
+                             "lines": [1, 2, 3],
+                             "instances": [1] * 40})
+        self.assertIn("network 4", lbl)
+        self.assertIn("3 line(s)", lbl)
+        self.assertIn("40 post(s)", lbl)
 
 
 class Registry(unittest.TestCase):

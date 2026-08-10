@@ -51,15 +51,20 @@ def _row_text(name, cfg):
         txt += u"  |  END post: {} / fnd: {}".format(
             cfg["end_post"] or "none",
             cfg["end_foundation"] or "none")
+    if cfg.get("line_style"):
+        txt += (u"  |  NET: '{}' \u2300{:g}/{:g} mm, "
+                u"prio {}".format(
+                    cfg["line_style"], cfg["dia_mm"],
+                    cfg["end_dia_mm"], cfg["priority"]))
     return txt
 
 
 class ConfigEditWindow(forms.WPFWindow):
-    """The editor: one configuration's values. result = {"name",
-    "spacing", "endpoints", "rotation", "post", "foundation"} or
-    None on cancel - the caller persists."""
+    """The editor: one configuration's values. result dict or None
+    on cancel - the caller persists."""
 
-    def __init__(self, title, name, cfg, post_labels, found_labels):
+    def __init__(self, title, name, cfg, post_labels, found_labels,
+                 style_names):
         forms.WPFWindow.__init__(self, XAML_EDIT)
         self.result = None
         self.post_labels = post_labels
@@ -82,6 +87,14 @@ class ConfigEditWindow(forms.WPFWindow):
                           cfg["end_foundation"])
         self.ChkSameEnds.IsChecked = bool(cfg["same_ends"])
         self.on_same_ends(None, None)
+        self.CmbLineStyle.Items.Clear()
+        self.CmbLineStyle.Items.Add(NONE_LABEL)
+        for nm2 in style_names:
+            self.CmbLineStyle.Items.Add(nm2)
+        self._select_pick(self.CmbLineStyle, cfg["line_style"])
+        self.TxtDia.Text = "{:g}".format(cfg["dia_mm"])
+        self.TxtEndDia.Text = "{:g}".format(cfg["end_dia_mm"])
+        self.TxtPriority.Text = "{}".format(cfg["priority"])
 
     # ---- family pickers (post + foundation share the behaviour) ------
     @staticmethod
@@ -212,12 +225,28 @@ class ConfigEditWindow(forms.WPFWindow):
                                     "NOTHING - every family is "
                                     "'(none)'.")
             return
+        try:
+            dia = float(self.TxtDia.Text or 0.0)
+            end_dia = float(self.TxtEndDia.Text or 0.0)
+        except Exception:
+            self.StatusText.Text = ("Diameters must be numbers "
+                                    "(mm).")
+            return
+        try:
+            prio = int(float(self.TxtPriority.Text or 99))
+        except Exception:
+            self.StatusText.Text = ("Priority must be a whole "
+                                    "number (1 = highest).")
+            return
         self.result = {"name": name, "spacing": spacing,
                        "endpoints": bool(self.ChkEnds.IsChecked),
                        "rotation": rotation, "post": post,
                        "foundation": foundation,
                        "same_ends": same_ends, "end_post": end_post,
-                       "end_foundation": end_foundation}
+                       "end_foundation": end_foundation,
+                       "line_style": self._picked(self.CmbLineStyle),
+                       "dia": dia, "end_dia": end_dia,
+                       "priority": prio}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -228,11 +257,13 @@ class ConfigEditWindow(forms.WPFWindow):
 class ConfigsWindow(forms.WPFWindow):
     """The list window: rows + Add new / Edit / Remove."""
 
-    def __init__(self, settings, post_labels, found_labels):
+    def __init__(self, settings, post_labels, found_labels,
+                 style_names):
         forms.WPFWindow.__init__(self, XAML_LIST)
         self.settings = settings
         self.post_labels = post_labels
         self.found_labels = found_labels
+        self.style_names = style_names
         self._names = []
         self._fill(settings.get(F.SETTINGS_LAST))
 
@@ -264,7 +295,7 @@ class ConfigsWindow(forms.WPFWindow):
         """Open the editor; on Save, store (renaming when the name
         changed on an edit)."""
         win = ConfigEditWindow(title, name, cfg, self.post_labels,
-                               self.found_labels)
+                               self.found_labels, self.style_names)
         win.ShowDialog()
         r = win.result
         if r is None:
@@ -274,7 +305,8 @@ class ConfigsWindow(forms.WPFWindow):
                             r["endpoints"], r["rotation"],
                             r["foundation"], r["post"],
                             r["same_ends"], r["end_post"],
-                            r["end_foundation"])
+                            r["end_foundation"], r["line_style"],
+                            r["dia"], r["end_dia"], r["priority"])
         except ValueError as ex:
             self.StatusText.Text = str(ex)
             return
@@ -322,6 +354,9 @@ post_labels = [lbl for lbl, _fs
                in FR.placeable_symbols(doc, F.POST_CATEGORIES)]
 found_labels = [lbl for lbl, _fs
                 in FR.placeable_symbols(doc, F.FOUNDATION_CATEGORIES)]
-ConfigsWindow(load_settings(), post_labels,
-              found_labels).ShowDialog()
+from pymep_vt_serialize import line_style_subcategories
+style_names = sorted(set(
+    s2.Name for s2 in line_style_subcategories(doc)))
+ConfigsWindow(load_settings(), post_labels, found_labels,
+              style_names).ShowDialog()
 script.exit()

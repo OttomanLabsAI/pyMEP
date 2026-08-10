@@ -23,6 +23,8 @@ from Autodesk.Revit.DB import (
     Line,
     ReferenceIntersector,
     RevitLinkInstance,
+    UnitTypeId,
+    UnitUtils,
     View3D,
     XYZ,
 )
@@ -96,6 +98,14 @@ def symbol_by_label(doc, label, categories=None):
         if lbl == label:
             return fs
     return None
+
+
+def line_style_name(el):
+    """The CurveElement's line style name ('' when unreadable)."""
+    try:
+        return el.LineStyle.Name or ""
+    except Exception:
+        return ""
 
 
 def _structural_type(symbol):
@@ -345,3 +355,196 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
             failed += 1
             records.append(inst_d)
     return records, missed, failed
+
+
+# ---------------------------------------------------------------------------
+# fence NETWORK - shared by Fence Network and Update Fence
+# ---------------------------------------------------------------------------
+NODE_TOL_MM = 50.0      # endpoints this close share a corner node
+
+
+def mm2ft(mm):
+    return UnitUtils.ConvertToInternalUnits(float(mm),
+                                            UnitTypeId.Millimeters)
+
+
+def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
+    """Model a fence NETWORK inside the caller's open Transaction:
+    each line's STYLE picks its configuration, shared endpoints
+    become corner NODES that get the highest-priority incident
+    config's END post + foundation (smallest priority number wins -
+    the impact rated one), and the in-between posts are packed so
+    neighbouring circles TOUCH at a single point (the diameters
+    drive the spacing; the chain packs from the higher-priority end
+    so the leftover gap sits at the lesser end).
+
+    Returns (records, notes, placed, missed): records =
+    [{"uid"(, "foundation_uid")}] for the registry. Raises
+    ValueError (before anything is placed) when the solve exceeds
+    the sanity cap or nothing is mappable."""
+    import pymep_fence as F
+
+    notes = []
+
+    def note(msg):
+        notes.append(msg)
+        if say:
+            say(msg)
+
+    ri = make_intersector(view3d)
+    levels = sorted_levels(doc)
+    terrain_id = id_value(terrain.Id)
+    ray_z = ray_start_z([terrain] + list(line_els))
+
+    # ---- lines -> configs by style -----------------------------------
+    edges = []
+    for el in line_els:
+        style = line_style_name(el)
+        poly = tessellate(el)
+        if not poly or F.poly_length(poly) <= 1e-9:
+            note("line {}: no length - skipped".format(
+                id_value(el.Id)))
+            continue
+        m = F.config_for_style(cfgs, style)
+        if m is None:
+            note("line {} ('{}'): NO configuration is bound to this "
+                 "line style - skipped".format(
+                     id_value(el.Id), style or "?"))
+            continue
+        name, cfg = m
+        if not cfg.get("dia_mm"):
+            note("line {} ('{}'): configuration '{}' has no post "
+                 "diameter - skipped".format(
+                     id_value(el.Id), style, name))
+            continue
+        edges.append({"el": el, "style": style, "name": name,
+                      "cfg": cfg, "poly": poly,
+                      "length": F.poly_length(poly)})
+    if not edges:
+        raise ValueError("no line could be mapped to a "
+                         "configuration - bind line styles in "
+                         "Fence Configs")
+
+    # ---- corner nodes (shared endpoints) -----------------------------
+    pts = []
+    for e in edges:
+        pts.append((e["poly"][0][0], e["poly"][0][1]))
+        pts.append((e["poly"][-1][0], e["poly"][-1][1]))
+    centers, idx = F.cluster_nodes(pts, mm2ft(NODE_TOL_MM))
+    for i, e in enumerate(edges):
+        e["n0"] = idx[2 * i]
+        e["n1"] = idx[2 * i + 1]
+
+    nodes = []
+    for ni in range(len(centers)):
+        incident = []
+        tangent = (1.0, 0.0)
+        for e in edges:
+            if e["n0"] == ni:
+                incident.append((e["name"], e["cfg"]))
+                tangent = F.point_at(e["poly"], 0.0)[1]
+            elif e["n1"] == ni:
+                incident.append((e["name"], e["cfg"]))
+                tangent = F.point_at(e["poly"], e["length"])[1]
+        win_name, win = F.pick_priority(incident)
+        dia = win.get("end_dia_mm") or win.get("dia_mm") or 0.0
+        nodes.append({"xy": centers[ni], "cfg": win,
+                      "name": win_name, "tangent": tangent,
+                      "r": mm2ft(dia) / 2.0})
+
+    # ---- tangent chains along every edge -----------------------------
+    total = len(nodes)
+    for e in edges:
+        ra = nodes[e["n0"]]["r"]
+        rb = nodes[e["n1"]]["r"]
+        dia_ft = mm2ft(e["cfg"]["dia_mm"])
+        pa = int(nodes[e["n0"]]["cfg"].get("priority") or 99)
+        pb = int(nodes[e["n1"]]["cfg"].get("priority") or 99)
+        from_start = pa <= pb
+        if from_start:
+            sts, gap = F.tangent_chain(e["length"], ra, rb, dia_ft)
+        else:
+            sts, gap = F.tangent_chain(e["length"], rb, ra, dia_ft)
+            sts = sorted(e["length"] - s for s in sts)
+        e["stations"] = sts
+        e["gap"] = gap
+        total += len(sts)
+        note("line {} ('{}' -> {}): {} post(s), leftover gap "
+             "{:.0f} mm at the {} end".format(
+                 id_value(e["el"].Id), e["style"], e["name"],
+                 len(sts), gap * 304.8,
+                 "far" if from_start else "near"))
+    if total > F.MAX_INSTANCES:
+        raise ValueError("{} instances would be placed - over the "
+                         "{} sanity cap. Check the diameters.".format(
+                             total, F.MAX_INSTANCES))
+
+    # ---- place -------------------------------------------------------
+    records = []
+    missed = [0]
+    sym_cache = {}
+
+    def _sym(label, cats, what):
+        key = (label, what)
+        if key in sym_cache:
+            return sym_cache[key]
+        sym = symbol_by_label(doc, label, cats) if label else None
+        if label and sym is None:
+            note("! {} family '{}' is NOT in this model - "
+                 "skipped".format(what, label))
+        sym_cache[key] = sym
+        return sym
+
+    def put(x, y, tang, cfg, use_ends):
+        if use_ends:
+            post_lbl, fnd_lbl = F.end_families(cfg)
+        else:
+            post_lbl = cfg.get("post") or ""
+            fnd_lbl = cfg.get("foundation") or ""
+        post_sym = _sym(post_lbl, F.POST_CATEGORIES, "post")
+        fnd_sym = _sym(fnd_lbl, F.FOUNDATION_CATEGORIES,
+                       "foundation")
+        primary, secondary = post_sym, fnd_sym
+        if primary is None:
+            primary, secondary = fnd_sym, None
+        if primary is None:
+            return
+        hit = topmost_hit(doc, ri, XYZ(x, y, ray_z), terrain_id)
+        if hit is None:
+            missed[0] += 1
+            return
+        lvl = level_for(levels, hit.Z)
+        ang = math.atan2(tang[1], tang[0]) + math.radians(
+            float(cfg.get("rotation_deg") or 0.0))
+        for s in (primary, secondary):
+            if s is None:
+                continue
+            try:
+                if not s.IsActive:
+                    s.Activate()
+                    doc.Regenerate()
+            except Exception:
+                pass
+        try:
+            inst = _place_one(doc, primary, hit, lvl, ang)
+        except Exception as ex:
+            note("! placement failed: {}".format(ex))
+            return
+        rec = {"uid": inst.UniqueId}
+        if secondary is not None:
+            try:
+                f_inst = _place_one(doc, secondary, hit, lvl, ang)
+                rec["foundation_uid"] = f_inst.UniqueId
+            except Exception as ex:
+                note("! foundation placement failed: {}".format(ex))
+        records.append(rec)
+
+    for nd in nodes:
+        put(nd["xy"][0], nd["xy"][1], nd["tangent"], nd["cfg"],
+            True)
+    for e in edges:
+        for d in e["stations"]:
+            p, tang = F.point_at(e["poly"], d)
+            put(p[0], p[1], tang, e["cfg"], False)
+
+    return records, notes, len(records), missed[0]
