@@ -145,6 +145,7 @@ class SettingsWindow(forms.WPFWindow):
                 (self.ChkPanPipeNet, "Pipe Networks"),
                 (self.ChkPanNetworks, "Networks"),
                 (self.ChkPanTopo, "Topography"),
+                (self.ChkPanFencing, "Fencing"),
                 (self.ChkPanChamber, "Chamber Drawing Setup"),
                 (self.ChkPanParams, "Parameters"),
                 (self.ChkPanProjData, "Project Data Transfer"),

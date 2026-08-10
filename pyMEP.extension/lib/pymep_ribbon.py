@@ -20,7 +20,7 @@ TAB_TITLE = "pyMEP"
 # display-title prefixes of every hideable panel, ribbon order
 HIDEABLE_PANELS = ["Civil 3D Conversion", "Electrical", "Drainage",
                    "Pipe Networks", "Networks", "Topography",
-                   "Chamber Drawing Setup", "Parameters",
+                   "Fencing", "Chamber Drawing Setup", "Parameters",
                    "Project Data Transfer", "Annotate"]
 
 
