@@ -130,7 +130,7 @@ class ConfigStore(unittest.TestCase):
                           "foundation": "Pad : 600x600",
                           "same_ends": True, "end_post": "",
                           "end_foundation": "", "line_style": "",
-                          "priority": 99})
+                          "priority": 99, "end_priority": False})
 
     def test_upsert_validates(self):
         self.assertRaises(ValueError, F.upsert_config, {}, "  ",
@@ -169,14 +169,16 @@ class ConfigStore(unittest.TestCase):
                           "rotation_deg": 0.0, "post": "",
                           "foundation": "", "same_ends": True,
                           "end_post": "", "end_foundation": "",
-                          "line_style": "", "priority": 99})
+                          "line_style": "", "priority": 99,
+                          "end_priority": False})
 
 
 class EffectiveConfig(unittest.TestCase):
     SNAP = {"spacing_mm": 2000.0, "endpoints": True,
             "rotation_deg": 0.0, "post": "", "foundation": "",
             "same_ends": True, "end_post": "", "end_foundation": "",
-            "line_style": "", "priority": 99}
+            "line_style": "", "priority": 99,
+            "end_priority": False}
 
     def test_current_config_wins(self):
         s = {}
@@ -191,7 +193,8 @@ class EffectiveConfig(unittest.TestCase):
                                "same_ends": True, "end_post": "",
                                "end_foundation": "",
                                "line_style": "",
-                               "priority": 99})
+                               "priority": 99,
+                               "end_priority": False})
 
     def test_missing_config_falls_back_to_snapshot(self):
         eff = F.effective_config({}, "Deleted", self.SNAP)
@@ -208,7 +211,8 @@ class EffectiveConfig(unittest.TestCase):
                                "end_post": "",
                                "end_foundation": "",
                                "line_style": "",
-                               "priority": 99})
+                               "priority": 99,
+                               "end_priority": False})
 
     def test_snapshot_family_becomes_the_post(self):
         # records from before posts joined configs carry 'family'
@@ -343,6 +347,55 @@ class NetworkMaths(unittest.TestCase):
         self.assertIn("network 4", lbl)
         self.assertIn("3 line(s)", lbl)
         self.assertIn("40 post(s)", lbl)
+
+
+class Intersections(unittest.TestCase):
+    def test_segments_crossing(self):
+        t, u = F.seg_intersect((0, 0), (10, 0), (5, -5), (5, 5))
+        self.assertAlmostEqual(t, 0.5)
+        self.assertAlmostEqual(u, 0.5)
+
+    def test_segments_touching_at_endpoint(self):
+        t, u = F.seg_intersect((0, 0), (10, 0), (10, 0), (10, 8))
+        self.assertAlmostEqual(t, 1.0)
+        self.assertAlmostEqual(u, 0.0)
+
+    def test_segments_parallel_or_missing(self):
+        self.assertIsNone(F.seg_intersect((0, 0), (10, 0),
+                                          (0, 1), (10, 1)))
+        self.assertIsNone(F.seg_intersect((0, 0), (10, 0),
+                                          (20, -5), (20, 5)))
+
+    def test_poly_crossing_stations(self):
+        pa = [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0)]
+        pb = [(4.0, -3.0, 0.0), (4.0, 7.0, 0.0)]
+        hits = F.poly_intersections(pa, pb)
+        self.assertEqual(len(hits), 1)
+        da, db, x, y = hits[0]
+        self.assertAlmostEqual(da, 4.0)
+        self.assertAlmostEqual(db, 3.0)
+        self.assertAlmostEqual(x, 4.0)
+        self.assertAlmostEqual(y, 0.0)
+
+    def test_poly_crossing_through_a_kink(self):
+        # crossing at a shared vertex of two segments reports ONCE
+        pa = [(0.0, 0.0, 0.0), (5.0, 0.0, 0.0), (10.0, 0.0, 0.0)]
+        pb = [(5.0, -5.0, 0.0), (5.0, 5.0, 0.0)]
+        hits = F.poly_intersections(pa, pb)
+        self.assertEqual(len(hits), 1)
+        self.assertAlmostEqual(hits[0][0], 5.0)
+
+    def test_project_to_poly(self):
+        poly = [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0)]
+        d, away, px, py = F.project_to_poly(poly, 6.0, 2.0)
+        self.assertAlmostEqual(d, 6.0)
+        self.assertAlmostEqual(away, 2.0)
+        self.assertAlmostEqual(px, 6.0)
+        self.assertAlmostEqual(py, 0.0)
+        # beyond the end clamps to the endpoint
+        d2, away2, _px, _py = F.project_to_poly(poly, 14.0, 3.0)
+        self.assertAlmostEqual(d2, 10.0)
+        self.assertAlmostEqual(away2, 5.0)
 
 
 class Registry(unittest.TestCase):

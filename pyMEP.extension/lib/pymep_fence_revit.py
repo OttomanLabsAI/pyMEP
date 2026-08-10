@@ -387,23 +387,28 @@ def symbol_diameter_ft(symbol):
 
 
 def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
-    """Model a fence NETWORK inside the caller's open Transaction:
-    each line's STYLE picks its configuration, shared endpoints
-    become corner NODES that get the highest-priority incident
-    config's END post + foundation (smallest priority number wins -
-    the impact rated one).
+    """Model a fence NETWORK inside the caller's open Transaction.
 
-    Along every line the posts run at the config's SPACING; the
-    FIRST post is placed so its foundation circle TOUCHES the corner
-    end-foundation circle at a single point - both diameters read
-    from the families' 'Diameter' parameter. When either family has
-    no Diameter, that line draws normally and its first post is
-    SKIPPED instead.
+    Strategy: CORNERS FIRST, then the in-between posts.
 
-    Returns (records, notes, placed, missed): records =
-    [{"uid"(, "foundation_uid")}] for the registry. Raises
-    ValueError (before anything is placed) when the solve exceeds
-    the sanity cap or nothing is mappable."""
+      - a corner is ANY intersection of the lines: shared endpoints,
+        mid-line crossings, and T-junctions (a line ending on
+        another's run);
+      - at each corner the incident configuration nearest the TOP of
+        the config list wins, and its END post + foundation stand
+        there;
+      - when the winner's END PRIORITY is ON, every OTHER line that
+        TERMINATES at that corner places its own end post right next
+        to the winner's, on its own line - offset so the two end
+        foundation circles TOUCH (family 'Diameter' parameters);
+      - each line then fills in between at its config's spacing, the
+        first post touching the nearest circle (corner post or
+        double post); a family without a Diameter parameter drops
+        that run to normal spacing with its first post skipped.
+
+    Returns (records, notes, placed, missed). Raises ValueError
+    (before anything is placed) on the sanity cap or when nothing is
+    mappable."""
     import pymep_fence as F
 
     notes = []
@@ -417,6 +422,7 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
     levels = sorted_levels(doc)
     terrain_id = id_value(terrain.Id)
     ray_z = ray_start_z([terrain] + list(line_els))
+    tol = mm2ft(NODE_TOL_MM)
 
     # ---- lines -> configs by style -----------------------------------
     edges = []
@@ -443,81 +449,150 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                          "Fence Configs")
 
     # foundation radii from the families' Diameter parameter
-    def _fnd_radius(cfg, use_ends, what):
+    def _fnd_radius(cfg, use_ends):
         lbl = F.end_families(cfg)[1] if use_ends \
             else (cfg.get("foundation") or "")
         if not lbl:
             return None
         dia = symbol_diameter_ft(
             symbol_by_label(doc, lbl, F.FOUNDATION_CATEGORIES))
-        if dia is None:
-            note("'{}' has no Diameter parameter - {} falls back "
-                 "to normal spacing".format(lbl, what))
-            return None
-        return dia / 2.0
+        return dia / 2.0 if dia else None
 
-    # ---- corner nodes (shared endpoints) -----------------------------
-    pts = []
-    for e in edges:
-        pts.append((e["poly"][0][0], e["poly"][0][1]))
-        pts.append((e["poly"][-1][0], e["poly"][-1][1]))
-    centers, idx = F.cluster_nodes(pts, mm2ft(NODE_TOL_MM))
+    # ---- corners: EVERY intersection of the lines --------------------
+    # candidates carry which (edge, station) they pin
+    cands, pins = [], []
+
+    def cand(x, y, e_i, st):
+        cands.append((x, y))
+        pins.append((e_i, st))
+
     for i, e in enumerate(edges):
-        e["n0"] = idx[2 * i]
-        e["n1"] = idx[2 * i + 1]
+        cand(e["poly"][0][0], e["poly"][0][1], i, 0.0)
+        cand(e["poly"][-1][0], e["poly"][-1][1], i, e["length"])
+    for i in range(len(edges)):
+        for j in range(i + 1, len(edges)):
+            for da, db, x, y in F.poly_intersections(
+                    edges[i]["poly"], edges[j]["poly"]):
+                cand(x, y, i, da)
+                cand(x, y, j, db)
+    # T-junctions with a snap gap: an endpoint NEAR another line
+    for i, e in enumerate(edges):
+        for pt, _st in ((e["poly"][0], 0.0),
+                        (e["poly"][-1], e["length"])):
+            for j, o in enumerate(edges):
+                if j == i:
+                    continue
+                pr = F.project_to_poly(o["poly"], pt[0], pt[1])
+                if pr is not None and pr[1] <= tol and \
+                        tol < pr[0] < o["length"] - tol:
+                    cand(pr[2], pr[3], j, pr[0])
+
+    centers, idx = F.cluster_nodes(cands, tol)
+    node_pins = {}          # ni -> {e_i: sorted set of stations}
+    for c_i, ni in enumerate(idx):
+        e_i, st = pins[c_i]
+        node_pins.setdefault(ni, {}).setdefault(e_i, set()).add(st)
 
     nodes = []
     for ni in range(len(centers)):
-        incident = []
-        tangent = (1.0, 0.0)
-        for e in edges:
-            if e["n0"] == ni:
-                incident.append((e["name"], e["cfg"]))
-                tangent = F.point_at(e["poly"], 0.0)[1]
-            elif e["n1"] == ni:
-                incident.append((e["name"], e["cfg"]))
-                tangent = F.point_at(e["poly"], e["length"])[1]
+        per = node_pins.get(ni) or {}
+        incident = [(edges[e_i]["name"], edges[e_i]["cfg"])
+                    for e_i in sorted(per.keys())]
+        first_e = sorted(per.keys())[0]
+        first_st = sorted(per[first_e])[0]
+        tangent = F.point_at(edges[first_e]["poly"], first_st)[1]
         win_name, win = F.pick_priority(incident)
         nodes.append({"xy": centers[ni], "cfg": win,
                       "name": win_name, "tangent": tangent,
-                      "r": _fnd_radius(win, True,
-                                       "node '{}'".format(win_name))})
+                      "r": _fnd_radius(win, True),
+                      "end_priority": bool(win.get("end_priority"))})
 
-    # ---- stations along every edge -----------------------------------
-    total = len(nodes)
-    for e in edges:
-        r_edge = _fnd_radius(e["cfg"], False,
-                             "line {}".format(id_value(e["el"].Id)))
-        ra = nodes[e["n0"]]["r"]
-        rb = nodes[e["n1"]]["r"]
-        clear_a = (ra + r_edge) if (ra is not None and
-                                    r_edge is not None) else None
-        clear_b = (rb + r_edge) if (rb is not None and
-                                    r_edge is not None) else None
+    # ---- plan the DOUBLE posts + per-edge node marks ------------------
+    # doubles: winner has END PRIORITY on -> every OTHER config's line
+    # TERMINATING there sets its own end post tangent to the winner's
+    doubles = []            # (e_i, station, ni)
+    clear_override = {}     # (e_i, ni) -> in-between clearance
+    for ni, nd in enumerate(nodes):
+        if not nd["end_priority"]:
+            continue
+        for e_i, sts in (node_pins.get(ni) or {}).items():
+            e = edges[e_i]
+            if e["name"] == nd["name"]:
+                continue
+            r_end = _fnd_radius(e["cfg"], True)
+            if nd["r"] is None or r_end is None:
+                note("corner at node {}: no Diameter on a family - "
+                     "no double post for line {}".format(
+                         ni + 1, id_value(e["el"].Id)))
+                continue
+            d = nd["r"] + r_end
+            for st in sts:
+                if st <= tol:                       # line starts here
+                    doubles.append((e_i, min(d, e["length"]), ni))
+                elif st >= e["length"] - tol:       # line ends here
+                    doubles.append((e_i, max(e["length"] - d, 0.0),
+                                    ni))
+                else:
+                    continue                        # passes through
+                r_fnd = _fnd_radius(e["cfg"], False)
+                if r_fnd is not None:
+                    clear_override[(e_i, ni)] = d + r_end + r_fnd
+
+    # ---- in-between stations per edge segment ------------------------
+    total = len(nodes) + len(doubles)
+    for e_i, e in enumerate(edges):
+        marks = []
+        for ni, per in node_pins.items():
+            if e_i in per:
+                for st in per[e_i]:
+                    marks.append((min(max(st, 0.0), e["length"]), ni))
+        marks.sort()
+        merged = []
+        for st, ni in marks:
+            if merged and abs(st - merged[-1][0]) <= tol:
+                continue
+            merged.append((st, ni))
+        r_edge = _fnd_radius(e["cfg"], False)
         spacing_ft = mm2ft(e["cfg"]["spacing_mm"])
-        pa = int(nodes[e["n0"]]["cfg"].get("priority") or 99)
-        pb = int(nodes[e["n1"]]["cfg"].get("priority") or 99)
-        from_start = pa <= pb
-        if from_start:
-            sts = F.edge_stations(e["length"], spacing_ft, clear_a,
-                                  clear_b)
-        else:
-            sts = F.edge_stations(e["length"], spacing_ft, clear_b,
-                                  clear_a)
-            sts = sorted(e["length"] - d for d in sts)
-        e["stations"] = sts
-        total += len(sts)
-        note("line {} ('{}' -> {}): {} post(s), first post {}".format(
-            id_value(e["el"].Id), e["style"], e["name"], len(sts),
-            "TOUCHES the corner circle"
-            if (clear_a if from_start else clear_b) is not None
-            else "skipped (no Diameter) - normal spacing"))
+        sts_all = []
+        for k in range(len(merged) - 1):
+            s0, n0 = merged[k]
+            s1, n1 = merged[k + 1]
+            sub = s1 - s0
+            if sub <= tol:
+                continue
+
+            def _clear(ni2):
+                ov = clear_override.get((e_i, ni2))
+                if ov is not None:
+                    return ov
+                rn = nodes[ni2]["r"]
+                if rn is not None and r_edge is not None:
+                    return rn + r_edge
+                return None
+
+            p0 = int(nodes[n0]["cfg"].get("priority") or 99)
+            p1 = int(nodes[n1]["cfg"].get("priority") or 99)
+            if p0 <= p1:
+                seg = F.edge_stations(sub, spacing_ft, _clear(n0),
+                                      _clear(n1))
+                sts_all.extend(s0 + d for d in seg)
+            else:
+                seg = F.edge_stations(sub, spacing_ft, _clear(n1),
+                                      _clear(n0))
+                sts_all.extend(s1 - d for d in seg)
+        e["stations"] = sorted(sts_all)
+        total += len(e["stations"])
+        note("line {} ('{}' -> {}): {} corner(s), {} in-between "
+             "post(s)".format(
+                 id_value(e["el"].Id), e["style"], e["name"],
+                 len(merged), len(e["stations"])))
     if total > F.MAX_INSTANCES:
         raise ValueError("{} instances would be placed - over the "
                          "{} sanity cap. Check the spacing.".format(
                              total, F.MAX_INSTANCES))
 
-    # ---- place -------------------------------------------------------
+    # ---- place: corners FIRST, then doubles, then in-between ---------
     records = []
     missed = [0]
     sym_cache = {}
@@ -554,12 +629,12 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
         lvl = level_for(levels, hit.Z)
         ang = math.atan2(tang[1], tang[0]) + math.radians(
             float(cfg.get("rotation_deg") or 0.0))
-        for s in (primary, secondary):
-            if s is None:
+        for sy in (primary, secondary):
+            if sy is None:
                 continue
             try:
-                if not s.IsActive:
-                    s.Activate()
+                if not sy.IsActive:
+                    sy.Activate()
                     doc.Regenerate()
             except Exception:
                 pass
@@ -580,9 +655,13 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
     for nd in nodes:
         put(nd["xy"][0], nd["xy"][1], nd["tangent"], nd["cfg"],
             True)
+    for e_i, st, _ni in doubles:
+        e = edges[e_i]
+        pnt, tang = F.point_at(e["poly"], st)
+        put(pnt[0], pnt[1], tang, e["cfg"], True)
     for e in edges:
         for d in e["stations"]:
-            p, tang = F.point_at(e["poly"], d)
-            put(p[0], p[1], tang, e["cfg"], False)
+            pnt, tang = F.point_at(e["poly"], d)
+            put(pnt[0], pnt[1], tang, e["cfg"], False)
 
     return records, notes, len(records), missed[0]

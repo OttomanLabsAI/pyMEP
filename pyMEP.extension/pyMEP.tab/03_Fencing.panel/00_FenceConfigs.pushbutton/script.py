@@ -52,7 +52,9 @@ def _row_text(name, cfg):
             cfg["end_post"] or "none",
             cfg["end_foundation"] or "none")
     if cfg.get("line_style"):
-        txt += u"  |  NET: '{}'".format(cfg["line_style"])
+        txt += u"  |  NET: '{}'{}".format(
+            cfg["line_style"],
+            " END-PRIORITY" if cfg.get("end_priority") else "")
     return txt
 
 
@@ -89,6 +91,7 @@ class ConfigEditWindow(forms.WPFWindow):
         for nm2 in style_names:
             self.CmbLineStyle.Items.Add(nm2)
         self._select_pick(self.CmbLineStyle, cfg["line_style"])
+        self.ChkEndPriority.IsChecked = bool(cfg["end_priority"])
 
     # ---- family pickers (post + foundation share the behaviour) ------
     @staticmethod
@@ -227,7 +230,9 @@ class ConfigEditWindow(forms.WPFWindow):
                        "same_ends": same_ends, "end_post": end_post,
                        "end_foundation": end_foundation,
                        "line_style":
-                           self._picked(self.CmbLineStyle)}
+                           self._picked(self.CmbLineStyle),
+                       "end_priority":
+                           bool(self.ChkEndPriority.IsChecked)}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -295,7 +300,7 @@ class ConfigsWindow(forms.WPFWindow):
                             r["foundation"], r["post"],
                             r["same_ends"], r["end_post"],
                             r["end_foundation"], r["line_style"],
-                            prio)
+                            prio, r["end_priority"])
         except ValueError as ex:
             self.StatusText.Text = str(ex)
             return

@@ -32,7 +32,8 @@ DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "rotation_deg": 0.0, "post": "", "foundation": "",
                   "same_ends": True, "end_post": "",
                   "end_foundation": "",
-                  "line_style": "", "priority": 99}
+                  "line_style": "", "priority": 99,
+                  "end_priority": False}
 
 # the categories a POST may come from / the FOUNDATION must come from
 POST_CATEGORIES = ["OST_GenericModel", "OST_Columns",
@@ -196,7 +197,10 @@ def get_configs(settings):
                                   "line_style":
                                       str(c.get("line_style") or ""),
                                   "priority": int(_num(
-                                      c.get("priority"), 99))}
+                                      c.get("priority"), 99)),
+                                  "end_priority": bool(
+                                      c.get("end_priority",
+                                            False))}
             except Exception:
                 continue
     if not out:
@@ -207,7 +211,7 @@ def get_configs(settings):
 def upsert_config(settings, name, spacing_mm, endpoints,
                   rotation_deg=0.0, foundation="", post="",
                   same_ends=True, end_post="", end_foundation="",
-                  line_style="", priority=99):
+                  line_style="", priority=99, end_priority=False):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
@@ -246,7 +250,8 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   "end_foundation":
                       str(end_foundation or "").strip(),
                   "line_style": str(line_style or "").strip(),
-                  "priority": priority}
+                  "priority": priority,
+                  "end_priority": bool(end_priority)}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
 
@@ -303,7 +308,9 @@ def effective_config(settings, name, snapshot):
             "end_foundation":
                 str(snapshot.get("end_foundation") or ""),
             "line_style": str(snapshot.get("line_style") or ""),
-            "priority": int(_num(snapshot.get("priority"), 99))}
+            "priority": int(_num(snapshot.get("priority"), 99)),
+            "end_priority": bool(snapshot.get("end_priority",
+                                              False))}
 
 
 def delete_config(settings, name):
@@ -401,6 +408,91 @@ def config_for_style(cfgs, style):
         if cfgs[name].get("line_style") == style:
             return name, cfgs[name]
     return None
+
+
+def seg_intersect(a1, a2, b1, b2):
+    """2D intersection of segments a1-a2 / b1-b2 as (t, u) params in
+    [0, 1], or None (parallel / out of range). Endpoint touches
+    count."""
+    x1, y1 = a1[0], a1[1]
+    x2, y2 = a2[0], a2[1]
+    x3, y3 = b1[0], b1[1]
+    x4, y4 = b2[0], b2[1]
+    d1x, d1y = x2 - x1, y2 - y1
+    d2x, d2y = x4 - x3, y4 - y3
+    den = d1x * d2y - d1y * d2x
+    scale = max(abs(d1x), abs(d1y), abs(d2x), abs(d2y), 1e-12)
+    if abs(den) <= 1e-12 * scale * scale:
+        return None
+    t = ((x3 - x1) * d2y - (y3 - y1) * d2x) / den
+    u = ((x3 - x1) * d1y - (y3 - y1) * d1x) / den
+    e = 1e-9
+    if -e <= t <= 1 + e and -e <= u <= 1 + e:
+        return (min(max(t, 0.0), 1.0), min(max(u, 0.0), 1.0))
+    return None
+
+
+def _seg3(a, b):
+    return ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2 +
+            (b[2] - a[2]) ** 2) ** 0.5
+
+
+def poly_intersections(pa, pb):
+    """Plan CROSSINGS between two polylines as [(dist_a, dist_b, x,
+    y)] - arc-length stations along each. Near-duplicate hits
+    (shared vertices of consecutive segments) are merged."""
+    out = []
+    da = 0.0
+    for i in range(1, len(pa)):
+        a1, a2 = pa[i - 1], pa[i]
+        la = _seg3(a1, a2)
+        if la <= 1e-12:
+            continue
+        db = 0.0
+        for j in range(1, len(pb)):
+            b1, b2 = pb[j - 1], pb[j]
+            lb = _seg3(b1, b2)
+            if lb <= 1e-12:
+                continue
+            hit = seg_intersect(a1, a2, b1, b2)
+            if hit is not None:
+                t, u = hit
+                sa, sb = da + la * t, db + lb * u
+                dup = False
+                for (qa, qb, _x, _y) in out:
+                    if abs(qa - sa) <= 1e-6 and abs(qb - sb) <= 1e-6:
+                        dup = True
+                        break
+                if not dup:
+                    out.append((sa, sb,
+                                a1[0] + (a2[0] - a1[0]) * t,
+                                a1[1] + (a2[1] - a1[1]) * t))
+            db += lb
+        da += la
+    return out
+
+
+def project_to_poly(poly, x, y):
+    """The polyline's closest point to (x, y) in plan: (dist_along,
+    dist_away, px, py) - or None for a degenerate polyline."""
+    best = None
+    run = 0.0
+    for i in range(1, len(poly)):
+        a, b = poly[i - 1], poly[i]
+        seg = _seg3(a, b)
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        l2 = dx * dx + dy * dy
+        if l2 <= 1e-12:
+            run += seg
+            continue
+        t = ((x - a[0]) * dx + (y - a[1]) * dy) / l2
+        t = min(max(t, 0.0), 1.0)
+        px, py = a[0] + dx * t, a[1] + dy * t
+        away = ((x - px) ** 2 + (y - py) ** 2) ** 0.5
+        if best is None or away < best[1]:
+            best = (run + seg * t, away, px, py)
+        run += seg
+    return best
 
 
 def renumber_priorities(settings, ordered_names):
