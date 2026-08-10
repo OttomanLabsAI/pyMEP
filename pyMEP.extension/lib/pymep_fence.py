@@ -548,22 +548,21 @@ def cluster_nodes(points, tol):
     return centers, idx
 
 
-def edge_stations(length, spacing, clear_start=None, clear_end=None,
+def edge_stations(length, spacing, anchor=0.0, clear_end=None,
                   tol=1e-6):
-    """Post centers along one NETWORK edge, measured from the start.
+    """In-between post centers for one stretch, measured from its
+    start.
 
-    ``clear_start`` = end-foundation radius + this line's foundation
-    radius (both from the families' 'Diameter' parameter): the FIRST
-    post is placed exactly there, so the two circles TOUCH at a
-    single point. When a diameter is unknown (None) the line draws
-    NORMALLY and its first post is SKIPPED - the run starts at
-    2 x spacing. After the first, every post is ``spacing`` on.
-    The run stops clear of the far node: ``clear_end`` when known,
-    one full spacing when not."""
+    The first post sits a FULL SPACING from the ``anchor`` - the
+    corner itself (0) or the corner's DOUBLE post when one was
+    placed on this line - and every next post is ``spacing`` on.
+    The run stops clear of the far corner (``clear_end`` when the
+    circles are known, one spacing when not): the leftover simply
+    SHORTENS the last bay - posts never double up."""
     if not spacing or spacing <= tol or length is None or \
             length <= tol:
         return []
-    first = clear_start if clear_start is not None else 2.0 * spacing
+    first = (anchor or 0.0) + spacing
     limit = length - (clear_end if clear_end is not None
                       else spacing)
     out = []
