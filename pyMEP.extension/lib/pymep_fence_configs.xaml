@@ -38,20 +38,34 @@
         <StackPanel Grid.Row="1" Margin="14,12,14,0">
             <ListBox x:Name="LstConfigs" Height="220"
                      MouseDoubleClick="on_edit"/>
-            <StackPanel Orientation="Horizontal"
-                        HorizontalAlignment="Right" Margin="0,8,0,0">
-                <Button x:Name="BtnAdd" Content="Add new"
-                        Style="{StaticResource DialogButton}"
-                        Click="on_add"/>
-                <Button x:Name="BtnEdit" Content="Edit"
-                        Style="{StaticResource DialogButton}"
-                        Click="on_edit"/>
-                <Button x:Name="BtnRemove" Content="Remove"
-                        Style="{StaticResource DialogButton}"
-                        Click="on_remove"/>
-            </StackPanel>
+            <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <Button x:Name="BtnUp" Content="Move up"
+                            Style="{StaticResource DialogButton}"
+                            Margin="0,0,0,0" Click="on_up"/>
+                    <Button x:Name="BtnDown" Content="Move down"
+                            Style="{StaticResource DialogButton}"
+                            Click="on_down"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button x:Name="BtnAdd" Content="Add new"
+                            Style="{StaticResource DialogButton}"
+                            Click="on_add"/>
+                    <Button x:Name="BtnEdit" Content="Edit"
+                            Style="{StaticResource DialogButton}"
+                            Click="on_edit"/>
+                    <Button x:Name="BtnRemove" Content="Remove"
+                            Style="{StaticResource DialogButton}"
+                            Click="on_remove"/>
+                </StackPanel>
+            </Grid>
             <TextBlock Style="{StaticResource Hint}"
-                       Text="Add new and Edit open the configuration editor (double-click a row edits it too). Remove deletes the picked one - the last one standing resets to 'Default'. Configurations live in pyMEP settings and survive updates; Update Fence re-reads them, so an edit here re-spaces, re-rotates, re-posts or re-founds its fences on the next update."/>
+                       Text="The list order IS the priority hierarchy: the TOP configuration wins corner posts in Fence Network - Move up / Move down to reorder. Add new and Edit open the configuration editor (double-click a row edits it too); Remove deletes the picked one - the last one standing resets to 'Default'. Configurations live in pyMEP settings and survive updates; Update Fence re-reads them, so an edit here reworks its fences on the next update."/>
             <TextBlock x:Name="StatusText" Foreground="#B00020"
                        TextWrapping="Wrap" Margin="0,6,0,0" Text=""/>
         </StackPanel>

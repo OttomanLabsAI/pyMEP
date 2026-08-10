@@ -58,29 +58,9 @@
 
             <GroupBox Header="Line style (Fence Network)">
                 <StackPanel>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="150"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Grid.Column="0"
-                                   Style="{StaticResource FieldLabel}"
-                                   Text="Line style"/>
-                        <ComboBox x:Name="CmbLineStyle" Grid.Row="0"
-                                  Grid.Column="1" Margin="0,3,0,0"/>
-                        <TextBlock Grid.Row="1" Grid.Column="0"
-                                   Style="{StaticResource FieldLabel}"
-                                   Text="Priority (1 = highest)"/>
-                        <TextBox x:Name="TxtPriority" Grid.Row="1"
-                                 Grid.Column="1" Width="130"
-                                 HorizontalAlignment="Left"/>
-                    </Grid>
+                    <ComboBox x:Name="CmbLineStyle" Margin="0,3,0,0"/>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Fence Network models lines drawn with this style using this configuration; at a corner the SMALLEST priority number wins the end post (put the impact rated one at 1). Place New Fence ignores these."/>
+                               Text="Fence Network models lines drawn with this style using this configuration; at a corner the configuration nearer the TOP of the list wins the end post - reorder with Move up / Move down in the list window. Place New Fence ignores this."/>
                 </StackPanel>
             </GroupBox>
 
