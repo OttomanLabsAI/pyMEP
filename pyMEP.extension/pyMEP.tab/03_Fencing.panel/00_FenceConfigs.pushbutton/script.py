@@ -180,8 +180,9 @@ class ConfigEditWindow(forms.WPFWindow):
 
     def on_same_ends(self, sender, args):
         try:
-            self.PnlEnds.IsEnabled = not bool(
-                self.ChkSameEnds.IsChecked)
+            on = not bool(self.ChkSameEnds.IsChecked)
+            self.PnlEndPost.IsEnabled = on
+            self.PnlEndFound.IsEnabled = on
         except Exception:
             pass
 

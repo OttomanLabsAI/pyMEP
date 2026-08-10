@@ -104,6 +104,21 @@
                     <ComboBox x:Name="CmbPost" Margin="0,6,0,0"/>
                     <TextBlock Style="{StaticResource Hint}"
                                Text="Generic Models, Columns and Structural Columns (type above to filter, family : type). '(none)' places foundations only."/>
+                    <CheckBox x:Name="ChkSameEnds" Margin="0,10,0,0"
+                              IsChecked="True"
+                              Content="END posts + foundations: keep the same as the in-between"
+                              Checked="on_same_ends"
+                              Unchecked="on_same_ends"/>
+                    <StackPanel x:Name="PnlEndPost" Margin="0,6,0,0">
+                        <TextBlock Text="End post family"
+                                   FontWeight="SemiBold"/>
+                        <TextBox x:Name="TxtEndPostSearch"
+                                 TextChanged="on_end_post_search"/>
+                        <ComboBox x:Name="CmbEndPost"
+                                  Margin="0,6,0,0"/>
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Untick above to give the line's ENDPOINT stations their own post (gate / corner posts)."/>
+                    </StackPanel>
                 </StackPanel>
             </GroupBox>
 
@@ -114,34 +129,16 @@
                     <ComboBox x:Name="CmbFoundation" Margin="0,6,0,0"/>
                     <TextBlock Style="{StaticResource Hint}"
                                Text="Structural Foundation families only (type above to filter). '(none)' places posts only. Lands at the SAME draped point and rotation as the post."/>
-                </StackPanel>
-            </GroupBox>
-
-            <GroupBox Header="End posts">
-                <StackPanel>
-                    <CheckBox x:Name="ChkSameEnds" Margin="0,2,0,0"
-                              IsChecked="True"
-                              Content="keep them the same as the in-between posts"
-                              Checked="on_same_ends"
-                              Unchecked="on_same_ends"/>
-                    <StackPanel x:Name="PnlEnds" Margin="0,6,0,0">
-                        <TextBlock Text="End post family"
-                                   FontWeight="SemiBold"
-                                   Margin="0,4,0,0"/>
-                        <TextBox x:Name="TxtEndPostSearch"
-                                 TextChanged="on_end_post_search"/>
-                        <ComboBox x:Name="CmbEndPost"
-                                  Margin="0,6,0,0"/>
+                    <StackPanel x:Name="PnlEndFound" Margin="0,10,0,0">
                         <TextBlock Text="End foundation family"
-                                   FontWeight="SemiBold"
-                                   Margin="0,10,0,0"/>
+                                   FontWeight="SemiBold"/>
                         <TextBox x:Name="TxtEndFoundSearch"
                                  TextChanged="on_end_found_search"/>
                         <ComboBox x:Name="CmbEndFoundation"
                                   Margin="0,6,0,0"/>
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Greys with the tick in Post family. In Fence Network this family's 'Diameter' parameter sets the corner circle - each line's first post is placed so the two foundation circles TOUCH at a single point (no Diameter parameter: normal spacing, first post skipped)."/>
                     </StackPanel>
-                    <TextBlock Style="{StaticResource Hint}"
-                               Text="Untick to give the line's ENDPOINT stations their own post + foundation (gate / corner posts, heavier piles). In Fence Network the end FOUNDATION family's 'Diameter' parameter sets the corner circle: the first post of each line is placed so the two foundation circles TOUCH at a single point. No Diameter parameter found - the line draws normally and its first post is skipped."/>
                 </StackPanel>
             </GroupBox>
 
