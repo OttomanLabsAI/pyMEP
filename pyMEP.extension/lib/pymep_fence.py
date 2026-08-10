@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Fence - place a family along a picked line, draped onto a picked
-terrain: the pure maths + the spacing-configuration store.
+terrain: the pure maths, the spacing-configuration store and the
+FENCE REGISTRY.
 
 PURE PYTHON (no Revit imports) so the CPython suite tests it all:
 stations() turns line length + spacing + justification + endpoints
@@ -8,7 +9,18 @@ into distances along the line, point_at() walks the tessellated
 polyline to a point and its plan tangent, and the config helpers
 edit the named spacing configurations kept in pyMEP settings (so
 they survive updates with the rest of pyMEP_settings.json).
+
+Every placed fence is recorded in the project's file store
+(<exports>/<model>/project_files/fences.json): the LINE's UniqueId,
+the TERRAIN's UniqueId, the settings used, and each instance's
+UniqueId + station + rotation - so Update Fence can move the posts
+back onto the line and the ground after either changes.
 """
+
+import json
+import os
+
+import pymep_json
 
 SETTINGS_CONFIGS = "fence_configs"   # {name: {spacing_mm, endpoints}}
 SETTINGS_LAST = "fence_config"       # last used config name
@@ -187,3 +199,80 @@ def delete_config(settings, name):
         cfgs[DEFAULT_NAME] = dict(DEFAULT_CONFIG)
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
+
+
+# ---------------------------------------------------------------------------
+# fence registry (the project's file store folder is the ``base``)
+# ---------------------------------------------------------------------------
+REGISTRY = "fences.json"
+
+
+def load_fences(base):
+    """{"fences": [...]} - missing / corrupt -> fresh empty (never
+    raises)."""
+    try:
+        with open(os.path.join(base, REGISTRY), "r") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get("fences"),
+                                                 list):
+            return data
+    except Exception:
+        pass
+    return {"fences": []}
+
+
+def save_fences(base, data):
+    if not os.path.isdir(base):
+        os.makedirs(base)
+    with open(os.path.join(base, REGISTRY), "w") as f:
+        pymep_json.dump(data, f, indent=2, sort_keys=True)
+
+
+def add_fence(base, record):
+    """Store a new fence record; assigns and returns its id."""
+    data = load_fences(base)
+    next_id = 1 + max([0] + [int(r.get("id") or 0)
+                             for r in data["fences"]])
+    record["id"] = next_id
+    data["fences"].append(record)
+    save_fences(base, data)
+    return next_id
+
+
+def update_fence(base, record):
+    """Replace the record with the same id (appends when unknown)."""
+    data = load_fences(base)
+    out = [r for r in data["fences"]
+           if r.get("id") != record.get("id")]
+    out.append(record)
+    out.sort(key=lambda r: int(r.get("id") or 0))
+    data["fences"] = out
+    save_fences(base, data)
+
+
+def drop_fence(base, fence_id):
+    data = load_fences(base)
+    data["fences"] = [r for r in data["fences"]
+                      if r.get("id") != fence_id]
+    save_fences(base, data)
+
+
+def fence_label(rec):
+    """One-line description for pickers and reports."""
+    return "Fence {} - {} @ {:g} mm, {} ({} post(s))".format(
+        rec.get("id") or "?", rec.get("family") or "?",
+        float(rec.get("spacing_mm") or 0.0),
+        rec.get("justify") or "start",
+        len(rec.get("instances") or []))
+
+
+def pair_stations(instances, dists, tol=1e-6):
+    """MOVE plan: [(instance_dict, new_station), ...] pairing the
+    stored instances (by their station order) with the new stations -
+    or None when the counts differ and the fence must be rebuilt
+    instead."""
+    if len(instances) != len(dists) or not instances:
+        return None
+    inst = sorted(instances,
+                  key=lambda r: float(r.get("station_ft") or 0.0))
+    return list(zip(inst, sorted(dists)))

@@ -1,0 +1,3 @@
+title: "Update\nFence"
+tooltip: "Re-drape recorded fences after the LINE or the TERRAIN changed. Every fence the Fence button places is tracked (line, terrain, family, spacing, justification, each post's UniqueId + station). Pick which fences to update: when the station count is unchanged every post is MOVED onto the line's current path and the terrain's current surface - element ids survive, and the rotation applied is the DELTA so a manual rotation tweak on a post survives too. When the count changed (line lengthened or reshaped) the old posts are deleted and the fence is REBUILT with its stored settings. Deleted lines / terrains are reported; a record with no surviving posts is dropped. The registry lives in the project file store (fences.json)."
+author: Fid
