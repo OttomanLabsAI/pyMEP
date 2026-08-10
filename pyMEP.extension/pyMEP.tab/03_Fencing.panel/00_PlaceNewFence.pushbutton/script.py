@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Fence - pick a line and a terrain, place a family along the line.
+"""Place New Fence - pick a line and a terrain, place a family
+along the line.
 
-One dialog first: the family (searchable), a named spacing
-CONFIGURATION (spacing + place-at-endpoints, with create / edit /
-delete), and the justification (Start / Centre / End - where the
-spacing counts from; Centre splits the leftover evenly). Then pick
-the LINE and the TERRAIN in the view. Every station is ray-cast
+One dialog first: the family (searchable), the fence CONFIGURATION
+(spacing + endpoints + custom rotation - created and edited with the
+Fence Configurations button), and the justification (Start / Centre
+/ End - where the spacing counts from; Centre splits the leftover
+evenly). Then pick the LINE and the TERRAIN in the view. Every station is ray-cast
 straight down onto the picked terrain and the instance lands ON the
 ground, rotated so its X axis follows the line's direction there.
 
@@ -15,10 +16,11 @@ the terrain changes. Straight, curved and closed model lines all
 work. Revit 2022-2026.
 """
 
-__title__  = "Fence"
+__title__  = "Place New\nFence"
 __author__ = "Glent Group"
 
 import datetime
+import math
 import os
 import sys
 
@@ -46,13 +48,13 @@ from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 doc = revit.doc
 uidoc = revit.uidoc
 output = script.get_output()
-log = Logger(output, "Fence")
+log = Logger(output, "PlaceNewFence")
 
 XAML_PATH = os.path.join(
     os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
     "pymep_fence.xaml")
 
-log("### Fence")
+log("### Place New Fence")
 
 
 def _name(el):
@@ -152,43 +154,15 @@ class FenceWindow(forms.WPFWindow):
             cfg = F.get_configs(self.settings).get(name)
             if cfg is None:
                 return
-            self.TxtCfgName.Text = name
-            self.TxtSpacing.Text = "{:g}".format(cfg["spacing_mm"])
-            self.ChkEnds.IsChecked = bool(cfg["endpoints"])
+            self.TxtCfgSummary.Text = (
+                u"{:g} mm spacing, endpoints {}, rotation "
+                u"{:+g}\u00b0".format(
+                    cfg["spacing_mm"],
+                    "ON" if cfg["endpoints"] else "off",
+                    cfg["rotation_deg"]))
             self.StatusText.Text = ""
         except Exception:
             pass
-
-    def on_cfg_save(self, sender, args):
-        try:
-            F.upsert_config(self.settings, self.TxtCfgName.Text,
-                            self.TxtSpacing.Text,
-                            bool(self.ChkEnds.IsChecked))
-        except ValueError as ex:
-            self.StatusText.Text = str(ex)
-            return
-        except Exception as ex:
-            self.StatusText.Text = str(ex)
-            return
-        try:
-            save_settings(self.settings)
-        except Exception:
-            pass
-        name = (self.TxtCfgName.Text or "").strip()
-        self._fill_configs(name)
-        self.StatusText.Text = ""
-
-    def on_cfg_delete(self, sender, args):
-        try:
-            name = str(self.CmbConfig.SelectedItem or "")
-            F.delete_config(self.settings, name)
-            try:
-                save_settings(self.settings)
-            except Exception:
-                pass
-            self._fill_configs(None)
-        except Exception as ex:
-            self.StatusText.Text = str(ex)
 
     # ---- go / cancel -------------------------------------------------
     def justify(self):
@@ -203,13 +177,10 @@ class FenceWindow(forms.WPFWindow):
         if not label:
             self.StatusText.Text = "Pick a family to place."
             return
-        try:
-            spacing = float(self.TxtSpacing.Text)
-        except Exception:
-            spacing = 0.0
-        if spacing <= 0:
-            self.StatusText.Text = ("Spacing must be a positive "
-                                    "number (mm).")
+        cfg = F.get_configs(self.settings).get(
+            str(self.CmbConfig.SelectedItem or ""))
+        if cfg is None:
+            self.StatusText.Text = "Pick a configuration."
             return
         symbol = None
         for lbl, fs in self.fam_items:
@@ -220,8 +191,10 @@ class FenceWindow(forms.WPFWindow):
             self.StatusText.Text = "Pick a family to place."
             return
         self.result = {
-            "label": label, "symbol": symbol, "spacing_mm": spacing,
-            "endpoints": bool(self.ChkEnds.IsChecked),
+            "label": label, "symbol": symbol,
+            "spacing_mm": cfg["spacing_mm"],
+            "endpoints": cfg["endpoints"],
+            "rotation_deg": cfg["rotation_deg"],
             "justify": self.justify(),
             "config": str(self.CmbConfig.SelectedItem or ""),
         }
@@ -298,10 +271,12 @@ def main():
     except Exception:
         pass
 
-    log("Family **{}**, spacing **{:g} mm**, justification "
-        "**{}**, endpoints **{}**.".format(
-            opt["label"], opt["spacing_mm"], opt["justify"],
-            "on" if opt["endpoints"] else "off"))
+    log("Family **{}**, config **{}**: spacing **{:g} mm**, "
+        "justification **{}**, endpoints **{}**, rotation "
+        "**{:+g} deg**.".format(
+            opt["label"], opt["config"], opt["spacing_mm"],
+            opt["justify"], "on" if opt["endpoints"] else "off",
+            opt["rotation_deg"]))
 
     line_el = pick_one(LineFilter(), "Pick the LINE to fence along")
     if line_el is None:
@@ -368,7 +343,7 @@ def main():
     try:
         records, missed, failed, why = FR.place_instances(
             doc, opt["symbol"], poly, dists, terrain_id, ri, ray_z,
-            levels)
+            levels, extra_rot=math.radians(opt["rotation_deg"]))
         t.Commit()
     except Exception:
         try:
@@ -400,6 +375,7 @@ def main():
                 "family": opt["label"],
                 "spacing_mm": opt["spacing_mm"],
                 "endpoints": opt["endpoints"],
+                "rotation_deg": opt["rotation_deg"],
                 "justify": opt["justify"],
                 "config": opt["config"],
                 "instances": records,

@@ -28,7 +28,8 @@ SETTINGS_JUSTIFY = "fence_justify"   # start | centre | end
 SETTINGS_FAMILY = "fence_family"     # last family label
 
 DEFAULT_NAME = "Default"
-DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True}
+DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
+                  "rotation_deg": 0.0}
 
 JUSTIFY_START = "start"
 JUSTIFY_CENTRE = "centre"
@@ -159,9 +160,14 @@ def get_configs(settings):
                 sp = float(c.get("spacing_mm") or 0.0)
                 if sp <= 0:
                     continue
+                try:
+                    rot = float(c.get("rotation_deg") or 0.0)
+                except Exception:
+                    rot = 0.0
                 out[str(name)] = {"spacing_mm": sp,
                                   "endpoints": bool(
-                                      c.get("endpoints", True))}
+                                      c.get("endpoints", True)),
+                                  "rotation_deg": rot}
             except Exception:
                 continue
     if not out:
@@ -169,10 +175,13 @@ def get_configs(settings):
     return out
 
 
-def upsert_config(settings, name, spacing_mm, endpoints):
+def upsert_config(settings, name, spacing_mm, endpoints,
+                  rotation_deg=0.0):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
-    dialog should show."""
+    dialog should show. ``rotation_deg`` is the EXTRA rotation on top
+    of line-aligned (90 = across the line); any number, also
+    negative."""
     name = (name or "").strip()
     if not name:
         raise ValueError("the configuration needs a name")
@@ -182,11 +191,35 @@ def upsert_config(settings, name, spacing_mm, endpoints):
         raise ValueError("spacing must be a positive number (mm)")
     if spacing_mm <= 0:
         raise ValueError("spacing must be a positive number (mm)")
+    try:
+        rotation_deg = float(rotation_deg or 0.0)
+    except Exception:
+        raise ValueError("rotation must be a number (degrees)")
     cfgs = get_configs(settings)
     cfgs[name] = {"spacing_mm": spacing_mm,
-                  "endpoints": bool(endpoints)}
+                  "endpoints": bool(endpoints),
+                  "rotation_deg": rotation_deg}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
+
+
+def effective_config(settings, name, snapshot):
+    """The values an update should USE: the CURRENT saved config of
+    that name when it still exists (so edits made with Fence
+    Configurations flow into Update Fence), else the record's stored
+    snapshot. Returns {spacing_mm, endpoints, rotation_deg}."""
+    raw = settings.get(SETTINGS_CONFIGS)
+    if isinstance(raw, dict) and name and name in raw:
+        cfg = get_configs(settings).get(name)
+        if cfg is not None:
+            return dict(cfg)
+    try:
+        rot = float(snapshot.get("rotation_deg") or 0.0)
+    except Exception:
+        rot = 0.0
+    return {"spacing_mm": float(snapshot.get("spacing_mm") or 0.0),
+            "endpoints": bool(snapshot.get("endpoints", True)),
+            "rotation_deg": rot}
 
 
 def delete_config(settings, name):

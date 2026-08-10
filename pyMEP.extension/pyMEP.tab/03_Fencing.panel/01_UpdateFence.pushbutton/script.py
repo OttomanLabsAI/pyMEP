@@ -1,21 +1,24 @@
 # -*- coding: utf-8 -*-
-"""Update Fence - re-drape recorded fences after the line or the
-terrain changed.
+"""Update Fence - re-drape recorded fences after the line, the
+terrain OR the configuration changed.
 
-Every fence the Fence button places is recorded with its LINE, its
-TERRAIN and its settings (project file store: fences.json). This
-button walks the picked records against the model as it is NOW:
+Every fence Place New Fence places is recorded with its LINE, its
+TERRAIN, its CONFIGURATION name and the values used (project file
+store: fences.json). This button re-reads the configuration by name
+- so an edit in Fence Configurations (spacing, endpoints, rotation)
+flows in - and walks the picked records against the model as it is
+NOW:
 
   - same number of stations  -> every instance is MOVED onto the
     line's current path and the terrain's current surface (element
-    ids survive; the rotation applied is the DELTA, so a manual
-    rotation tweak on a post survives too);
-  - station count changed (line lengthened / reshaped) -> the old
-    instances are deleted and the fence is REBUILT with its stored
-    family + spacing + justification;
+    ids survive; rotation is applied as the DELTA, so a config
+    rotation change lands and a manual tweak on a post survives);
+  - station count changed (line reshaped / spacing edited) -> the
+    old instances are deleted and the fence REBUILT;
   - line or terrain DELETED -> reported; a record with no surviving
     posts is dropped.
 
+The dialog lists each fence with what WILL happen before you commit.
 IronPython 2.7 / Revit 2022-2026.
 """
 
@@ -23,6 +26,7 @@ __title__  = "Update\nFence"
 __author__ = "Glent Group"
 
 import datetime
+import math
 import os
 import sys
 
@@ -31,9 +35,8 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
 
 from pyrevit import revit, forms, script
 
-from pymep_config import get_export_folder
+from pymep_config import get_export_folder, load_settings
 from pymep_log import Logger
-from pymep_project_data_ui import PickListWindow
 import pymep_fence as F
 import pymep_fence_revit as FR
 
@@ -44,6 +47,10 @@ doc = revit.doc
 output = script.get_output()
 log = Logger(output, "UpdateFence")
 
+XAML_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
+    "pymep_update_fence.xaml")
+
 log("### Update Fence")
 
 base = os.path.join(get_export_folder(doc), "project_files")
@@ -52,7 +59,9 @@ if not data["fences"]:
     log("No fences recorded for this model yet.")
     log.close()
     forms.alert("No fences recorded for this model yet - place one "
-                "with the Fence button first.", exitscript=True)
+                "with Place New Fence first.", exitscript=True)
+
+settings = load_settings()
 
 
 def _nm(el):
@@ -88,8 +97,39 @@ def _by_uid(uid):
         return None
 
 
-# resolve every record against the model as it stands
-rows = []           # (label, rec, line_el, terrain_el, survivors)
+def _mm2ft(mm):
+    return UnitUtils.ConvertToInternalUnits(float(mm),
+                                            UnitTypeId.Millimeters)
+
+
+def _config_notes(rec, eff):
+    """What changed in the config since this fence was placed."""
+    notes = []
+    try:
+        if abs(float(rec.get("spacing_mm") or 0.0) -
+               eff["spacing_mm"]) > 1e-6:
+            notes.append("spacing {:g} -> {:g} mm".format(
+                float(rec.get("spacing_mm") or 0.0),
+                eff["spacing_mm"]))
+    except Exception:
+        pass
+    if bool(rec.get("endpoints", True)) != eff["endpoints"]:
+        notes.append("endpoints {} -> {}".format(
+            "on" if rec.get("endpoints", True) else "off",
+            "on" if eff["endpoints"] else "off"))
+    try:
+        if abs(float(rec.get("rotation_deg") or 0.0) -
+               eff["rotation_deg"]) > 1e-6:
+            notes.append(u"rotation {:+g} -> {:+g} deg".format(
+                float(rec.get("rotation_deg") or 0.0),
+                eff["rotation_deg"]))
+    except Exception:
+        pass
+    return notes
+
+
+# ---- resolve every record against the model + the CURRENT config ----
+rows = []   # dicts: rec, line_el, terrain, survivors, eff, plan text
 for rec in data["fences"]:
     line_el = _by_uid(rec.get("line_uid"))
     terrain = _by_uid(rec.get("terrain_uid"))
@@ -98,30 +138,121 @@ for rec in data["fences"]:
         el = _by_uid(inst_d.get("uid"))
         if el is not None:
             survivors.append((inst_d, el))
-    state = []
-    if line_el is None:
-        state.append("line DELETED")
-    if terrain is None:
-        state.append("terrain DELETED")
+    eff = F.effective_config(settings, rec.get("config"), rec)
+    notes = _config_notes(rec, eff)
     gone = len(rec.get("instances") or []) - len(survivors)
     if gone:
-        state.append("{} post(s) deleted".format(gone))
-    label = F.fence_label(rec) + \
-        (" - " + ", ".join(state) if state else "")
-    rows.append((label, rec, line_el, terrain, survivors))
+        notes.append("{} post(s) deleted by hand".format(gone))
+
+    dists = None
+    if line_el is None:
+        plan = ("record will be DROPPED (line gone, no posts left)"
+                if not survivors else
+                "SKIP - the line was deleted; re-place with Place "
+                "New Fence")
+    elif terrain is None:
+        plan = ("record will be DROPPED (terrain gone, no posts "
+                "left)" if not survivors else
+                "SKIP - the terrain was deleted")
+    else:
+        poly = FR.tessellate(line_el)
+        if not poly or F.poly_length(poly) <= 1e-9:
+            plan = "SKIP - the line has no length any more"
+        else:
+            dists = F.stations(F.poly_length(poly),
+                               _mm2ft(eff["spacing_mm"]),
+                               rec.get("justify") or F.JUSTIFY_START,
+                               eff["endpoints"], F.is_closed(poly))
+            if len(dists) == len(survivors) and survivors:
+                plan = "MOVE {} post(s) onto the current line + " \
+                    "terrain".format(len(survivors))
+            else:
+                plan = "REBUILD: {} post(s) -> {} station(s)".format(
+                    len(survivors), len(dists))
+    rows.append({"rec": rec, "line": line_el, "terrain": terrain,
+                 "survivors": survivors, "eff": eff,
+                 "plan": plan + ("; " + "; ".join(notes)
+                                 if notes else "")})
 
 log("**{}** fence(s) recorded.".format(len(rows)))
-win = PickListWindow("Update fences - pick which to re-drape",
-                     [(None, lbl, i) for i, (lbl, _r, _l, _t, _s)
-                      in enumerate(rows)])
+
+
+# -------------------------------------------------------------------- dialog
+class UpdateWindow(forms.WPFWindow):
+    """One checkbox row per fence: the fence, then what WILL happen -
+    ticked rows are updated."""
+
+    def __init__(self, rows):
+        forms.WPFWindow.__init__(self, XAML_PATH)
+        self.result = None
+        self._boxes = []
+        self.TxtInfo.Text = ("{} fence(s) recorded - untick what "
+                             "should stay as it is.".format(len(rows)))
+        from System.Windows import TextWrapping, Thickness
+        from System.Windows.Controls import CheckBox, StackPanel, \
+            TextBlock
+        from System.Windows.Media import Brushes
+        for i, row in enumerate(rows):
+            body = StackPanel()
+            head = TextBlock()
+            head.Text = F.fence_label(row["rec"])
+            head.FontWeight = self._bold()
+            head.TextWrapping = TextWrapping.Wrap
+            body.Children.Add(head)
+            sub = TextBlock()
+            sub.Text = row["plan"]
+            sub.TextWrapping = TextWrapping.Wrap
+            sub.FontSize = 11.0
+            try:
+                sub.Foreground = (Brushes.Firebrick
+                                  if row["plan"].startswith("SKIP")
+                                  or "DROPPED" in row["plan"]
+                                  else Brushes.Gray)
+            except Exception:
+                pass
+            body.Children.Add(sub)
+            cb = CheckBox()
+            cb.Content = body
+            cb.IsChecked = True
+            cb.Margin = Thickness(0, 6, 0, 6)
+            cb.Tag = i
+            self.LstFences.Children.Add(cb)
+            self._boxes.append(cb)
+
+    @staticmethod
+    def _bold():
+        from System.Windows import FontWeights
+        return FontWeights.SemiBold
+
+    def _set_all(self, value):
+        for cb in self._boxes:
+            cb.IsChecked = value
+
+    def on_all(self, sender, args):
+        self._set_all(True)
+
+    def on_none(self, sender, args):
+        self._set_all(False)
+
+    def on_go(self, sender, args):
+        self.result = [int(cb.Tag) for cb in self._boxes
+                       if cb.IsChecked]
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.Close()
+
+
+win = UpdateWindow(rows)
 win.ShowDialog()
 if win.result is None:
     log("Cancelled - nothing changed.")
     log.close()
     script.exit()
-picked = [rows[payload] for _g, _lbl, payload in win.result]
+picked = [rows[i] for i in win.result]
 if not picked:
-    log("Nothing picked - nothing changed.")
+    log("Nothing ticked - nothing changed.")
     log.close()
     script.exit()
 
@@ -141,7 +272,11 @@ drops = []          # fence ids to drop
 t = Transaction(doc, "Update Fence")
 t.Start()
 try:
-    for label, rec, line_el, terrain, survivors in picked:
+    for row in picked:
+        rec = row["rec"]
+        line_el, terrain = row["line"], row["terrain"]
+        survivors, eff = row["survivors"], row["eff"]
+        label = F.fence_label(rec)
         fid = rec.get("id")
         if line_el is None or terrain is None:
             if not survivors:
@@ -152,7 +287,7 @@ try:
             else:
                 results.append((label, "skipped",
                                 "line / terrain deleted - re-place "
-                                "with the Fence button"))
+                                "with Place New Fence"))
             continue
 
         poly = FR.tessellate(line_el)
@@ -161,13 +296,9 @@ try:
                             "the line has no length any more"))
             continue
         length = F.poly_length(poly)
-        spacing_ft = UnitUtils.ConvertToInternalUnits(
-            float(rec.get("spacing_mm") or 0.0),
-            UnitTypeId.Millimeters)
-        dists = F.stations(length, spacing_ft,
+        dists = F.stations(length, _mm2ft(eff["spacing_mm"]),
                            rec.get("justify") or F.JUSTIFY_START,
-                           bool(rec.get("endpoints", True)),
-                           F.is_closed(poly))
+                           eff["endpoints"], F.is_closed(poly))
         if not dists:
             results.append((label, "skipped",
                             "no stations on the line as it is now"))
@@ -181,6 +312,8 @@ try:
 
         ray_z = FR.ray_start_z([terrain, line_el])
         terrain_id = FR.id_value(terrain.Id)
+        extra_rot = math.radians(eff["rotation_deg"])
+        cfg_notes = _config_notes(rec, eff)
 
         pairs = F.pair_stations([d for d, _el in survivors], dists)
         if pairs is not None:
@@ -189,7 +322,7 @@ try:
             triples = [(inst_d, el_by_uid[inst_d.get("uid")], nd)
                        for inst_d, nd in pairs]
             records, missed, failed = FR.move_instances(
-                doc, triples, poly, terrain_id, ri, ray_z)
+                doc, triples, poly, terrain_id, ri, ray_z, extra_rot)
             action = "moved"
             note = "{} post(s) re-draped".format(
                 len(records) - len(missed) - failed)
@@ -207,12 +340,14 @@ try:
                 continue
             records, missed, failed, why = FR.place_instances(
                 doc, symbol, poly, dists, terrain_id, ri, ray_z,
-                levels)
+                levels, extra_rot)
             action = "rebuilt"
             note = "{} -> {} post(s)".format(len(survivors),
                                              len(records))
             if why:
                 note += "; first failure: {}".format(why)
+        if cfg_notes:
+            note += "; config change applied: " + ", ".join(cfg_notes)
         if missed:
             note += "; {} station(s) missed the terrain".format(
                 len(missed))
@@ -221,6 +356,9 @@ try:
 
         rec = dict(rec)
         rec["instances"] = records
+        rec["spacing_mm"] = eff["spacing_mm"]
+        rec["endpoints"] = eff["endpoints"]
+        rec["rotation_deg"] = eff["rotation_deg"]
         rec["updated"] = datetime.datetime.now().strftime(
             "%Y-%m-%dT%H:%M:%S")
         updates.append(rec)

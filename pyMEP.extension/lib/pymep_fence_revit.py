@@ -124,12 +124,14 @@ def _rotate_about(doc, elem_id, pt, angle):
 
 
 def place_instances(doc, symbol, poly, dists, terrain_id, ri, ray_z,
-                    levels):
-    """Place ``symbol`` at every station, draped and rotated. Runs
-    inside the caller's open Transaction. Returns (records, missed,
-    failed): records = [{"uid", "station_ft", "angle"}] for the
-    registry, missed = stations with no terrain hit, failed = count
-    of placement errors (first reason in failed_reason)."""
+                    levels, extra_rot=0.0):
+    """Place ``symbol`` at every station, draped and rotated - the
+    line's direction plus ``extra_rot`` (radians, the config's custom
+    rotation). Runs inside the caller's open Transaction. Returns
+    (records, missed, failed): records = [{"uid", "station_ft",
+    "angle"}] for the registry, missed = stations with no terrain
+    hit, failed = count of placement errors (first reason in
+    failed_reason)."""
     records, missed, failed = [], [], 0
     failed_reason = [None]
     try:
@@ -162,7 +164,7 @@ def place_instances(doc, symbol, poly, dists, terrain_id, ri, ray_z,
                             break
                     except Exception:
                         continue
-            ang = math.atan2(tang[1], tang[0])
+            ang = math.atan2(tang[1], tang[0]) + extra_rot
             _rotate_about(doc, inst.Id, hit, ang)
             records.append({"uid": inst.UniqueId, "station_ft": d,
                             "angle": ang})
@@ -173,11 +175,14 @@ def place_instances(doc, symbol, poly, dists, terrain_id, ri, ray_z,
     return records, missed, failed, failed_reason[0]
 
 
-def move_instances(doc, pairs, poly, terrain_id, ri, ray_z):
+def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
+                   extra_rot=0.0):
     """MOVE each stored instance to its new station: pairs =
     [(instance_dict, element, new_station)]. The rotation applied is
-    the DELTA from the stored angle, so user tweaks on top survive.
-    Returns (records, missed, failed) like place_instances."""
+    the DELTA from the stored angle (which includes any config
+    rotation), so user tweaks on top survive AND a changed config
+    rotation lands. Returns (records, missed, failed) like
+    place_instances."""
     records, missed, failed = [], [], 0
     for inst_d, el, d in pairs:
         p, tang = F.point_at(poly, d)
@@ -192,7 +197,7 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z):
             if delta.GetLength() > 1e-9:
                 ElementTransformUtils.MoveElement(doc, el.Id, delta)
             old_ang = float(inst_d.get("angle") or 0.0)
-            new_ang = math.atan2(tang[1], tang[0])
+            new_ang = math.atan2(tang[1], tang[0]) + extra_rot
             _rotate_about(doc, el.Id, hit, new_ang - old_ang)
             records.append({"uid": inst_d.get("uid"), "station_ft": d,
                             "angle": new_ang})
