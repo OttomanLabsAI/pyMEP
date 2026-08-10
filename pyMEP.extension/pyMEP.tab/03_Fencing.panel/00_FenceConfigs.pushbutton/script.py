@@ -52,10 +52,8 @@ def _row_text(name, cfg):
             cfg["end_post"] or "none",
             cfg["end_foundation"] or "none")
     if cfg.get("line_style"):
-        txt += (u"  |  NET: '{}' \u2300{:g}/{:g} mm, "
-                u"prio {}".format(
-                    cfg["line_style"], cfg["dia_mm"],
-                    cfg["end_dia_mm"], cfg["priority"]))
+        txt += u"  |  NET: '{}', prio {}".format(
+            cfg["line_style"], cfg["priority"])
     return txt
 
 
@@ -92,8 +90,6 @@ class ConfigEditWindow(forms.WPFWindow):
         for nm2 in style_names:
             self.CmbLineStyle.Items.Add(nm2)
         self._select_pick(self.CmbLineStyle, cfg["line_style"])
-        self.TxtDia.Text = "{:g}".format(cfg["dia_mm"])
-        self.TxtEndDia.Text = "{:g}".format(cfg["end_dia_mm"])
         self.TxtPriority.Text = "{}".format(cfg["priority"])
 
     # ---- family pickers (post + foundation share the behaviour) ------
@@ -226,13 +222,6 @@ class ConfigEditWindow(forms.WPFWindow):
                                     "'(none)'.")
             return
         try:
-            dia = float(self.TxtDia.Text or 0.0)
-            end_dia = float(self.TxtEndDia.Text or 0.0)
-        except Exception:
-            self.StatusText.Text = ("Diameters must be numbers "
-                                    "(mm).")
-            return
-        try:
             prio = int(float(self.TxtPriority.Text or 99))
         except Exception:
             self.StatusText.Text = ("Priority must be a whole "
@@ -245,7 +234,6 @@ class ConfigEditWindow(forms.WPFWindow):
                        "same_ends": same_ends, "end_post": end_post,
                        "end_foundation": end_foundation,
                        "line_style": self._picked(self.CmbLineStyle),
-                       "dia": dia, "end_dia": end_dia,
                        "priority": prio}
         self.Close()
 
@@ -306,7 +294,7 @@ class ConfigsWindow(forms.WPFWindow):
                             r["foundation"], r["post"],
                             r["same_ends"], r["end_post"],
                             r["end_foundation"], r["line_style"],
-                            r["dia"], r["end_dia"], r["priority"])
+                            r["priority"])
         except ValueError as ex:
             self.StatusText.Text = str(ex)
             return

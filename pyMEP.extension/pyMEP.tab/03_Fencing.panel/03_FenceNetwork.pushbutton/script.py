@@ -1,22 +1,23 @@
 # -*- coding: utf-8 -*-
 """Fence Network - model a whole fence layout from its LINES: each
 line's LINE STYLE picks its fence configuration, corners get the
-highest-priority end post, and the posts are packed so their circles
-TOUCH at a single point.
+highest-priority end post, and each line's first post TOUCHES the
+corner foundation's circle.
 
 Draw the layout as model lines using the styles bound in Fence
-Configs (each config: line style, post + end post diameters,
-priority). Pick the lines one by one (ESC finishes; a pre-selection
-is used as-is), pick the TERRAIN, confirm the mapping - then:
+Configs (each config: line style, spacing, priority, families).
+Pick the lines one by one (ESC finishes; a pre-selection is used
+as-is), pick the TERRAIN, confirm the mapping - then:
 
   - shared line endpoints become corner NODES; the incident config
     with the SMALLEST priority number wins the corner and its END
     post + foundation stand there (the impact rated one at
     priority 1 beats the rest);
-  - along every line the in-between posts are placed tangent - the
-    first touches the corner post's circle (its end diameter), each
-    next touches the previous (post diameter) - packed from the
-    higher-priority end, the leftover gap reported at the other;
+  - each line's FIRST post is placed so its foundation circle and
+    the corner end-foundation circle TOUCH at a single point - both
+    diameters read from the families' 'Diameter' parameter; the
+    rest run at the config's spacing. No Diameter parameter found -
+    the line draws normally and its first post is skipped;
   - everything is ray-cast onto the terrain like Place New Fence.
 
 The network is RECORDED, so Update Fence can rebuild it after the
@@ -113,7 +114,7 @@ def main():
         log.close()
         forms.alert("No fence configuration is bound to a LINE "
                     "STYLE yet - open Fence Configs and set the "
-                    "line style, diameters and priority on the "
+                    "line style, spacing and priority on the "
                     "configurations first.", exitscript=True)
 
     lines = get_lines()
@@ -143,9 +144,10 @@ def main():
         if cfg_name:
             c = cfgs[cfg_name]
             lines_txt.append(
-                u"'{}' x{} -> {} (⌀{:g}/{:g} mm, prio {})".format(
-                    st or "?", styles[st], cfg_name, c["dia_mm"],
-                    c["end_dia_mm"] or c["dia_mm"], c["priority"]))
+                u"'{}' x{} -> {} ({:g} mm spacing, prio {}, end "
+                u"fnd: {})".format(
+                    st or "?", styles[st], cfg_name, c["spacing_mm"],
+                    c["priority"], F.end_families(c)[1] or "none"))
         else:
             lines_txt.append(u"'{}' x{} -> NO CONFIG - will be "
                              u"skipped".format(st or "?", styles[st]))
@@ -153,8 +155,9 @@ def main():
     if not forms.alert(
             "Model the fence network?\n\n{}\n\nCorners get the "
             "highest-priority (smallest number) incident config's "
-            "END post; posts are packed so their circles touch at a "
-            "single point.".format("\n".join(lines_txt)),
+            "END post; each line's first post touches the corner "
+            "foundation's circle (family Diameter parameter), the "
+            "rest run at the spacing.".format("\n".join(lines_txt)),
             yes=True, no=True):
         log("Cancelled - nothing modelled.")
         log.close()

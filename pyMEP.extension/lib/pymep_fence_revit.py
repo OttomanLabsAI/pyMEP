@@ -368,15 +368,37 @@ def mm2ft(mm):
                                             UnitTypeId.Millimeters)
 
 
+def symbol_diameter_ft(symbol):
+    """The family type's 'Diameter' parameter (internal feet) - None
+    when the family has no such parameter or it is not set. This is
+    what sizes the touching circles in Fence Network."""
+    if symbol is None:
+        return None
+    for nm in ("Diameter", "diameter", "DIA", "Dia"):
+        try:
+            par = symbol.LookupParameter(nm)
+            if par is not None and par.HasValue:
+                v = par.AsDouble()
+                if v and v > 0:
+                    return v
+        except Exception:
+            continue
+    return None
+
+
 def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
     """Model a fence NETWORK inside the caller's open Transaction:
     each line's STYLE picks its configuration, shared endpoints
     become corner NODES that get the highest-priority incident
     config's END post + foundation (smallest priority number wins -
-    the impact rated one), and the in-between posts are packed so
-    neighbouring circles TOUCH at a single point (the diameters
-    drive the spacing; the chain packs from the higher-priority end
-    so the leftover gap sits at the lesser end).
+    the impact rated one).
+
+    Along every line the posts run at the config's SPACING; the
+    FIRST post is placed so its foundation circle TOUCHES the corner
+    end-foundation circle at a single point - both diameters read
+    from the families' 'Diameter' parameter. When either family has
+    no Diameter, that line draws normally and its first post is
+    SKIPPED instead.
 
     Returns (records, notes, placed, missed): records =
     [{"uid"(, "foundation_uid")}] for the registry. Raises
@@ -412,11 +434,6 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                      id_value(el.Id), style or "?"))
             continue
         name, cfg = m
-        if not cfg.get("dia_mm"):
-            note("line {} ('{}'): configuration '{}' has no post "
-                 "diameter - skipped".format(
-                     id_value(el.Id), style, name))
-            continue
         edges.append({"el": el, "style": style, "name": name,
                       "cfg": cfg, "poly": poly,
                       "length": F.poly_length(poly)})
@@ -424,6 +441,20 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
         raise ValueError("no line could be mapped to a "
                          "configuration - bind line styles in "
                          "Fence Configs")
+
+    # foundation radii from the families' Diameter parameter
+    def _fnd_radius(cfg, use_ends, what):
+        lbl = F.end_families(cfg)[1] if use_ends \
+            else (cfg.get("foundation") or "")
+        if not lbl:
+            return None
+        dia = symbol_diameter_ft(
+            symbol_by_label(doc, lbl, F.FOUNDATION_CATEGORIES))
+        if dia is None:
+            note("'{}' has no Diameter parameter - {} falls back "
+                 "to normal spacing".format(lbl, what))
+            return None
+        return dia / 2.0
 
     # ---- corner nodes (shared endpoints) -----------------------------
     pts = []
@@ -447,36 +478,43 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                 incident.append((e["name"], e["cfg"]))
                 tangent = F.point_at(e["poly"], e["length"])[1]
         win_name, win = F.pick_priority(incident)
-        dia = win.get("end_dia_mm") or win.get("dia_mm") or 0.0
         nodes.append({"xy": centers[ni], "cfg": win,
                       "name": win_name, "tangent": tangent,
-                      "r": mm2ft(dia) / 2.0})
+                      "r": _fnd_radius(win, True,
+                                       "node '{}'".format(win_name))})
 
-    # ---- tangent chains along every edge -----------------------------
+    # ---- stations along every edge -----------------------------------
     total = len(nodes)
     for e in edges:
+        r_edge = _fnd_radius(e["cfg"], False,
+                             "line {}".format(id_value(e["el"].Id)))
         ra = nodes[e["n0"]]["r"]
         rb = nodes[e["n1"]]["r"]
-        dia_ft = mm2ft(e["cfg"]["dia_mm"])
+        clear_a = (ra + r_edge) if (ra is not None and
+                                    r_edge is not None) else None
+        clear_b = (rb + r_edge) if (rb is not None and
+                                    r_edge is not None) else None
+        spacing_ft = mm2ft(e["cfg"]["spacing_mm"])
         pa = int(nodes[e["n0"]]["cfg"].get("priority") or 99)
         pb = int(nodes[e["n1"]]["cfg"].get("priority") or 99)
         from_start = pa <= pb
         if from_start:
-            sts, gap = F.tangent_chain(e["length"], ra, rb, dia_ft)
+            sts = F.edge_stations(e["length"], spacing_ft, clear_a,
+                                  clear_b)
         else:
-            sts, gap = F.tangent_chain(e["length"], rb, ra, dia_ft)
-            sts = sorted(e["length"] - s for s in sts)
+            sts = F.edge_stations(e["length"], spacing_ft, clear_b,
+                                  clear_a)
+            sts = sorted(e["length"] - d for d in sts)
         e["stations"] = sts
-        e["gap"] = gap
         total += len(sts)
-        note("line {} ('{}' -> {}): {} post(s), leftover gap "
-             "{:.0f} mm at the {} end".format(
-                 id_value(e["el"].Id), e["style"], e["name"],
-                 len(sts), gap * 304.8,
-                 "far" if from_start else "near"))
+        note("line {} ('{}' -> {}): {} post(s), first post {}".format(
+            id_value(e["el"].Id), e["style"], e["name"], len(sts),
+            "TOUCHES the corner circle"
+            if (clear_a if from_start else clear_b) is not None
+            else "skipped (no Diameter) - normal spacing"))
     if total > F.MAX_INSTANCES:
         raise ValueError("{} instances would be placed - over the "
-                         "{} sanity cap. Check the diameters.".format(
+                         "{} sanity cap. Check the spacing.".format(
                              total, F.MAX_INSTANCES))
 
     # ---- place -------------------------------------------------------
