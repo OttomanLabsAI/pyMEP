@@ -59,8 +59,10 @@
             <GroupBox Header="Line style (Fence Network)">
                 <StackPanel>
                     <ComboBox x:Name="CmbLineStyle" Margin="0,3,0,0"/>
+                    <CheckBox x:Name="ChkEndPriority" Margin="0,8,0,0"
+                              Content="endpoint PRIORITY at corners (double post)"/>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Fence Network models lines drawn with this style using this configuration; at a corner the configuration nearer the TOP of the list wins the end post - reorder with Move up / Move down in the list window. Place New Fence ignores this."/>
+                               Text="Fence Network models lines drawn with this style using this configuration; corners form at EVERY intersection of the lines, and the configuration nearer the TOP of the list wins the corner's end post - reorder with Move up / Move down. With endpoint PRIORITY ticked, other lines TERMINATING at this configuration's corners place their OWN end post right next to it on their line - offset so the two end foundation circles touch (family Diameter parameters). Place New Fence ignores all of this."/>
                 </StackPanel>
             </GroupBox>
 

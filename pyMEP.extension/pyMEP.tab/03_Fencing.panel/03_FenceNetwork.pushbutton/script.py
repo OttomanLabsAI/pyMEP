@@ -9,15 +9,17 @@ Configs (each config: line style, spacing, priority, families).
 Pick the lines one by one (ESC finishes; a pre-selection is used
 as-is), pick the TERRAIN, confirm the mapping - then:
 
-  - shared line endpoints become corner NODES; the incident config
-    with the SMALLEST priority number wins the corner and its END
-    post + foundation stand there (the impact rated one at
-    priority 1 beats the rest);
-  - each line's FIRST post is placed so its foundation circle and
-    the corner end-foundation circle TOUCH at a single point - both
-    diameters read from the families' 'Diameter' parameter; the
-    rest run at the config's spacing. No Diameter parameter found -
-    the line draws normally and its first post is skipped;
+  - corners come FIRST, and EVERY intersection of the lines is a
+    corner: shared endpoints, mid-line crossings, T-junctions. The
+    incident config nearest the TOP of the config list wins the
+    corner and its END post + foundation stand there;
+  - with the winner's endpoint PRIORITY ticked, other lines
+    TERMINATING at the corner place their OWN end post right next
+    to it on their line - the two end foundation circles TOUCH
+    (family 'Diameter' parameters);
+  - then the in-between posts fill each stretch at the config's
+    spacing, the first touching the nearest circle. No Diameter
+    parameter found - normal spacing, first post skipped;
   - everything is ray-cast onto the terrain like Place New Fence.
 
 The network is RECORDED, so Update Fence can rebuild it after the
@@ -152,12 +154,20 @@ def main():
             lines_txt.append(u"'{}' x{} -> NO CONFIG - will be "
                              u"skipped".format(st or "?", styles[st]))
         log("- " + lines_txt[-1])
+    order = [n for n in F.priority_order(cfgs)
+             if cfgs[n].get("line_style")]
+    prio_txt = " > ".join(
+        u"{}{}".format(n, " [END-PRIORITY]"
+                       if cfgs[n].get("end_priority") else "")
+        for n in order)
+    log("Priority (top wins corners): **{}**".format(prio_txt))
     if not forms.alert(
-            "Model the fence network?\n\n{}\n\nCorners get the "
-            "highest-priority (smallest number) incident config's "
-            "END post; each line's first post touches the corner "
-            "foundation's circle (family Diameter parameter), the "
-            "rest run at the spacing.".format("\n".join(lines_txt)),
+            "Model the fence network?\n\n{}\n\nPriority (first "
+            "wins corners): {}\n\nEvery intersection of the lines "
+            "is a corner - the winner's END post stands there; "
+            "END-PRIORITY configs make other terminating lines set "
+            "their own end post right next to it (touching "
+            "circles).".format("\n".join(lines_txt), prio_txt),
             yes=True, no=True):
         log("Cancelled - nothing modelled.")
         log.close()
