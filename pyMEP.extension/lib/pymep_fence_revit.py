@@ -15,6 +15,7 @@ import math
 from Autodesk.Revit.DB import (
     BuiltInParameter,
     ElementTransformUtils,
+    FamilySymbol,
     FilteredElementCollector,
     FindReferenceTarget,
     Level,
@@ -36,6 +37,47 @@ def id_value(eid):
         return eid.Value            # Revit 2024+
     except AttributeError:
         return eid.IntegerValue     # Revit 2023 and earlier
+
+
+def element_name(el):
+    try:
+        n = el.Name
+        if n:
+            return n
+    except Exception:
+        pass
+    try:
+        from Autodesk.Revit.DB import Element
+        return Element.Name.__get__(el)
+    except Exception:
+        return "?"
+
+
+def placeable_symbols(doc):
+    """[(label, symbol)] sorted - one-level and work-plane point
+    families (posts, footings, trees, generic models)."""
+    out = []
+    for fs in FilteredElementCollector(doc).OfClass(FamilySymbol):
+        try:
+            fam = fs.Family
+            if str(fam.FamilyPlacementType) not in (
+                    "OneLevelBased", "WorkPlaneBased"):
+                continue
+            out.append((u"{} : {}".format(element_name(fam),
+                                          element_name(fs)), fs))
+        except Exception:
+            continue
+    out.sort(key=lambda t: t[0].lower())
+    return out
+
+
+def symbol_by_label(doc, label):
+    if not label:
+        return None
+    for lbl, fs in placeable_symbols(doc):
+        if lbl == label:
+            return fs
+    return None
 
 
 def find_view3d(doc):
@@ -123,23 +165,49 @@ def _rotate_about(doc, elem_id, pt, angle):
     ElementTransformUtils.RotateElement(doc, elem_id, axis, angle)
 
 
+def _place_one(doc, symbol, hit, lvl, ang):
+    """One draped, rotated instance at the hit point."""
+    inst = doc.Create.NewFamilyInstance(
+        XYZ(hit.X, hit.Y, hit.Z), symbol, lvl,
+        StructuralType.NonStructural)
+    # belt and braces: the level overload usually honours the Z, but
+    # forcing the offset makes it certain
+    if lvl is not None:
+        for bip in ("INSTANCE_FREE_HOST_OFFSET_PARAM",
+                    "INSTANCE_ELEVATION_PARAM"):
+            try:
+                par = inst.get_Parameter(
+                    getattr(BuiltInParameter, bip))
+                if par is not None and not par.IsReadOnly:
+                    par.Set(hit.Z - lvl.Elevation)
+                    break
+            except Exception:
+                continue
+    _rotate_about(doc, inst.Id, hit, ang)
+    return inst
+
+
 def place_instances(doc, symbol, poly, dists, terrain_id, ri, ray_z,
-                    levels, extra_rot=0.0):
-    """Place ``symbol`` at every station, draped and rotated - the
-    line's direction plus ``extra_rot`` (radians, the config's custom
+                    levels, extra_rot=0.0, foundation_symbol=None):
+    """Place ``symbol`` (and ``foundation_symbol`` under it, when
+    given) at every station, draped and rotated - the line's
+    direction plus ``extra_rot`` (radians, the config's custom
     rotation). Runs inside the caller's open Transaction. Returns
-    (records, missed, failed): records = [{"uid", "station_ft",
-    "angle"}] for the registry, missed = stations with no terrain
-    hit, failed = count of placement errors (first reason in
-    failed_reason)."""
+    (records, missed, failed, why): records = [{"uid", "station_ft",
+    "angle"(, "foundation_uid")}] for the registry, missed =
+    stations with no terrain hit, failed = count of placement errors
+    (first reason in why)."""
     records, missed, failed = [], [], 0
     failed_reason = [None]
-    try:
-        if not symbol.IsActive:
-            symbol.Activate()
-            doc.Regenerate()
-    except Exception:
-        pass
+    for s in (symbol, foundation_symbol):
+        if s is None:
+            continue
+        try:
+            if not s.IsActive:
+                s.Activate()
+                doc.Regenerate()
+        except Exception:
+            pass
     for d in dists:
         p, tang = F.point_at(poly, d)
         hit = topmost_hit(doc, ri, XYZ(p[0], p[1], ray_z), terrain_id)
@@ -147,37 +215,40 @@ def place_instances(doc, symbol, poly, dists, terrain_id, ri, ray_z,
             missed.append(d)
             continue
         lvl = level_for(levels, hit.Z)
+        ang = math.atan2(tang[1], tang[0]) + extra_rot
         try:
-            inst = doc.Create.NewFamilyInstance(
-                XYZ(hit.X, hit.Y, hit.Z), symbol, lvl,
-                StructuralType.NonStructural)
-            # belt and braces: the level overload usually honours the
-            # Z, but forcing the offset makes it certain
-            if lvl is not None:
-                for bip in ("INSTANCE_FREE_HOST_OFFSET_PARAM",
-                            "INSTANCE_ELEVATION_PARAM"):
-                    try:
-                        par = inst.get_Parameter(
-                            getattr(BuiltInParameter, bip))
-                        if par is not None and not par.IsReadOnly:
-                            par.Set(hit.Z - lvl.Elevation)
-                            break
-                    except Exception:
-                        continue
-            ang = math.atan2(tang[1], tang[0]) + extra_rot
-            _rotate_about(doc, inst.Id, hit, ang)
-            records.append({"uid": inst.UniqueId, "station_ft": d,
-                            "angle": ang})
+            inst = _place_one(doc, symbol, hit, lvl, ang)
         except Exception as ex:
             failed += 1
             if failed_reason[0] is None:
                 failed_reason[0] = "{}".format(ex)
+            continue
+        rec = {"uid": inst.UniqueId, "station_ft": d, "angle": ang}
+        if foundation_symbol is not None:
+            try:
+                f_inst = _place_one(doc, foundation_symbol, hit, lvl,
+                                    ang)
+                rec["foundation_uid"] = f_inst.UniqueId
+            except Exception as ex:
+                failed += 1
+                if failed_reason[0] is None:
+                    failed_reason[0] = "foundation: {}".format(ex)
+        records.append(rec)
     return records, missed, failed, failed_reason[0]
+
+
+def _move_one(doc, el, hit, rot_delta):
+    loc = el.Location.Point
+    delta = XYZ(hit.X - loc.X, hit.Y - loc.Y, hit.Z - loc.Z)
+    if delta.GetLength() > 1e-9:
+        ElementTransformUtils.MoveElement(doc, el.Id, delta)
+    _rotate_about(doc, el.Id, hit, rot_delta)
 
 
 def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
                    extra_rot=0.0):
-    """MOVE each stored instance to its new station: pairs =
+    """MOVE each stored instance (and its foundation, when the record
+    has one that still exists) to its new station: pairs =
     [(instance_dict, element, new_station)]. The rotation applied is
     the DELTA from the stored angle (which includes any config
     rotation), so user tweaks on top survive AND a changed config
@@ -192,15 +263,21 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
             records.append(inst_d)      # stays where it is
             continue
         try:
-            loc = el.Location.Point
-            delta = XYZ(hit.X - loc.X, hit.Y - loc.Y, hit.Z - loc.Z)
-            if delta.GetLength() > 1e-9:
-                ElementTransformUtils.MoveElement(doc, el.Id, delta)
             old_ang = float(inst_d.get("angle") or 0.0)
             new_ang = math.atan2(tang[1], tang[0]) + extra_rot
-            _rotate_about(doc, el.Id, hit, new_ang - old_ang)
-            records.append({"uid": inst_d.get("uid"), "station_ft": d,
-                            "angle": new_ang})
+            _move_one(doc, el, hit, new_ang - old_ang)
+            rec = {"uid": inst_d.get("uid"), "station_ft": d,
+                   "angle": new_ang}
+            f_uid = inst_d.get("foundation_uid")
+            if f_uid:
+                try:
+                    f_el = doc.GetElement(f_uid)
+                    if f_el is not None:
+                        _move_one(doc, f_el, hit, new_ang - old_ang)
+                        rec["foundation_uid"] = f_uid
+                except Exception:
+                    failed += 1
+            records.append(rec)
         except Exception:
             failed += 1
             records.append(inst_d)

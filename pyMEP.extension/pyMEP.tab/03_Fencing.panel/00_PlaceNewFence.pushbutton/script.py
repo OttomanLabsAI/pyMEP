@@ -37,8 +37,6 @@ import pymep_fence_revit as FR
 from Autodesk.Revit.DB import (
     BuiltInCategory,
     CurveElement,
-    FamilySymbol,
-    FilteredElementCollector,
     Transaction,
     UnitTypeId,
     UnitUtils,
@@ -69,24 +67,6 @@ def _name(el):
         return Element.Name.__get__(el)
     except Exception:
         return "?"
-
-
-# ------------------------------------------------------------------ families
-def placeable_symbols():
-    """[(label, symbol)] sorted - one-level and work-plane point
-    families (site furniture, posts, trees, generic models)."""
-    out = []
-    for fs in FilteredElementCollector(doc).OfClass(FamilySymbol):
-        try:
-            fam = fs.Family
-            if str(fam.FamilyPlacementType) not in (
-                    "OneLevelBased", "WorkPlaneBased"):
-                continue
-            out.append((u"{} : {}".format(_name(fam), _name(fs)), fs))
-        except Exception:
-            continue
-    out.sort(key=lambda t: t[0].lower())
-    return out
 
 
 # -------------------------------------------------------------------- dialog
@@ -156,10 +136,11 @@ class FenceWindow(forms.WPFWindow):
                 return
             self.TxtCfgSummary.Text = (
                 u"{:g} mm spacing, endpoints {}, rotation "
-                u"{:+g}\u00b0".format(
+                u"{:+g}\u00b0, foundation: {}".format(
                     cfg["spacing_mm"],
                     "ON" if cfg["endpoints"] else "off",
-                    cfg["rotation_deg"]))
+                    cfg["rotation_deg"],
+                    cfg["foundation"] or "none"))
             self.StatusText.Text = ""
         except Exception:
             pass
@@ -195,6 +176,7 @@ class FenceWindow(forms.WPFWindow):
             "spacing_mm": cfg["spacing_mm"],
             "endpoints": cfg["endpoints"],
             "rotation_deg": cfg["rotation_deg"],
+            "foundation": cfg["foundation"],
             "justify": self.justify(),
             "config": str(self.CmbConfig.SelectedItem or ""),
         }
@@ -245,7 +227,7 @@ def pick_one(sel_filter, prompt):
 def main():
     settings = load_settings()
 
-    fams = placeable_symbols()
+    fams = FR.placeable_symbols(doc)
     if not fams:
         log("No placeable point families in this model.")
         log.close()
@@ -273,10 +255,16 @@ def main():
 
     log("Family **{}**, config **{}**: spacing **{:g} mm**, "
         "justification **{}**, endpoints **{}**, rotation "
-        "**{:+g} deg**.".format(
+        "**{:+g} deg**, foundation **{}**.".format(
             opt["label"], opt["config"], opt["spacing_mm"],
             opt["justify"], "on" if opt["endpoints"] else "off",
-            opt["rotation_deg"]))
+            opt["rotation_deg"], opt["foundation"] or "none"))
+    foundation_symbol = None
+    if opt["foundation"]:
+        foundation_symbol = FR.symbol_by_label(doc, opt["foundation"])
+        if foundation_symbol is None:
+            log("! foundation family **{}** is NOT in this model - "
+                "posts only.".format(opt["foundation"]))
 
     line_el = pick_one(LineFilter(), "Pick the LINE to fence along")
     if line_el is None:
@@ -343,7 +331,8 @@ def main():
     try:
         records, missed, failed, why = FR.place_instances(
             doc, opt["symbol"], poly, dists, terrain_id, ri, ray_z,
-            levels, extra_rot=math.radians(opt["rotation_deg"]))
+            levels, extra_rot=math.radians(opt["rotation_deg"]),
+            foundation_symbol=foundation_symbol)
         t.Commit()
     except Exception:
         try:
@@ -376,6 +365,8 @@ def main():
                 "spacing_mm": opt["spacing_mm"],
                 "endpoints": opt["endpoints"],
                 "rotation_deg": opt["rotation_deg"],
+                "foundation": opt["foundation"]
+                if foundation_symbol is not None else "",
                 "justify": opt["justify"],
                 "config": opt["config"],
                 "instances": records,

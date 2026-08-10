@@ -40,8 +40,7 @@ from pymep_log import Logger
 import pymep_fence as F
 import pymep_fence_revit as FR
 
-from Autodesk.Revit.DB import (FamilySymbol, FilteredElementCollector,
-                               Transaction, UnitTypeId, UnitUtils)
+from Autodesk.Revit.DB import Transaction, UnitTypeId, UnitUtils
 
 doc = revit.doc
 output = script.get_output()
@@ -76,16 +75,6 @@ def _nm(el):
         return Element.Name.__get__(el)
     except Exception:
         return "?"
-
-
-def _symbol_by_label(label):
-    for fs in FilteredElementCollector(doc).OfClass(FamilySymbol):
-        try:
-            if u"{} : {}".format(_nm(fs.Family), _nm(fs)) == label:
-                return fs
-        except Exception:
-            continue
-    return None
 
 
 def _by_uid(uid):
@@ -125,7 +114,17 @@ def _config_notes(rec, eff):
                 eff["rotation_deg"]))
     except Exception:
         pass
+    if str(rec.get("foundation") or "") != eff["foundation"]:
+        notes.append("foundation '{}' -> '{}'".format(
+            rec.get("foundation") or "none",
+            eff["foundation"] or "none"))
     return notes
+
+
+def _foundation_changed(rec, eff):
+    """A foundation add / remove / swap always REBUILDS - moving
+    cannot conjure or clear the pads under existing posts."""
+    return str(rec.get("foundation") or "") != eff["foundation"]
 
 
 # ---- resolve every record against the model + the CURRENT config ----
@@ -163,7 +162,8 @@ for rec in data["fences"]:
                                _mm2ft(eff["spacing_mm"]),
                                rec.get("justify") or F.JUSTIFY_START,
                                eff["endpoints"], F.is_closed(poly))
-            if len(dists) == len(survivors) and survivors:
+            if len(dists) == len(survivors) and survivors and \
+                    not _foundation_changed(rec, eff):
                 plan = "MOVE {} post(s) onto the current line + " \
                     "terrain".format(len(survivors))
             else:
@@ -316,6 +316,8 @@ try:
         cfg_notes = _config_notes(rec, eff)
 
         pairs = F.pair_stations([d for d, _el in survivors], dists)
+        if _foundation_changed(rec, eff):
+            pairs = None
         if pairs is not None:
             el_by_uid = dict((d.get("uid"), el)
                              for d, el in survivors)
@@ -327,20 +329,35 @@ try:
             note = "{} post(s) re-draped".format(
                 len(records) - len(missed) - failed)
         else:
-            for _d, el in survivors:
+            for inst_d, el in survivors:
                 try:
                     doc.Delete(el.Id)
                 except Exception:
                     pass
-            symbol = _symbol_by_label(rec.get("family") or "")
+                f_el = _by_uid(inst_d.get("foundation_uid"))
+                if f_el is not None:
+                    try:
+                        doc.Delete(f_el.Id)
+                    except Exception:
+                        pass
+            symbol = FR.symbol_by_label(doc, rec.get("family") or "")
             if symbol is None:
                 results.append((label, "failed",
                                 "family '{}' no longer in the "
                                 "model".format(rec.get("family"))))
                 continue
+            foundation_symbol = None
+            if eff["foundation"]:
+                foundation_symbol = FR.symbol_by_label(
+                    doc, eff["foundation"])
+                if foundation_symbol is None:
+                    log("! fence {}: foundation family **{}** is NOT "
+                        "in this model - posts only.".format(
+                            fid, eff["foundation"]))
             records, missed, failed, why = FR.place_instances(
                 doc, symbol, poly, dists, terrain_id, ri, ray_z,
-                levels, extra_rot)
+                levels, extra_rot,
+                foundation_symbol=foundation_symbol)
             action = "rebuilt"
             note = "{} -> {} post(s)".format(len(survivors),
                                              len(records))
@@ -359,6 +376,7 @@ try:
         rec["spacing_mm"] = eff["spacing_mm"]
         rec["endpoints"] = eff["endpoints"]
         rec["rotation_deg"] = eff["rotation_deg"]
+        rec["foundation"] = eff["foundation"]
         rec["updated"] = datetime.datetime.now().strftime(
             "%Y-%m-%dT%H:%M:%S")
         updates.append(rec)

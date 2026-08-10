@@ -1,7 +1,7 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Fence Configurations"
-        Width="460" Height="480" MinWidth="420" MinHeight="420"
+        Width="500" Height="600" MinWidth="460" MinHeight="520"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False"
         Background="White">
@@ -26,7 +26,7 @@
             <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
         <Style x:Key="DialogButton" TargetType="Button">
-            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="MinWidth" Value="88"/>
             <Setter Property="Margin" Value="8,0,0,0"/>
             <Setter Property="Padding" Value="10,4"/>
         </Style>
@@ -44,21 +44,33 @@
                 <TextBlock FontSize="15" FontWeight="SemiBold"
                            Text="Fence Configurations"/>
                 <TextBlock x:Name="TxtInfo" Style="{StaticResource Hint}"
-                           Text="Named spacing set-ups used by Place New Fence and Update Fence."/>
+                           Text="Named set-ups used by Place New Fence and Update Fence."/>
             </StackPanel>
         </Border>
 
-        <StackPanel Grid.Row="1" Margin="14,12,14,0">
-            <GroupBox Header="Configuration">
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="14,12,14,0">
+            <GroupBox Header="Configurations">
                 <StackPanel>
-                    <ComboBox x:Name="CmbConfig"
-                              SelectionChanged="on_pick"/>
+                    <ListBox x:Name="LstConfigs" Height="130"
+                             SelectionChanged="on_pick"/>
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                Margin="0,6,0,0">
+                        <Button x:Name="BtnAdd" Content="Add new"
+                                Style="{StaticResource DialogButton}"
+                                Click="on_add"/>
+                        <Button x:Name="BtnRemove" Content="Remove"
+                                Style="{StaticResource DialogButton}"
+                                Click="on_remove"/>
+                    </StackPanel>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Picking one fills the fields below."/>
+                               Text="Every configuration with its values. Add new creates a fresh one; Remove deletes the picked one (the last one standing resets to 'Default')."/>
                 </StackPanel>
             </GroupBox>
 
-            <GroupBox Header="Values">
+            <GroupBox Header="Values of the picked configuration">
                 <StackPanel>
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -94,23 +106,32 @@
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
                                Text="Rotation is EXTRA on top of line-aligned: 0 follows the line, 90 stands across it, negative turns the other way."/>
-                    <StackPanel Orientation="Horizontal"
-                                HorizontalAlignment="Right" Margin="0,8,0,0">
-                        <Button x:Name="BtnSave" Content="Save / update"
-                                Style="{StaticResource DialogButton}"
-                                Click="on_save"/>
-                        <Button x:Name="BtnDelete" Content="Delete"
-                                Style="{StaticResource DialogButton}"
-                                Click="on_delete"/>
-                    </StackPanel>
-                    <TextBlock Style="{StaticResource Hint}"
-                               Text="Save stores the fields under the Name - a NEW name creates a new configuration. Configurations live in pyMEP settings and survive updates; Update Fence re-reads them, so editing one here re-spaces its fences on the next update."/>
                 </StackPanel>
             </GroupBox>
 
+            <GroupBox Header="Foundation under every post (optional)">
+                <StackPanel>
+                    <TextBox x:Name="TxtFoundSearch"
+                             TextChanged="on_found_search"/>
+                    <ComboBox x:Name="CmbFoundation" Margin="0,6,0,0"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Type to filter (family : type). '(none)' places posts only. The foundation is placed at the SAME draped point and rotation as the post - its family models the pad / pier below its placement point."/>
+                </StackPanel>
+            </GroupBox>
+
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Right">
+                <Button x:Name="BtnSave" Content="Save changes"
+                        Style="{StaticResource DialogButton}"
+                        Click="on_save"/>
+            </StackPanel>
+            <TextBlock Style="{StaticResource Hint}"
+                       Text="Save changes stores the fields into the picked configuration - changing the Name renames it. Configurations live in pyMEP settings and survive updates; Update Fence re-reads them, so an edit here re-spaces, re-rotates or re-founds its fences on the next update."/>
+
             <TextBlock x:Name="StatusText" Foreground="#B00020"
-                       TextWrapping="Wrap" Text=""/>
+                       TextWrapping="Wrap" Margin="0,8,0,8" Text=""/>
         </StackPanel>
+        </ScrollViewer>
 
         <Border Grid.Row="2" Background="#F4F4F4" Padding="14,10">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
