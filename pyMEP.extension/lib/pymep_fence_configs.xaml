@@ -109,13 +109,23 @@
                 </StackPanel>
             </GroupBox>
 
-            <GroupBox Header="Foundation under every post (optional)">
+            <GroupBox Header="Post family">
+                <StackPanel>
+                    <TextBox x:Name="TxtPostSearch"
+                             TextChanged="on_post_search"/>
+                    <ComboBox x:Name="CmbPost" Margin="0,6,0,0"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Generic Models, Columns and Structural Columns (type to filter, family : type). '(none)' places foundations only."/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Foundation under every post">
                 <StackPanel>
                     <TextBox x:Name="TxtFoundSearch"
                              TextChanged="on_found_search"/>
                     <ComboBox x:Name="CmbFoundation" Margin="0,6,0,0"/>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Type to filter (family : type). '(none)' places posts only. The foundation is placed at the SAME draped point and rotation as the post - its family models the pad / pier below its placement point."/>
+                               Text="Structural Foundation families only (type to filter). '(none)' places posts only. The foundation lands at the SAME draped point and rotation as the post - its family models the pad / pier below its placement point."/>
                 </StackPanel>
             </GroupBox>
 

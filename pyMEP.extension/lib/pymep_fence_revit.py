@@ -13,6 +13,7 @@ clr.AddReference("RevitAPI")
 import math
 
 from Autodesk.Revit.DB import (
+    BuiltInCategory,
     BuiltInParameter,
     ElementTransformUtils,
     FamilySymbol,
@@ -53,16 +54,33 @@ def element_name(el):
         return "?"
 
 
-def placeable_symbols(doc):
-    """[(label, symbol)] sorted - one-level and work-plane point
-    families (posts, footings, trees, generic models)."""
+def _cat_ids(cat_names):
+    out = set()
+    for n in cat_names or []:
+        if hasattr(BuiltInCategory, n):
+            out.add(int(getattr(BuiltInCategory, n)))
+    return out
+
+
+def placeable_symbols(doc, categories=None):
+    """[(label, symbol)] sorted - point-placeable families, optionally
+    limited to the given BuiltInCategory names (e.g. the fence post /
+    foundation category lists in pymep_fence). Two-level families
+    (structural columns) count as placeable too - they place from a
+    base level."""
+    want = _cat_ids(categories)
     out = []
     for fs in FilteredElementCollector(doc).OfClass(FamilySymbol):
         try:
             fam = fs.Family
             if str(fam.FamilyPlacementType) not in (
-                    "OneLevelBased", "WorkPlaneBased"):
+                    "OneLevelBased", "WorkPlaneBased",
+                    "TwoLevelsBased"):
                 continue
+            if want:
+                cat = fs.Category
+                if cat is None or id_value(cat.Id) not in want:
+                    continue
             out.append((u"{} : {}".format(element_name(fam),
                                           element_name(fs)), fs))
         except Exception:
@@ -71,13 +89,29 @@ def placeable_symbols(doc):
     return out
 
 
-def symbol_by_label(doc, label):
+def symbol_by_label(doc, label, categories=None):
     if not label:
         return None
-    for lbl, fs in placeable_symbols(doc):
+    for lbl, fs in placeable_symbols(doc, categories):
         if lbl == label:
             return fs
     return None
+
+
+def _structural_type(symbol):
+    """Column families place as structural COLUMNS, foundations as
+    FOOTINGS - everything else non-structural."""
+    try:
+        cid = id_value(symbol.Category.Id)
+        if hasattr(BuiltInCategory, "OST_StructuralColumns") and \
+                cid == int(BuiltInCategory.OST_StructuralColumns):
+            return StructuralType.Column
+        if hasattr(BuiltInCategory, "OST_StructuralFoundation") and \
+                cid == int(BuiltInCategory.OST_StructuralFoundation):
+            return StructuralType.Footing
+    except Exception:
+        pass
+    return StructuralType.NonStructural
 
 
 def find_view3d(doc):
@@ -169,12 +203,14 @@ def _place_one(doc, symbol, hit, lvl, ang):
     """One draped, rotated instance at the hit point."""
     inst = doc.Create.NewFamilyInstance(
         XYZ(hit.X, hit.Y, hit.Z), symbol, lvl,
-        StructuralType.NonStructural)
+        _structural_type(symbol))
     # belt and braces: the level overload usually honours the Z, but
-    # forcing the offset makes it certain
+    # forcing the offset makes it certain (structural columns carry
+    # it as the base-level offset instead)
     if lvl is not None:
         for bip in ("INSTANCE_FREE_HOST_OFFSET_PARAM",
-                    "INSTANCE_ELEVATION_PARAM"):
+                    "INSTANCE_ELEVATION_PARAM",
+                    "FAMILY_BASE_LEVEL_OFFSET_PARAM"):
             try:
                 par = inst.get_Parameter(
                     getattr(BuiltInParameter, bip))

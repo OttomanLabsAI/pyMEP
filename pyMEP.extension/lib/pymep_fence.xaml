@@ -47,16 +47,6 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="14,12,14,12">
-            <GroupBox Header="Family to place">
-                <StackPanel>
-                    <TextBox x:Name="TxtFamilySearch"
-                             TextChanged="on_family_search"/>
-                    <ComboBox x:Name="CmbFamily" Margin="0,6,0,0"/>
-                    <TextBlock Style="{StaticResource Hint}"
-                               Text="Type to filter the list (family : type). The family's X axis follows the line's direction, plus the configuration's custom rotation."/>
-                </StackPanel>
-            </GroupBox>
-
             <GroupBox Header="Fence configuration">
                 <StackPanel>
                     <ComboBox x:Name="CmbConfig"
@@ -64,7 +54,7 @@
                     <TextBlock x:Name="TxtCfgSummary" Margin="0,6,0,0"
                                TextWrapping="Wrap" Text="&#8212;"/>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Spacing, endpoints and rotation come from the picked configuration - create and edit them with the Fence Configurations button."/>
+                               Text="Post family, foundation family, spacing, endpoints and rotation all come from the picked configuration - create and edit them with the Fence Configs button. Instances follow the line's direction plus the configuration's rotation."/>
                 </StackPanel>
             </GroupBox>
 

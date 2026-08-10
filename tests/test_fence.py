@@ -126,7 +126,7 @@ class ConfigStore(unittest.TestCase):
         cfgs = F.get_configs(s)
         self.assertEqual(cfgs["Posts 3m"],
                          {"spacing_mm": 2500.0, "endpoints": False,
-                          "rotation_deg": 90.0,
+                          "rotation_deg": 90.0, "post": "",
                           "foundation": "Pad : 600x600"})
 
     def test_upsert_validates(self):
@@ -163,20 +163,23 @@ class ConfigStore(unittest.TestCase):
         self.assertEqual(list(cfgs.keys()), ["ok"])
         self.assertEqual(cfgs["ok"],
                          {"spacing_mm": 500.0, "endpoints": False,
-                          "rotation_deg": 0.0, "foundation": ""})
+                          "rotation_deg": 0.0, "post": "",
+                          "foundation": ""})
 
 
 class EffectiveConfig(unittest.TestCase):
     SNAP = {"spacing_mm": 2000.0, "endpoints": True,
-            "rotation_deg": 0.0, "foundation": ""}
+            "rotation_deg": 0.0, "post": "", "foundation": ""}
 
     def test_current_config_wins(self):
         s = {}
-        F.upsert_config(s, "Gate", 3000, False, 90, "Pad : 600")
+        F.upsert_config(s, "Gate", 3000, False, 90, "Pad : 600",
+                        "Post : 100x100")
         eff = F.effective_config(s, "Gate", self.SNAP)
         self.assertEqual(eff, {"spacing_mm": 3000.0,
                                "endpoints": False,
                                "rotation_deg": 90.0,
+                               "post": "Post : 100x100",
                                "foundation": "Pad : 600"})
 
     def test_missing_config_falls_back_to_snapshot(self):
@@ -189,8 +192,33 @@ class EffectiveConfig(unittest.TestCase):
                                   "endpoints": False})
         self.assertEqual(eff, {"spacing_mm": 1500.0,
                                "endpoints": False,
-                               "rotation_deg": 0.0,
+                               "rotation_deg": 0.0, "post": "",
                                "foundation": ""})
+
+    def test_snapshot_family_becomes_the_post(self):
+        # records from before posts joined configs carry 'family'
+        eff = F.effective_config({}, None,
+                                 {"spacing_mm": 1500.0,
+                                  "endpoints": True,
+                                  "family": "Bollard : 150"})
+        self.assertEqual(eff["post"], "Bollard : 150")
+
+    def test_config_without_post_key_keeps_record_family(self):
+        # a config saved BEFORE posts joined configs has no 'post'
+        # key - the record's placed family stays in charge
+        s = {F.SETTINGS_CONFIGS: {"Gate": {"spacing_mm": 3000,
+                                           "endpoints": True}}}
+        eff = F.effective_config(s, "Gate",
+                                 {"family": "Bollard : 150"})
+        self.assertEqual(eff["post"], "Bollard : 150")
+        self.assertEqual(eff["spacing_mm"], 3000.0)
+
+    def test_config_with_explicit_none_post_wins(self):
+        s = {}
+        F.upsert_config(s, "Gate", 3000, True, 0, "Pad : 600", "")
+        eff = F.effective_config(s, "Gate",
+                                 {"family": "Bollard : 150"})
+        self.assertEqual(eff["post"], "")
 
 
 class Registry(unittest.TestCase):
