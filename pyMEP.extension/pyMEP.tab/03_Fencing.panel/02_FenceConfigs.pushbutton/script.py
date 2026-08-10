@@ -59,6 +59,7 @@ class ConfigEditWindow(forms.WPFWindow):
         self.result = None
         self.post_labels = post_labels
         self.found_labels = found_labels
+        self._last = {}     # last real pick per combo, survives filters
         self.Title = title
         self.TxtTitle.Text = title
         self.TxtName.Text = name
@@ -100,21 +101,46 @@ class ConfigEditWindow(forms.WPFWindow):
         lbl = str(combo.SelectedItem or NONE_LABEL)
         return "" if lbl == NONE_LABEL else lbl
 
+    def _apply_search(self, combo, labels, box, key):
+        """Typing NARROWS the list, jumps the pick to the first match
+        (so the combo visibly changes) and drops the list open;
+        clearing the box restores the full list and the last real
+        pick."""
+        needle = (box.Text or "").strip()
+        current = self._picked(combo)
+        if current:
+            self._last[key] = current
+        self._fill_pick(combo, labels, needle)
+        want = None
+        # the previous pick wins whenever it still matches the filter
+        for cand in (current, self._last.get(key)):
+            if want is not None:
+                break
+            if cand:
+                for i in range(combo.Items.Count):
+                    if str(combo.Items[i]) == cand:
+                        want = i
+                        break
+        if want is None:
+            # first real match - '(none)' sits at index 0
+            want = 1 if (needle and combo.Items.Count > 1) else 0
+        combo.SelectedIndex = want
+        try:
+            combo.IsDropDownOpen = bool(needle)
+        except Exception:
+            pass
+
     def on_post_search(self, sender, args):
         try:
-            keep = self._picked(self.CmbPost)
-            self._fill_pick(self.CmbPost, self.post_labels,
-                            self.TxtPostSearch.Text)
-            self._select_pick(self.CmbPost, keep)
+            self._apply_search(self.CmbPost, self.post_labels,
+                               self.TxtPostSearch, "post")
         except Exception:
             pass
 
     def on_found_search(self, sender, args):
         try:
-            keep = self._picked(self.CmbFoundation)
-            self._fill_pick(self.CmbFoundation, self.found_labels,
-                            self.TxtFoundSearch.Text)
-            self._select_pick(self.CmbFoundation, keep)
+            self._apply_search(self.CmbFoundation, self.found_labels,
+                               self.TxtFoundSearch, "fnd")
         except Exception:
             pass
 
