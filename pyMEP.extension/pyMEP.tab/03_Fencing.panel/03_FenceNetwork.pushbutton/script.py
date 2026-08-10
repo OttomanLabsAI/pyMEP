@@ -184,12 +184,33 @@ def main():
     # it - its posts go, its record goes, no doubling
     base = os.path.join(get_export_folder(doc), "project_files")
     line_uids = set(el.UniqueId for el in lines)
-    stale = []
-    for r0 in F.load_fences(base)["fences"]:
-        if r0.get("kind") != "network":
-            continue
+    polys = [pl for pl in (FR.tessellate(el) for el in lines) if pl]
+    near_tol = FR.mm2ft(FR.NODE_TOL_MM)
+
+    def _covers(r0):
+        """An old network record over the SAME fence: shared line
+        uid, or (after the lines were SPLIT into new ids) surviving
+        posts sitting ON the new lines."""
         if set(l.get("uid") for l in r0.get("lines") or []) & \
                 line_uids:
+            return True
+        for inst_d in r0.get("instances") or []:
+            try:
+                el0 = doc.GetElement(inst_d.get("uid") or "")
+                lp = el0.Location.Point
+            except Exception:
+                continue
+            if el0 is None:
+                continue
+            for pl in polys:
+                pr = F.project_to_poly(pl, lp.X, lp.Y)
+                if pr is not None and pr[1] <= near_tol:
+                    return True
+        return False
+
+    stale = []
+    for r0 in F.load_fences(base)["fences"]:
+        if r0.get("kind") == "network" and _covers(r0):
             stale.append(r0)
 
     t = Transaction(doc, "Fence Network")

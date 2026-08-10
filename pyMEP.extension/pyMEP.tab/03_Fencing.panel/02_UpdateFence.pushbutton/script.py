@@ -244,6 +244,43 @@ for rec in data["fences"]:
                  "plan": plan + ("; " + "; ".join(notes)
                                  if notes else "")})
 
+# ---- overlapping network records = the SAME fence stacked (records
+# from before superseding existed, or re-runs over split lines):
+# keep the NEWEST, mark the rest superseded
+_groups = []
+for _row in rows:
+    if _row["rec"].get("kind") != "network":
+        continue
+    _uids = set(l.get("uid") for l in _row["rec"].get("lines") or [])
+    _groups.append({"rows": [_row], "uids": _uids})
+_changed = True
+while _changed:
+    _changed = False
+    for _i in range(len(_groups)):
+        for _j in range(_i + 1, len(_groups)):
+            if _groups[_i]["uids"] & _groups[_j]["uids"]:
+                _groups[_i]["rows"] += _groups[_j]["rows"]
+                _groups[_i]["uids"] |= _groups[_j]["uids"]
+                del _groups[_j]
+                _changed = True
+                break
+        if _changed:
+            break
+for _g in _groups:
+    if len(_g["rows"]) < 2:
+        continue
+    _keep = max(_g["rows"],
+                key=lambda r: int(r["rec"].get("id") or 0))
+    for _row in _g["rows"]:
+        if _row is _keep:
+            continue
+        _row["superseded_by"] = _keep["rec"].get("id")
+        _row["plan"] = ("SUPERSEDED by fence network {} - the same "
+                        "lines stacked {} time(s); its {} post(s) "
+                        "are removed and the record dropped".format(
+                            _keep["rec"].get("id"), len(_g["rows"]),
+                            len(_row["survivors"])))
+
 log("**{}** fence(s) recorded.".format(len(rows)))
 
 
@@ -349,6 +386,26 @@ try:
         label = F.fence_label(rec)
         fid = rec.get("id")
         if rec.get("kind") == "network":
+            if row.get("superseded_by"):
+                for inst_d, el in survivors:
+                    try:
+                        doc.Delete(el.Id)
+                    except Exception:
+                        pass
+                    f_el = _by_uid(inst_d.get("foundation_uid"))
+                    if f_el is not None:
+                        try:
+                            doc.Delete(f_el.Id)
+                        except Exception:
+                            pass
+                drops.append(fid)
+                results.append((label, "superseded",
+                                "same lines as fence network {} - "
+                                "{} stacked post(s) removed, record "
+                                "dropped".format(
+                                    row["superseded_by"],
+                                    len(survivors))))
+                continue
             if terrain is None or not row["net_lines"]:
                 if not survivors:
                     drops.append(fid)
