@@ -182,6 +182,9 @@ for rec in data["fences"]:
             plan = ("record will be DROPPED (all lines gone, no "
                     "posts left)" if not survivors else
                     "SKIP - every line was deleted")
+        elif not survivors:
+            plan = ("record will be DROPPED - every post was "
+                    "deleted by hand (re-model with Fence Network)")
         else:
             plan = ("REBUILD network: {} line(s), currently {} "
                     "post(s) - re-solved against the lines, "
@@ -225,7 +228,10 @@ for rec in data["fences"]:
                                _mm2ft(eff["spacing_mm"]),
                                rec.get("justify") or F.JUSTIFY_START,
                                eff["endpoints"], F.is_closed(poly))
-            if len(dists) == len(survivors) and survivors and \
+            if not survivors and rec.get("instances"):
+                plan = ("record will be DROPPED - every post was "
+                        "deleted by hand")
+            elif len(dists) == len(survivors) and survivors and \
                     not _families_changed(rec, eff):
                 plan = "MOVE {} post(s) onto the current line + " \
                     "terrain".format(len(survivors))
@@ -355,6 +361,16 @@ try:
                                     "- re-model with Fence "
                                     "Network"))
                 continue
+            if not survivors:
+                # every post deleted by hand = the fence was removed
+                # on purpose - resurrecting it would DOUBLE anything
+                # modelled since
+                drops.append(fid)
+                results.append((label, "dropped",
+                                "every post was deleted by hand - "
+                                "record removed (re-model with "
+                                "Fence Network)"))
+                continue
             for inst_d, el in survivors:
                 try:
                     doc.Delete(el.Id)
@@ -428,6 +444,13 @@ try:
         extra_rot = math.radians(eff["rotation_deg"])
         cfg_notes = _config_notes(rec, eff)
 
+        if not survivors and rec.get("instances"):
+            drops.append(fid)
+            results.append((label, "dropped",
+                            "every post was deleted by hand - "
+                            "record removed (re-place with Place "
+                            "New Fence)"))
+            continue
         pairs = F.pair_stations([d for d, _el in survivors], dists)
         if _families_changed(rec, eff):
             pairs = None

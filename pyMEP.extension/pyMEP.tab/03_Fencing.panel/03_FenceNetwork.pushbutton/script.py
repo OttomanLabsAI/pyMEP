@@ -180,9 +180,37 @@ def main():
         forms.alert("No 3D view found in the model - create one and "
                     "re-run.", exitscript=True)
 
+    # re-modelling over lines an OLD network record covers REPLACES
+    # it - its posts go, its record goes, no doubling
+    base = os.path.join(get_export_folder(doc), "project_files")
+    line_uids = set(el.UniqueId for el in lines)
+    stale = []
+    for r0 in F.load_fences(base)["fences"]:
+        if r0.get("kind") != "network":
+            continue
+        if set(l.get("uid") for l in r0.get("lines") or []) & \
+                line_uids:
+            stale.append(r0)
+
     t = Transaction(doc, "Fence Network")
     t.Start()
     try:
+        for r0 in stale:
+            gone = 0
+            for inst_d in r0.get("instances") or []:
+                for uid in (inst_d.get("uid"),
+                            inst_d.get("foundation_uid")):
+                    if not uid:
+                        continue
+                    el0 = doc.GetElement(uid)
+                    if el0 is not None:
+                        try:
+                            doc.Delete(el0.Id)
+                            gone += 1
+                        except Exception:
+                            pass
+            log("Superseding **fence network {}** - {} old "
+                "instance(s) removed.".format(r0.get("id"), gone))
         records, notes, placed, missed = FR.model_network(
             doc, lines, terrain, cfgs, view3d, say=log)
         t.Commit()
@@ -206,11 +234,15 @@ def main():
         log("! **{}** point(s) had NO terrain hit.".format(missed))
     log("**{}** instance(s) placed.".format(placed))
 
+    for r0 in stale:
+        try:
+            F.drop_fence(base, r0.get("id"))
+        except Exception:
+            pass
+
     net_id = None
     if records:
         try:
-            base = os.path.join(get_export_folder(doc),
-                                "project_files")
             rec = {
                 "kind": "network",
                 "terrain_uid": terrain.UniqueId,
