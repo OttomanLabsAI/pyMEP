@@ -313,6 +313,25 @@ class NetworkMaths(unittest.TestCase):
                  ("Mid", {"priority": 3})]
         self.assertEqual(F.pick_priority(named)[0], "Imp")
 
+    def test_renumber_from_list_order(self):
+        s = {}
+        F.upsert_config(s, "Standard", 2000, True)
+        F.upsert_config(s, "Impact", 2000, True)
+        F.upsert_config(s, "Gate", 2000, True)
+        F.renumber_priorities(s, ["Impact", "Gate", "Standard"])
+        cfgs = F.get_configs(s)
+        self.assertEqual(cfgs["Impact"]["priority"], 1)
+        self.assertEqual(cfgs["Gate"]["priority"], 2)
+        self.assertEqual(cfgs["Standard"]["priority"], 3)
+        # the seeded 'Default' keeps 99 and stays at the bottom
+        self.assertEqual(F.priority_order(cfgs),
+                         ["Impact", "Gate", "Standard", "Default"])
+
+    def test_priority_order_ties_break_on_name(self):
+        cfgs = {"b": {"priority": 99}, "A": {"priority": 99},
+                "top": {"priority": 1}}
+        self.assertEqual(F.priority_order(cfgs), ["top", "A", "b"])
+
     def test_pick_priority_tie_is_stable_by_name(self):
         named = [("B", {"priority": 2}), ("A", {"priority": 2})]
         self.assertEqual(F.pick_priority(named)[0], "A")

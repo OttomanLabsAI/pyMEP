@@ -52,8 +52,7 @@ def _row_text(name, cfg):
             cfg["end_post"] or "none",
             cfg["end_foundation"] or "none")
     if cfg.get("line_style"):
-        txt += u"  |  NET: '{}', prio {}".format(
-            cfg["line_style"], cfg["priority"])
+        txt += u"  |  NET: '{}'".format(cfg["line_style"])
     return txt
 
 
@@ -90,7 +89,6 @@ class ConfigEditWindow(forms.WPFWindow):
         for nm2 in style_names:
             self.CmbLineStyle.Items.Add(nm2)
         self._select_pick(self.CmbLineStyle, cfg["line_style"])
-        self.TxtPriority.Text = "{}".format(cfg["priority"])
 
     # ---- family pickers (post + foundation share the behaviour) ------
     @staticmethod
@@ -221,20 +219,14 @@ class ConfigEditWindow(forms.WPFWindow):
                                     "NOTHING - every family is "
                                     "'(none)'.")
             return
-        try:
-            prio = int(float(self.TxtPriority.Text or 99))
-        except Exception:
-            self.StatusText.Text = ("Priority must be a whole "
-                                    "number (1 = highest).")
-            return
         self.result = {"name": name, "spacing": spacing,
                        "endpoints": bool(self.ChkEnds.IsChecked),
                        "rotation": rotation, "post": post,
                        "foundation": foundation,
                        "same_ends": same_ends, "end_post": end_post,
                        "end_foundation": end_foundation,
-                       "line_style": self._picked(self.CmbLineStyle),
-                       "priority": prio}
+                       "line_style":
+                           self._picked(self.CmbLineStyle)}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -257,14 +249,15 @@ class ConfigsWindow(forms.WPFWindow):
 
     def _fill(self, want):
         cfgs = F.get_configs(self.settings)
-        self._names = sorted(cfgs.keys(), key=lambda s: s.lower())
+        self._names = F.priority_order(cfgs)
         self.LstConfigs.Items.Clear()
-        for n in self._names:
-            self.LstConfigs.Items.Add(_row_text(n, cfgs[n]))
+        for i, n in enumerate(self._names):
+            self.LstConfigs.Items.Add(u"{}.  {}".format(
+                i + 1, _row_text(n, cfgs[n])))
         pick = want if want in cfgs else self._names[0]
         self.LstConfigs.SelectedIndex = self._names.index(pick)
-        self.TxtInfo.Text = ("{} configuration(s) - used by Place "
-                             "New Fence and Update Fence.".format(
+        self.TxtInfo.Text = ("{} configuration(s), top wins corner "
+                             "posts in Fence Network.".format(
                                  len(self._names)))
 
     def _selected_name(self):
@@ -281,20 +274,27 @@ class ConfigsWindow(forms.WPFWindow):
 
     def _run_editor(self, title, name, cfg, editing):
         """Open the editor; on Save, store (renaming when the name
-        changed on an edit)."""
+        changed on an edit). The priority comes from the LIST: an
+        edit keeps its place, a new config joins at the bottom."""
         win = ConfigEditWindow(title, name, cfg, self.post_labels,
                                self.found_labels, self.style_names)
         win.ShowDialog()
         r = win.result
         if r is None:
             return
+        if editing:
+            prio = int(cfg.get("priority") or 99)
+        else:
+            cfgs_now = F.get_configs(self.settings)
+            prio = 1 + max([0] + [int(c.get("priority") or 0)
+                                  for c in cfgs_now.values()])
         try:
             F.upsert_config(self.settings, r["name"], r["spacing"],
                             r["endpoints"], r["rotation"],
                             r["foundation"], r["post"],
                             r["same_ends"], r["end_post"],
                             r["end_foundation"], r["line_style"],
-                            r["priority"])
+                            prio)
         except ValueError as ex:
             self.StatusText.Text = str(ex)
             return
@@ -321,6 +321,30 @@ class ConfigsWindow(forms.WPFWindow):
             return
         self._run_editor("Edit fence configuration - {}".format(name),
                          name, cfg, editing=True)
+
+    def _move(self, delta):
+        i = self.LstConfigs.SelectedIndex
+        j = i + delta
+        if i < 0 or j < 0 or j >= len(self._names):
+            return
+        order = list(self._names)
+        order[i], order[j] = order[j], order[i]
+        F.renumber_priorities(self.settings, order)
+        self._persist()
+        self._fill(order[j])
+        self.StatusText.Text = ""
+
+    def on_up(self, sender, args):
+        try:
+            self._move(-1)
+        except Exception as ex:
+            self.StatusText.Text = str(ex)
+
+    def on_down(self, sender, args):
+        try:
+            self._move(1)
+        except Exception as ex:
+            self.StatusText.Text = str(ex)
 
     def on_remove(self, sender, args):
         try:

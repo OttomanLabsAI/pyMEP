@@ -403,6 +403,26 @@ def config_for_style(cfgs, style):
     return None
 
 
+def renumber_priorities(settings, ordered_names):
+    """Rewrite every config's priority from its LIST position - the
+    TOP one (index 0) becomes 1 and wins corner posts in Fence
+    Network. Names missing from the list keep their old number."""
+    cfgs = get_configs(settings)
+    for i, name in enumerate(ordered_names):
+        if name in cfgs:
+            cfgs[name]["priority"] = i + 1
+    settings[SETTINGS_CONFIGS] = cfgs
+    return cfgs
+
+
+def priority_order(cfgs):
+    """Config names sorted for the list: priority first (smallest =
+    top), name breaks ties."""
+    return sorted(cfgs.keys(),
+                  key=lambda n: (int(_num(cfgs[n].get("priority"),
+                                          99)), n.lower()))
+
+
 def pick_priority(named_cfgs):
     """The winning (name, cfg) - SMALLEST priority number wins (1 =
     highest, e.g. impact rated); ties break on the config name so
