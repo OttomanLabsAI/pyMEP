@@ -29,7 +29,12 @@ SETTINGS_FAMILY = "fence_family"     # last family label
 
 DEFAULT_NAME = "Default"
 DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
-                  "rotation_deg": 0.0, "foundation": ""}
+                  "rotation_deg": 0.0, "post": "", "foundation": ""}
+
+# the categories a POST may come from / the FOUNDATION must come from
+POST_CATEGORIES = ["OST_GenericModel", "OST_Columns",
+                   "OST_StructuralColumns"]
+FOUNDATION_CATEGORIES = ["OST_StructuralFoundation"]
 
 JUSTIFY_START = "start"
 JUSTIFY_CENTRE = "centre"
@@ -168,6 +173,7 @@ def get_configs(settings):
                                   "endpoints": bool(
                                       c.get("endpoints", True)),
                                   "rotation_deg": rot,
+                                  "post": str(c.get("post") or ""),
                                   "foundation":
                                       str(c.get("foundation") or "")}
             except Exception:
@@ -178,13 +184,15 @@ def get_configs(settings):
 
 
 def upsert_config(settings, name, spacing_mm, endpoints,
-                  rotation_deg=0.0, foundation=""):
+                  rotation_deg=0.0, foundation="", post=""):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
     of line-aligned (90 = across the line); any number, also
-    negative. ``foundation`` is a family label ('Family : Type') to
-    place UNDER every post - empty = posts only."""
+    negative. ``post`` and ``foundation`` are family labels
+    ('Family : Type') - the post from Generic Models / Columns /
+    Structural Columns, the foundation from Structural Foundations;
+    either may be empty ('none')."""
     name = (name or "").strip()
     if not name:
         raise ValueError("the configuration needs a name")
@@ -202,6 +210,7 @@ def upsert_config(settings, name, spacing_mm, endpoints,
     cfgs[name] = {"spacing_mm": spacing_mm,
                   "endpoints": bool(endpoints),
                   "rotation_deg": rotation_deg,
+                  "post": str(post or "").strip(),
                   "foundation": str(foundation or "").strip()}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
@@ -211,13 +220,19 @@ def effective_config(settings, name, snapshot):
     """The values an update should USE: the CURRENT saved config of
     that name when it still exists (so edits made with Fence
     Configurations flow into Update Fence), else the record's stored
-    snapshot. Returns {spacing_mm, endpoints, rotation_deg,
-    foundation}."""
+    snapshot. Returns {spacing_mm, endpoints, rotation_deg, post,
+    foundation}. A config saved before posts joined configs (no
+    'post' key stored) keeps the record's placed family."""
+    snap_post = str(snapshot.get("post") or
+                    snapshot.get("family") or "")
     raw = settings.get(SETTINGS_CONFIGS)
     if isinstance(raw, dict) and name and name in raw:
         cfg = get_configs(settings).get(name)
         if cfg is not None:
-            return dict(cfg)
+            out = dict(cfg)
+            if "post" not in (raw.get(name) or {}):
+                out["post"] = snap_post
+            return out
     try:
         rot = float(snapshot.get("rotation_deg") or 0.0)
     except Exception:
@@ -225,6 +240,7 @@ def effective_config(settings, name, snapshot):
     return {"spacing_mm": float(snapshot.get("spacing_mm") or 0.0),
             "endpoints": bool(snapshot.get("endpoints", True)),
             "rotation_deg": rot,
+            "post": snap_post,
             "foundation": str(snapshot.get("foundation") or "")}
 
 
@@ -298,8 +314,9 @@ def drop_fence(base, fence_id):
 
 def fence_label(rec):
     """One-line description for pickers and reports."""
+    what = rec.get("family") or rec.get("foundation") or "?"
     return "Fence {} - {} @ {:g} mm, {} ({} post(s))".format(
-        rec.get("id") or "?", rec.get("family") or "?",
+        rec.get("id") or "?", what,
         float(rec.get("spacing_mm") or 0.0),
         rec.get("justify") or "start",
         len(rec.get("instances") or []))

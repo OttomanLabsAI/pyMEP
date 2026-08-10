@@ -114,6 +114,9 @@ def _config_notes(rec, eff):
                 eff["rotation_deg"]))
     except Exception:
         pass
+    if _rec_post(rec) != eff["post"]:
+        notes.append("post '{}' -> '{}'".format(
+            _rec_post(rec) or "none", eff["post"] or "none"))
     if str(rec.get("foundation") or "") != eff["foundation"]:
         notes.append("foundation '{}' -> '{}'".format(
             rec.get("foundation") or "none",
@@ -121,10 +124,15 @@ def _config_notes(rec, eff):
     return notes
 
 
-def _foundation_changed(rec, eff):
-    """A foundation add / remove / swap always REBUILDS - moving
-    cannot conjure or clear the pads under existing posts."""
-    return str(rec.get("foundation") or "") != eff["foundation"]
+def _rec_post(rec):
+    return str(rec.get("post") or rec.get("family") or "")
+
+
+def _families_changed(rec, eff):
+    """A post or foundation swap / add / remove always REBUILDS -
+    moving cannot change what stands at the stations."""
+    return (_rec_post(rec) != eff["post"] or
+            str(rec.get("foundation") or "") != eff["foundation"])
 
 
 # ---- resolve every record against the model + the CURRENT config ----
@@ -163,7 +171,7 @@ for rec in data["fences"]:
                                rec.get("justify") or F.JUSTIFY_START,
                                eff["endpoints"], F.is_closed(poly))
             if len(dists) == len(survivors) and survivors and \
-                    not _foundation_changed(rec, eff):
+                    not _families_changed(rec, eff):
                 plan = "MOVE {} post(s) onto the current line + " \
                     "terrain".format(len(survivors))
             else:
@@ -316,7 +324,7 @@ try:
         cfg_notes = _config_notes(rec, eff)
 
         pairs = F.pair_stations([d for d, _el in survivors], dists)
-        if _foundation_changed(rec, eff):
+        if _families_changed(rec, eff):
             pairs = None
         if pairs is not None:
             el_by_uid = dict((d.get("uid"), el)
@@ -340,24 +348,37 @@ try:
                         doc.Delete(f_el.Id)
                     except Exception:
                         pass
-            symbol = FR.symbol_by_label(doc, rec.get("family") or "")
-            if symbol is None:
-                results.append((label, "failed",
-                                "family '{}' no longer in the "
-                                "model".format(rec.get("family"))))
-                continue
+            post_symbol = None
+            if eff["post"]:
+                post_symbol = FR.symbol_by_label(
+                    doc, eff["post"], F.POST_CATEGORIES)
+                if post_symbol is None:
+                    results.append((label, "failed",
+                                    "post family '{}' not in the "
+                                    "model".format(eff["post"])))
+                    continue
             foundation_symbol = None
             if eff["foundation"]:
                 foundation_symbol = FR.symbol_by_label(
-                    doc, eff["foundation"])
+                    doc, eff["foundation"], F.FOUNDATION_CATEGORIES)
                 if foundation_symbol is None:
-                    log("! fence {}: foundation family **{}** is NOT "
-                        "in this model - posts only.".format(
-                            fid, eff["foundation"]))
+                    results.append((label, "failed",
+                                    "foundation family '{}' not in "
+                                    "the model".format(
+                                        eff["foundation"])))
+                    continue
+            primary, secondary = post_symbol, foundation_symbol
+            if primary is None:
+                primary, secondary = foundation_symbol, None
+            if primary is None:
+                results.append((label, "failed",
+                                "the config places nothing (post "
+                                "and foundation both none)"))
+                continue
             records, missed, failed, why = FR.place_instances(
-                doc, symbol, poly, dists, terrain_id, ri, ray_z,
+                doc, primary, poly, dists, terrain_id, ri, ray_z,
                 levels, extra_rot,
-                foundation_symbol=foundation_symbol)
+                foundation_symbol=secondary)
             action = "rebuilt"
             note = "{} -> {} post(s)".format(len(survivors),
                                              len(records))
@@ -376,6 +397,8 @@ try:
         rec["spacing_mm"] = eff["spacing_mm"]
         rec["endpoints"] = eff["endpoints"]
         rec["rotation_deg"] = eff["rotation_deg"]
+        rec["post"] = eff["post"]
+        rec["family"] = eff["post"]
         rec["foundation"] = eff["foundation"]
         rec["updated"] = datetime.datetime.now().strftime(
             "%Y-%m-%dT%H:%M:%S")

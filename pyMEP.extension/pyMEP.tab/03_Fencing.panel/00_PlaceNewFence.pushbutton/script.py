@@ -1,19 +1,21 @@
 # -*- coding: utf-8 -*-
-"""Place New Fence - pick a line and a terrain, place a family
-along the line.
+"""Place New Fence - pick a line and a terrain, place the fence
+configuration's post + foundation along the line.
 
-One dialog first: the family (searchable), the fence CONFIGURATION
-(spacing + endpoints + custom rotation - created and edited with the
-Fence Configurations button), and the justification (Start / Centre
+One dialog first: the fence CONFIGURATION (post family, foundation
+family, spacing, endpoints, custom rotation - created and edited
+with the Fence Configs button) and the justification (Start / Centre
 / End - where the spacing counts from; Centre splits the leftover
-evenly). Then pick the LINE and the TERRAIN in the view. Every station is ray-cast
-straight down onto the picked terrain and the instance lands ON the
-ground, rotated so its X axis follows the line's direction there.
+evenly). Then pick the LINE and the TERRAIN in the view. Every
+station is ray-cast straight down onto the picked terrain; the post
+(and the foundation under it) land ON the ground, rotated so the
+family's X axis follows the line's direction plus the config's
+rotation.
 
-Every fence is RECORDED (line, terrain, settings, instances) in the
-project's file store, so Update Fence re-drapes it after the line or
-the terrain changes. Straight, curved and closed model lines all
-work. Revit 2022-2026.
+Every fence is RECORDED (line, terrain, config, each post) in the
+project's file store, so Update Fence re-drapes it after the line,
+the terrain or the configuration changes. Straight, curved and
+closed model lines all work. Revit 2022-2026.
 """
 
 __title__  = "Place New\nFence"
@@ -55,35 +57,16 @@ XAML_PATH = os.path.join(
 log("### Place New Fence")
 
 
-def _name(el):
-    try:
-        n = el.Name
-        if n:
-            return n
-    except Exception:
-        pass
-    try:
-        from Autodesk.Revit.DB import Element
-        return Element.Name.__get__(el)
-    except Exception:
-        return "?"
-
-
 # -------------------------------------------------------------------- dialog
 class FenceWindow(forms.WPFWindow):
-    """Family + spacing configuration + justification; the
-    Configurations group creates / edits / deletes the named configs
-    saved in pyMEP settings."""
+    """Configuration + justification; the config carries the post
+    and foundation families, spacing, endpoints and rotation."""
 
-    def __init__(self, settings, fam_items, info_text):
+    def __init__(self, settings, info_text):
         forms.WPFWindow.__init__(self, XAML_PATH)
         self.result = None
         self.settings = settings
-        self.fam_items = fam_items          # [(label, symbol)]
         self.TxtInfo.Text = info_text
-        self._fill_families("")
-        want = settings.get(F.SETTINGS_FAMILY) or ""
-        self._select_family(want)
         just = settings.get(F.SETTINGS_JUSTIFY, F.JUSTIFY_START)
         if just == F.JUSTIFY_CENTRE:
             self.RadJustCentre.IsChecked = True
@@ -93,32 +76,6 @@ class FenceWindow(forms.WPFWindow):
             self.RadJustStart.IsChecked = True
         self._fill_configs(settings.get(F.SETTINGS_LAST))
 
-    # ---- families ----------------------------------------------------
-    def _fill_families(self, needle):
-        self.CmbFamily.Items.Clear()
-        needle = (needle or "").strip().lower()
-        for label, _fs in self.fam_items:
-            if needle and needle not in label.lower():
-                continue
-            self.CmbFamily.Items.Add(label)
-        if self.CmbFamily.Items.Count:
-            self.CmbFamily.SelectedIndex = 0
-
-    def _select_family(self, label):
-        for i in range(self.CmbFamily.Items.Count):
-            if str(self.CmbFamily.Items[i]) == label:
-                self.CmbFamily.SelectedIndex = i
-                return
-
-    def on_family_search(self, sender, args):
-        try:
-            keep = str(self.CmbFamily.SelectedItem or "")
-            self._fill_families(self.TxtFamilySearch.Text)
-            self._select_family(keep)
-        except Exception:
-            pass
-
-    # ---- configs -----------------------------------------------------
     def _fill_configs(self, want):
         cfgs = F.get_configs(self.settings)
         self.CmbConfig.Items.Clear()
@@ -135,17 +92,18 @@ class FenceWindow(forms.WPFWindow):
             if cfg is None:
                 return
             self.TxtCfgSummary.Text = (
+                u"post: {}  |  foundation: {}\n"
                 u"{:g} mm spacing, endpoints {}, rotation "
-                u"{:+g}\u00b0, foundation: {}".format(
+                u"{:+g}°".format(
+                    cfg["post"] or "none",
+                    cfg["foundation"] or "none",
                     cfg["spacing_mm"],
                     "ON" if cfg["endpoints"] else "off",
-                    cfg["rotation_deg"],
-                    cfg["foundation"] or "none"))
+                    cfg["rotation_deg"]))
             self.StatusText.Text = ""
         except Exception:
             pass
 
-    # ---- go / cancel -------------------------------------------------
     def justify(self):
         if self.RadJustCentre.IsChecked:
             return F.JUSTIFY_CENTRE
@@ -154,28 +112,21 @@ class FenceWindow(forms.WPFWindow):
         return F.JUSTIFY_START
 
     def on_go(self, sender, args):
-        label = str(self.CmbFamily.SelectedItem or "")
-        if not label:
-            self.StatusText.Text = "Pick a family to place."
-            return
         cfg = F.get_configs(self.settings).get(
             str(self.CmbConfig.SelectedItem or ""))
         if cfg is None:
             self.StatusText.Text = "Pick a configuration."
             return
-        symbol = None
-        for lbl, fs in self.fam_items:
-            if lbl == label:
-                symbol = fs
-                break
-        if symbol is None:
-            self.StatusText.Text = "Pick a family to place."
+        if not cfg["post"] and not cfg["foundation"]:
+            self.StatusText.Text = (
+                "This configuration places NOTHING - give it a post "
+                "or a foundation with the Fence Configs button.")
             return
         self.result = {
-            "label": label, "symbol": symbol,
             "spacing_mm": cfg["spacing_mm"],
             "endpoints": cfg["endpoints"],
             "rotation_deg": cfg["rotation_deg"],
+            "post": cfg["post"],
             "foundation": cfg["foundation"],
             "justify": self.justify(),
             "config": str(self.CmbConfig.SelectedItem or ""),
@@ -227,17 +178,9 @@ def pick_one(sel_filter, prompt):
 def main():
     settings = load_settings()
 
-    fams = FR.placeable_symbols(doc)
-    if not fams:
-        log("No placeable point families in this model.")
-        log.close()
-        forms.alert("This model has no placeable point families "
-                    "(one-level / work-plane based) - load one and "
-                    "re-run.", exitscript=True)
-
-    win = FenceWindow(settings, fams,
-                      "{} placeable family type(s) in this "
-                      "model".format(len(fams)))
+    win = FenceWindow(settings,
+                      "{} configuration(s) saved".format(
+                          len(F.get_configs(settings))))
     win.ShowDialog()
     if win.result is None:
         log("Cancelled - nothing placed.")
@@ -245,7 +188,6 @@ def main():
         script.exit()
     opt = win.result
 
-    settings[F.SETTINGS_FAMILY] = opt["label"]
     settings[F.SETTINGS_JUSTIFY] = opt["justify"]
     settings[F.SETTINGS_LAST] = opt["config"]
     try:
@@ -253,18 +195,43 @@ def main():
     except Exception:
         pass
 
-    log("Family **{}**, config **{}**: spacing **{:g} mm**, "
-        "justification **{}**, endpoints **{}**, rotation "
-        "**{:+g} deg**, foundation **{}**.".format(
-            opt["label"], opt["config"], opt["spacing_mm"],
+    log("Config **{}**: post **{}**, foundation **{}**, spacing "
+        "**{:g} mm**, justification **{}**, endpoints **{}**, "
+        "rotation **{:+g} deg**.".format(
+            opt["config"], opt["post"] or "none",
+            opt["foundation"] or "none", opt["spacing_mm"],
             opt["justify"], "on" if opt["endpoints"] else "off",
-            opt["rotation_deg"], opt["foundation"] or "none"))
+            opt["rotation_deg"]))
+
+    # resolve the config's families in THIS model
+    post_symbol = None
+    if opt["post"]:
+        post_symbol = FR.symbol_by_label(doc, opt["post"],
+                                         F.POST_CATEGORIES)
+        if post_symbol is None:
+            log("! post family **{}** is NOT in this model.".format(
+                opt["post"]))
+            log.close()
+            forms.alert("The post family '{}' is not in this model "
+                        "- load it or edit the configuration.".format(
+                            opt["post"]), exitscript=True)
     foundation_symbol = None
     if opt["foundation"]:
-        foundation_symbol = FR.symbol_by_label(doc, opt["foundation"])
+        foundation_symbol = FR.symbol_by_label(
+            doc, opt["foundation"], F.FOUNDATION_CATEGORIES)
         if foundation_symbol is None:
-            log("! foundation family **{}** is NOT in this model - "
-                "posts only.".format(opt["foundation"]))
+            log("! foundation family **{}** is NOT in this "
+                "model.".format(opt["foundation"]))
+            log.close()
+            forms.alert("The foundation family '{}' is not in this "
+                        "model - load it or edit the "
+                        "configuration.".format(opt["foundation"]),
+                        exitscript=True)
+    # the PRIMARY carries the record; a foundation-only config
+    # promotes the foundation to primary
+    primary, secondary = post_symbol, foundation_symbol
+    if primary is None:
+        primary, secondary = foundation_symbol, None
 
     line_el = pick_one(LineFilter(), "Pick the LINE to fence along")
     if line_el is None:
@@ -323,16 +290,16 @@ def main():
     ray_z = FR.ray_start_z([terrain, line_el])
     terrain_id = FR.id_value(terrain.Id)
     log("Ray-casting in 3D view **{}** onto **{}** (id {}).".format(
-        view3d.Name, _name(terrain), terrain_id))
+        view3d.Name, FR.element_name(terrain), terrain_id))
     levels = FR.sorted_levels(doc)
 
-    t = Transaction(doc, "Fence")
+    t = Transaction(doc, "Place New Fence")
     t.Start()
     try:
         records, missed, failed, why = FR.place_instances(
-            doc, opt["symbol"], poly, dists, terrain_id, ri, ray_z,
+            doc, primary, poly, dists, terrain_id, ri, ray_z,
             levels, extra_rot=math.radians(opt["rotation_deg"]),
-            foundation_symbol=foundation_symbol)
+            foundation_symbol=secondary)
         t.Commit()
     except Exception:
         try:
@@ -361,10 +328,13 @@ def main():
             rec = {
                 "line_uid": line_el.UniqueId,
                 "terrain_uid": terrain.UniqueId,
-                "family": opt["label"],
+                "family": opt["post"] if post_symbol is not None
+                else "",
                 "spacing_mm": opt["spacing_mm"],
                 "endpoints": opt["endpoints"],
                 "rotation_deg": opt["rotation_deg"],
+                "post": opt["post"] if post_symbol is not None
+                else "",
                 "foundation": opt["foundation"]
                 if foundation_symbol is not None else "",
                 "justify": opt["justify"],
@@ -374,9 +344,9 @@ def main():
                     "%Y-%m-%dT%H:%M:%S"),
             }
             fence_id = F.add_fence(base, rec)
-            log("Recorded as **fence {}** - move the line or reshape "
-                "the terrain, then run **Update Fence**.".format(
-                    fence_id))
+            log("Recorded as **fence {}** - move the line, reshape "
+                "the terrain or edit the config, then run **Update "
+                "Fence**.".format(fence_id))
         except Exception as ex:
             log("! could not record the fence for updates: "
                 "{}".format(ex))
