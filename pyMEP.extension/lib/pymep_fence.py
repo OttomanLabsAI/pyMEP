@@ -32,8 +32,7 @@ DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "rotation_deg": 0.0, "post": "", "foundation": "",
                   "same_ends": True, "end_post": "",
                   "end_foundation": "",
-                  "line_style": "", "dia_mm": 0.0,
-                  "end_dia_mm": 0.0, "priority": 99}
+                  "line_style": "", "priority": 99}
 
 # the categories a POST may come from / the FOUNDATION must come from
 POST_CATEGORIES = ["OST_GenericModel", "OST_Columns",
@@ -196,10 +195,6 @@ def get_configs(settings):
                                           or ""),
                                   "line_style":
                                       str(c.get("line_style") or ""),
-                                  "dia_mm": _num(
-                                      c.get("dia_mm"), 0.0),
-                                  "end_dia_mm": _num(
-                                      c.get("end_dia_mm"), 0.0),
                                   "priority": int(_num(
                                       c.get("priority"), 99))}
             except Exception:
@@ -212,8 +207,7 @@ def get_configs(settings):
 def upsert_config(settings, name, spacing_mm, endpoints,
                   rotation_deg=0.0, foundation="", post="",
                   same_ends=True, end_post="", end_foundation="",
-                  line_style="", dia_mm=0.0, end_dia_mm=0.0,
-                  priority=99):
+                  line_style="", priority=99):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
@@ -236,13 +230,6 @@ def upsert_config(settings, name, spacing_mm, endpoints,
     except Exception:
         raise ValueError("rotation must be a number (degrees)")
     try:
-        dia_mm = float(dia_mm or 0.0)
-        end_dia_mm = float(end_dia_mm or 0.0)
-    except Exception:
-        raise ValueError("diameters must be numbers (mm)")
-    if dia_mm < 0 or end_dia_mm < 0:
-        raise ValueError("diameters cannot be negative")
-    try:
         priority = int(float(priority if priority not in
                              (None, "") else 99))
     except Exception:
@@ -259,8 +246,6 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   "end_foundation":
                       str(end_foundation or "").strip(),
                   "line_style": str(line_style or "").strip(),
-                  "dia_mm": dia_mm,
-                  "end_dia_mm": end_dia_mm,
                   "priority": priority}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
@@ -318,8 +303,6 @@ def effective_config(settings, name, snapshot):
             "end_foundation":
                 str(snapshot.get("end_foundation") or ""),
             "line_style": str(snapshot.get("line_style") or ""),
-            "dia_mm": _num(snapshot.get("dia_mm"), 0.0),
-            "end_dia_mm": _num(snapshot.get("end_dia_mm"), 0.0),
             "priority": int(_num(snapshot.get("priority"), 99))}
 
 
@@ -453,25 +436,30 @@ def cluster_nodes(points, tol):
     return centers, idx
 
 
-def tangent_chain(length, r_start, r_end, dia, tol=1e-6):
-    """Intermediate post centers along an edge so every circle
-    TOUCHES its neighbours at a single point: the first post is
-    tangent to the start node's circle (radius ``r_start``), each
-    next tangent to the previous, packed while staying clear of the
-    far node's circle (radius ``r_end``). Returns (stations, gap):
-    stations measured from the start, gap = what is LEFT between the
-    last circle and the far node circle (0 <= gap < dia when
-    anything fits; the whole clear run when nothing does; negative
-    when the two node circles themselves overlap)."""
-    if length is None or length <= tol or not dia or dia <= tol:
-        return [], 0.0
-    a = r_start + dia / 2.0            # first permissible center
-    b = length - r_end - dia / 2.0     # last permissible center
-    if b < a - tol:
-        return [], length - r_start - r_end
-    n = int((b - a) / dia + tol) + 1
-    stations = [a + k * dia for k in range(n)]
-    return stations, b - stations[-1]
+def edge_stations(length, spacing, clear_start=None, clear_end=None,
+                  tol=1e-6):
+    """Post centers along one NETWORK edge, measured from the start.
+
+    ``clear_start`` = end-foundation radius + this line's foundation
+    radius (both from the families' 'Diameter' parameter): the FIRST
+    post is placed exactly there, so the two circles TOUCH at a
+    single point. When a diameter is unknown (None) the line draws
+    NORMALLY and its first post is SKIPPED - the run starts at
+    2 x spacing. After the first, every post is ``spacing`` on.
+    The run stops clear of the far node: ``clear_end`` when known,
+    one full spacing when not."""
+    if not spacing or spacing <= tol or length is None or \
+            length <= tol:
+        return []
+    first = clear_start if clear_start is not None else 2.0 * spacing
+    limit = length - (clear_end if clear_end is not None
+                      else spacing)
+    out = []
+    d = first
+    while d <= limit + tol:
+        out.append(d)
+        d += spacing
+    return out
 
 
 def pair_stations(instances, dists, tol=1e-6):

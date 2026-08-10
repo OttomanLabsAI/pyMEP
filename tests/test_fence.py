@@ -130,7 +130,6 @@ class ConfigStore(unittest.TestCase):
                           "foundation": "Pad : 600x600",
                           "same_ends": True, "end_post": "",
                           "end_foundation": "", "line_style": "",
-                          "dia_mm": 0.0, "end_dia_mm": 0.0,
                           "priority": 99})
 
     def test_upsert_validates(self):
@@ -170,16 +169,14 @@ class ConfigStore(unittest.TestCase):
                           "rotation_deg": 0.0, "post": "",
                           "foundation": "", "same_ends": True,
                           "end_post": "", "end_foundation": "",
-                          "line_style": "", "dia_mm": 0.0,
-                          "end_dia_mm": 0.0, "priority": 99})
+                          "line_style": "", "priority": 99})
 
 
 class EffectiveConfig(unittest.TestCase):
     SNAP = {"spacing_mm": 2000.0, "endpoints": True,
             "rotation_deg": 0.0, "post": "", "foundation": "",
             "same_ends": True, "end_post": "", "end_foundation": "",
-            "line_style": "", "dia_mm": 0.0, "end_dia_mm": 0.0,
-            "priority": 99}
+            "line_style": "", "priority": 99}
 
     def test_current_config_wins(self):
         s = {}
@@ -193,8 +190,8 @@ class EffectiveConfig(unittest.TestCase):
                                "foundation": "Pad : 600",
                                "same_ends": True, "end_post": "",
                                "end_foundation": "",
-                               "line_style": "", "dia_mm": 0.0,
-                               "end_dia_mm": 0.0, "priority": 99})
+                               "line_style": "",
+                               "priority": 99})
 
     def test_missing_config_falls_back_to_snapshot(self):
         eff = F.effective_config({}, "Deleted", self.SNAP)
@@ -210,8 +207,8 @@ class EffectiveConfig(unittest.TestCase):
                                "foundation": "", "same_ends": True,
                                "end_post": "",
                                "end_foundation": "",
-                               "line_style": "", "dia_mm": 0.0,
-                               "end_dia_mm": 0.0, "priority": 99})
+                               "line_style": "",
+                               "priority": 99})
 
     def test_snapshot_family_becomes_the_post(self):
         # records from before posts joined configs carry 'family'
@@ -270,31 +267,29 @@ class EndFamilies(unittest.TestCase):
 
 
 class NetworkMaths(unittest.TestCase):
-    def test_tangent_chain_exact_fit(self):
-        # nodes r=1, posts dia=2: length 10 fits centers 2,4,6,8
-        sts, gap = F.tangent_chain(10.0, 1.0, 1.0, 2.0)
-        self.assertEqual(sts, [2.0, 4.0, 6.0, 8.0])
-        self.assertAlmostEqual(gap, 0.0)
+    def test_edge_stations_touching_first_post(self):
+        # end fnd r=2 + line fnd r=0.5 -> first at 2.5, then spacing
+        sts = F.edge_stations(20.0, 5.0, 2.5, 2.5)
+        self.assertEqual(sts, [2.5, 7.5, 12.5, 17.5])
 
-    def test_tangent_chain_leftover_gap(self):
-        sts, gap = F.tangent_chain(10.5, 1.0, 1.0, 2.0)
-        self.assertEqual(sts, [2.0, 4.0, 6.0, 8.0])
-        self.assertAlmostEqual(gap, 0.5)
+    def test_edge_stations_stops_clear_of_far_circle(self):
+        sts = F.edge_stations(19.0, 5.0, 2.5, 2.5)
+        self.assertEqual(sts, [2.5, 7.5, 12.5])
 
-    def test_tangent_chain_nothing_fits(self):
-        sts, gap = F.tangent_chain(3.0, 1.0, 1.0, 2.0)
-        self.assertEqual(sts, [])
-        self.assertAlmostEqual(gap, 1.0)
+    def test_edge_stations_fallback_skips_first(self):
+        # no Diameter anywhere: normal grid minus the first post,
+        # stopping one spacing clear of the far end
+        sts = F.edge_stations(20.0, 5.0, None, None)
+        self.assertEqual(sts, [10.0, 15.0])
 
-    def test_tangent_chain_asymmetric_nodes(self):
-        # impact-rated node r=2 at the start, standard r=1 far
-        sts, gap = F.tangent_chain(10.0, 2.0, 1.0, 2.0)
-        self.assertEqual(sts, [3.0, 5.0, 7.0])
-        self.assertAlmostEqual(gap, 1.0)
+    def test_edge_stations_mixed_ends(self):
+        # start diameter known, far end unknown
+        sts = F.edge_stations(20.0, 5.0, 3.0, None)
+        self.assertEqual(sts, [3.0, 8.0, 13.0])
 
-    def test_tangent_chain_no_dia(self):
-        self.assertEqual(F.tangent_chain(10.0, 1.0, 1.0, 0.0),
-                         ([], 0.0))
+    def test_edge_stations_too_short(self):
+        self.assertEqual(F.edge_stations(4.0, 5.0, 2.5, 2.5), [])
+        self.assertEqual(F.edge_stations(20.0, 0.0, 2.5, 2.5), [])
 
     def test_cluster_nodes(self):
         pts = [(0.0, 0.0), (10.0, 0.0), (10.005, 0.0), (0.0, 0.002),

@@ -1,7 +1,7 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Fence Configuration"
-        Width="480" Height="620" MinWidth="440" MinHeight="540"
+        Width="480" Height="680" MinWidth="440" MinHeight="560"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False"
         Background="White">
@@ -52,11 +52,43 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="14,12,14,0">
-            <GroupBox Header="Values">
+            <GroupBox Header="Name">
+                <TextBox x:Name="TxtName"/>
+            </GroupBox>
+
+            <GroupBox Header="Line style (Fence Network)">
                 <StackPanel>
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="130"/>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Line style"/>
+                        <ComboBox x:Name="CmbLineStyle" Grid.Row="0"
+                                  Grid.Column="1" Margin="0,3,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Priority (1 = highest)"/>
+                        <TextBox x:Name="TxtPriority" Grid.Row="1"
+                                 Grid.Column="1" Width="130"
+                                 HorizontalAlignment="Left"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Fence Network models lines drawn with this style using this configuration; at a corner the SMALLEST priority number wins the end post (put the impact rated one at 1). Place New Fence ignores these."/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Spacing">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
                             <ColumnDefinition Width="130"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
@@ -64,24 +96,18 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
-                                   Text="Name"/>
-                        <TextBox x:Name="TxtName" Grid.Row="0"
-                                 Grid.Column="1" Grid.ColumnSpan="2"/>
+                                   Text="Spacing (mm)"/>
+                        <TextBox x:Name="TxtSpacing" Grid.Row="0"
+                                 Grid.Column="1"/>
                         <TextBlock Grid.Row="1" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
-                                   Text="Spacing (mm)"/>
-                        <TextBox x:Name="TxtSpacing" Grid.Row="1"
-                                 Grid.Column="1"/>
-                        <TextBlock Grid.Row="2" Grid.Column="0"
-                                   Style="{StaticResource FieldLabel}"
                                    Text="Rotation (deg)"/>
-                        <TextBox x:Name="TxtRotation" Grid.Row="2"
+                        <TextBox x:Name="TxtRotation" Grid.Row="1"
                                  Grid.Column="1"/>
-                        <CheckBox x:Name="ChkEnds" Grid.Row="3"
+                        <CheckBox x:Name="ChkEnds" Grid.Row="2"
                                   Grid.Column="0" Grid.ColumnSpan="3"
                                   Margin="0,8,0,0"
                                   Content="place at the line's endpoints"/>
@@ -101,17 +127,17 @@
                 </StackPanel>
             </GroupBox>
 
-            <GroupBox Header="Foundation under every post">
+            <GroupBox Header="Foundation family">
                 <StackPanel>
                     <TextBox x:Name="TxtFoundSearch"
                              TextChanged="on_found_search"/>
                     <ComboBox x:Name="CmbFoundation" Margin="0,6,0,0"/>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Structural Foundation families only (type above to filter). '(none)' places posts only. The foundation lands at the SAME draped point and rotation as the post."/>
+                               Text="Structural Foundation families only (type above to filter). '(none)' places posts only. Lands at the SAME draped point and rotation as the post."/>
                 </StackPanel>
             </GroupBox>
 
-            <GroupBox Header="Endpoint post + foundation">
+            <GroupBox Header="End posts">
                 <StackPanel>
                     <CheckBox x:Name="ChkSameEnds" Margin="0,2,0,0"
                               IsChecked="True"
@@ -135,49 +161,7 @@
                                   Margin="0,6,0,0"/>
                     </StackPanel>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Untick to give the line's TWO ENDPOINT stations their own post + foundation (gate / corner posts, heavier piles). Same category rules and text search; '(none)' allowed on both - both '(none)' leaves the endpoints empty. Ignored while 'place at the line's endpoints' is off."/>
-                </StackPanel>
-            </GroupBox>
-
-            <GroupBox Header="Fence Network (line-style driven)">
-                <StackPanel>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="150"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Grid.Column="0"
-                                   Style="{StaticResource FieldLabel}"
-                                   Text="Line style"/>
-                        <ComboBox x:Name="CmbLineStyle" Grid.Row="0"
-                                  Grid.Column="1" Margin="0,3,0,0"/>
-                        <TextBlock Grid.Row="1" Grid.Column="0"
-                                   Style="{StaticResource FieldLabel}"
-                                   Text="Post diameter (mm)"/>
-                        <TextBox x:Name="TxtDia" Grid.Row="1"
-                                 Grid.Column="1" Width="130"
-                                 HorizontalAlignment="Left"/>
-                        <TextBlock Grid.Row="2" Grid.Column="0"
-                                   Style="{StaticResource FieldLabel}"
-                                   Text="End post diameter (mm)"/>
-                        <TextBox x:Name="TxtEndDia" Grid.Row="2"
-                                 Grid.Column="1" Width="130"
-                                 HorizontalAlignment="Left"/>
-                        <TextBlock Grid.Row="3" Grid.Column="0"
-                                   Style="{StaticResource FieldLabel}"
-                                   Text="Priority (1 = highest)"/>
-                        <TextBox x:Name="TxtPriority" Grid.Row="3"
-                                 Grid.Column="1" Width="130"
-                                 HorizontalAlignment="Left"/>
-                    </Grid>
-                    <TextBlock Style="{StaticResource Hint}"
-                               Text="Used by the Fence Network button: model lines drawn with this LINE STYLE get this configuration. Posts are packed so their circles TOUCH at a single point - the diameters drive the spacing (post diameter for the in-between posts, end post diameter for corner / node posts). At a corner where different styles meet, the configuration with the SMALLEST priority number wins the corner post (put the impact rated one at 1)."/>
+                               Text="Untick to give the line's ENDPOINT stations their own post + foundation (gate / corner posts, heavier piles). In Fence Network the end FOUNDATION family's 'Diameter' parameter sets the corner circle: the first post of each line is placed so the two foundation circles TOUCH at a single point. No Diameter parameter found - the line draws normally and its first post is skipped."/>
                 </StackPanel>
             </GroupBox>
 
