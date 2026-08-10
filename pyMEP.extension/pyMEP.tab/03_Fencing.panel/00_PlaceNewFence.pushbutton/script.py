@@ -91,15 +91,19 @@ class FenceWindow(forms.WPFWindow):
             cfg = F.get_configs(self.settings).get(name)
             if cfg is None:
                 return
-            self.TxtCfgSummary.Text = (
-                u"post: {}  |  foundation: {}\n"
-                u"{:g} mm spacing, endpoints {}, rotation "
-                u"{:+g}°".format(
-                    cfg["post"] or "none",
-                    cfg["foundation"] or "none",
-                    cfg["spacing_mm"],
-                    "ON" if cfg["endpoints"] else "off",
-                    cfg["rotation_deg"]))
+            txt = (u"post: {}  |  foundation: {}\n"
+                   u"{:g} mm spacing, endpoints {}, rotation "
+                   u"{:+g}°".format(
+                       cfg["post"] or "none",
+                       cfg["foundation"] or "none",
+                       cfg["spacing_mm"],
+                       "ON" if cfg["endpoints"] else "off",
+                       cfg["rotation_deg"]))
+            if not cfg["same_ends"]:
+                txt += (u"\nENDPOINTS get: post {} | foundation "
+                        u"{}".format(cfg["end_post"] or "none",
+                                     cfg["end_foundation"] or "none"))
+            self.TxtCfgSummary.Text = txt
             self.StatusText.Text = ""
         except Exception:
             pass
@@ -117,7 +121,7 @@ class FenceWindow(forms.WPFWindow):
         if cfg is None:
             self.StatusText.Text = "Pick a configuration."
             return
-        if not cfg["post"] and not cfg["foundation"]:
+        if not F.places_something(cfg):
             self.StatusText.Text = (
                 "This configuration places NOTHING - give it a post "
                 "or a foundation with the Fence Configs button.")
@@ -128,6 +132,9 @@ class FenceWindow(forms.WPFWindow):
             "rotation_deg": cfg["rotation_deg"],
             "post": cfg["post"],
             "foundation": cfg["foundation"],
+            "same_ends": cfg["same_ends"],
+            "end_post": cfg["end_post"],
+            "end_foundation": cfg["end_foundation"],
             "justify": self.justify(),
             "config": str(self.CmbConfig.SelectedItem or ""),
         }
@@ -197,41 +204,52 @@ def main():
 
     log("Config **{}**: post **{}**, foundation **{}**, spacing "
         "**{:g} mm**, justification **{}**, endpoints **{}**, "
-        "rotation **{:+g} deg**.".format(
+        "rotation **{:+g} deg**{}.".format(
             opt["config"], opt["post"] or "none",
             opt["foundation"] or "none", opt["spacing_mm"],
             opt["justify"], "on" if opt["endpoints"] else "off",
-            opt["rotation_deg"]))
+            opt["rotation_deg"],
+            "" if opt["same_ends"] else
+            "; ENDPOINTS: post {} / foundation {}".format(
+                opt["end_post"] or "none",
+                opt["end_foundation"] or "none")))
 
-    # resolve the config's families in THIS model
-    post_symbol = None
-    if opt["post"]:
-        post_symbol = FR.symbol_by_label(doc, opt["post"],
-                                         F.POST_CATEGORIES)
-        if post_symbol is None:
-            log("! post family **{}** is NOT in this model.".format(
-                opt["post"]))
+    def _resolve(label, cats, what):
+        """The config's family in THIS model - a named-but-missing
+        family aborts loudly rather than placing a wrong fence."""
+        if not label:
+            return None
+        sym = FR.symbol_by_label(doc, label, cats)
+        if sym is None:
+            log("! {} family **{}** is NOT in this model.".format(
+                what, label))
             log.close()
-            forms.alert("The post family '{}' is not in this model "
-                        "- load it or edit the configuration.".format(
-                            opt["post"]), exitscript=True)
-    foundation_symbol = None
-    if opt["foundation"]:
-        foundation_symbol = FR.symbol_by_label(
-            doc, opt["foundation"], F.FOUNDATION_CATEGORIES)
-        if foundation_symbol is None:
-            log("! foundation family **{}** is NOT in this "
-                "model.".format(opt["foundation"]))
-            log.close()
-            forms.alert("The foundation family '{}' is not in this "
-                        "model - load it or edit the "
-                        "configuration.".format(opt["foundation"]),
-                        exitscript=True)
-    # the PRIMARY carries the record; a foundation-only config
+            forms.alert("The {} family '{}' is not in this model - "
+                        "load it or edit the configuration.".format(
+                            what, label), exitscript=True)
+        return sym
+
+    post_symbol = _resolve(opt["post"], F.POST_CATEGORIES, "post")
+    foundation_symbol = _resolve(opt["foundation"],
+                                 F.FOUNDATION_CATEGORIES,
+                                 "foundation")
+    if opt["same_ends"]:
+        end_post_symbol = post_symbol
+        end_found_symbol = foundation_symbol
+    else:
+        end_post_symbol = _resolve(opt["end_post"],
+                                   F.POST_CATEGORIES, "end post")
+        end_found_symbol = _resolve(opt["end_foundation"],
+                                    F.FOUNDATION_CATEGORIES,
+                                    "end foundation")
+    # the PRIMARY carries the record; a foundation-only pair
     # promotes the foundation to primary
     primary, secondary = post_symbol, foundation_symbol
     if primary is None:
         primary, secondary = foundation_symbol, None
+    end_primary, end_secondary = end_post_symbol, end_found_symbol
+    if end_primary is None:
+        end_primary, end_secondary = end_found_symbol, None
 
     line_el = pick_one(LineFilter(), "Pick the LINE to fence along")
     if line_el is None:
@@ -293,13 +311,15 @@ def main():
         view3d.Name, FR.element_name(terrain), terrain_id))
     levels = FR.sorted_levels(doc)
 
+    pick = FR.station_pick(dists, length, primary, secondary,
+                           end_primary, end_secondary,
+                           opt["same_ends"])
     t = Transaction(doc, "Place New Fence")
     t.Start()
     try:
         records, missed, failed, why = FR.place_instances(
-            doc, primary, poly, dists, terrain_id, ri, ray_z,
-            levels, extra_rot=math.radians(opt["rotation_deg"]),
-            foundation_symbol=secondary)
+            doc, pick, poly, dists, terrain_id, ri, ray_z,
+            levels, extra_rot=math.radians(opt["rotation_deg"]))
         t.Commit()
     except Exception:
         try:
@@ -337,6 +357,9 @@ def main():
                 else "",
                 "foundation": opt["foundation"]
                 if foundation_symbol is not None else "",
+                "same_ends": opt["same_ends"],
+                "end_post": opt["end_post"],
+                "end_foundation": opt["end_foundation"],
                 "justify": opt["justify"],
                 "config": opt["config"],
                 "instances": records,

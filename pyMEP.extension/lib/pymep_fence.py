@@ -29,7 +29,9 @@ SETTINGS_FAMILY = "fence_family"     # last family label
 
 DEFAULT_NAME = "Default"
 DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
-                  "rotation_deg": 0.0, "post": "", "foundation": ""}
+                  "rotation_deg": 0.0, "post": "", "foundation": "",
+                  "same_ends": True, "end_post": "",
+                  "end_foundation": ""}
 
 # the categories a POST may come from / the FOUNDATION must come from
 POST_CATEGORIES = ["OST_GenericModel", "OST_Columns",
@@ -175,7 +177,14 @@ def get_configs(settings):
                                   "rotation_deg": rot,
                                   "post": str(c.get("post") or ""),
                                   "foundation":
-                                      str(c.get("foundation") or "")}
+                                      str(c.get("foundation") or ""),
+                                  "same_ends": bool(
+                                      c.get("same_ends", True)),
+                                  "end_post":
+                                      str(c.get("end_post") or ""),
+                                  "end_foundation":
+                                      str(c.get("end_foundation")
+                                          or "")}
             except Exception:
                 continue
     if not out:
@@ -184,7 +193,8 @@ def get_configs(settings):
 
 
 def upsert_config(settings, name, spacing_mm, endpoints,
-                  rotation_deg=0.0, foundation="", post=""):
+                  rotation_deg=0.0, foundation="", post="",
+                  same_ends=True, end_post="", end_foundation=""):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
@@ -211,9 +221,34 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   "endpoints": bool(endpoints),
                   "rotation_deg": rotation_deg,
                   "post": str(post or "").strip(),
-                  "foundation": str(foundation or "").strip()}
+                  "foundation": str(foundation or "").strip(),
+                  "same_ends": bool(same_ends),
+                  "end_post": str(end_post or "").strip(),
+                  "end_foundation":
+                      str(end_foundation or "").strip()}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
+
+
+def end_families(cfg):
+    """(post, foundation) labels for the line's ENDPOINT stations -
+    the in-between pair when 'keep them the same' is on, the
+    dedicated end pair when it is off."""
+    if cfg.get("same_ends", True):
+        return (str(cfg.get("post") or ""),
+                str(cfg.get("foundation") or ""))
+    return (str(cfg.get("end_post") or ""),
+            str(cfg.get("end_foundation") or ""))
+
+
+def places_something(cfg):
+    """False when the configuration would put NOTHING on the line -
+    no in-between families and (same ends, endpoints off, or no end
+    families either)."""
+    if cfg.get("post") or cfg.get("foundation"):
+        return True
+    ep, ef = end_families(cfg)
+    return bool(cfg.get("endpoints", True) and (ep or ef))
 
 
 def effective_config(settings, name, snapshot):
@@ -241,7 +276,11 @@ def effective_config(settings, name, snapshot):
             "endpoints": bool(snapshot.get("endpoints", True)),
             "rotation_deg": rot,
             "post": snap_post,
-            "foundation": str(snapshot.get("foundation") or "")}
+            "foundation": str(snapshot.get("foundation") or ""),
+            "same_ends": bool(snapshot.get("same_ends", True)),
+            "end_post": str(snapshot.get("end_post") or ""),
+            "end_foundation":
+                str(snapshot.get("end_foundation") or "")}
 
 
 def delete_config(settings, name):

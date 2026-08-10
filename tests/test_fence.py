@@ -127,7 +127,9 @@ class ConfigStore(unittest.TestCase):
         self.assertEqual(cfgs["Posts 3m"],
                          {"spacing_mm": 2500.0, "endpoints": False,
                           "rotation_deg": 90.0, "post": "",
-                          "foundation": "Pad : 600x600"})
+                          "foundation": "Pad : 600x600",
+                          "same_ends": True, "end_post": "",
+                          "end_foundation": ""})
 
     def test_upsert_validates(self):
         self.assertRaises(ValueError, F.upsert_config, {}, "  ",
@@ -164,12 +166,14 @@ class ConfigStore(unittest.TestCase):
         self.assertEqual(cfgs["ok"],
                          {"spacing_mm": 500.0, "endpoints": False,
                           "rotation_deg": 0.0, "post": "",
-                          "foundation": ""})
+                          "foundation": "", "same_ends": True,
+                          "end_post": "", "end_foundation": ""})
 
 
 class EffectiveConfig(unittest.TestCase):
     SNAP = {"spacing_mm": 2000.0, "endpoints": True,
-            "rotation_deg": 0.0, "post": "", "foundation": ""}
+            "rotation_deg": 0.0, "post": "", "foundation": "",
+            "same_ends": True, "end_post": "", "end_foundation": ""}
 
     def test_current_config_wins(self):
         s = {}
@@ -180,7 +184,9 @@ class EffectiveConfig(unittest.TestCase):
                                "endpoints": False,
                                "rotation_deg": 90.0,
                                "post": "Post : 100x100",
-                               "foundation": "Pad : 600"})
+                               "foundation": "Pad : 600",
+                               "same_ends": True, "end_post": "",
+                               "end_foundation": ""})
 
     def test_missing_config_falls_back_to_snapshot(self):
         eff = F.effective_config({}, "Deleted", self.SNAP)
@@ -193,7 +199,9 @@ class EffectiveConfig(unittest.TestCase):
         self.assertEqual(eff, {"spacing_mm": 1500.0,
                                "endpoints": False,
                                "rotation_deg": 0.0, "post": "",
-                               "foundation": ""})
+                               "foundation": "", "same_ends": True,
+                               "end_post": "",
+                               "end_foundation": ""})
 
     def test_snapshot_family_becomes_the_post(self):
         # records from before posts joined configs carry 'family'
@@ -219,6 +227,36 @@ class EffectiveConfig(unittest.TestCase):
         eff = F.effective_config(s, "Gate",
                                  {"family": "Bollard : 150"})
         self.assertEqual(eff["post"], "")
+
+
+class EndFamilies(unittest.TestCase):
+    def test_same_ends_mirror_the_main_pair(self):
+        cfg = {"post": "P", "foundation": "F", "same_ends": True,
+               "end_post": "EP", "end_foundation": "EF"}
+        self.assertEqual(F.end_families(cfg), ("P", "F"))
+
+    def test_dedicated_ends(self):
+        cfg = {"post": "P", "foundation": "F", "same_ends": False,
+               "end_post": "EP", "end_foundation": "EF"}
+        self.assertEqual(F.end_families(cfg), ("EP", "EF"))
+
+    def test_old_record_defaults_to_same(self):
+        self.assertEqual(F.end_families({"post": "P"}), ("P", ""))
+
+    def test_places_something(self):
+        self.assertTrue(F.places_something({"post": "P"}))
+        self.assertTrue(F.places_something({"foundation": "F"}))
+        # nothing in between, ends only - valid when endpoints on
+        ends_only = {"post": "", "foundation": "",
+                     "endpoints": True, "same_ends": False,
+                     "end_post": "EP", "end_foundation": ""}
+        self.assertTrue(F.places_something(ends_only))
+        ends_only["endpoints"] = False
+        self.assertFalse(F.places_something(ends_only))
+        self.assertFalse(F.places_something(
+            {"post": "", "foundation": "", "endpoints": True,
+             "same_ends": True, "end_post": "EP",
+             "end_foundation": "EF"}))
 
 
 class Registry(unittest.TestCase):

@@ -40,13 +40,18 @@ NONE_LABEL = "(none)"
 
 
 def _row_text(name, cfg):
-    return (u"{}  —  {:g} mm, ends {}, rot {:+g}°  |  post: {}  |  "
-            u"fnd: {}".format(
-                name, cfg["spacing_mm"],
-                "ON" if cfg["endpoints"] else "off",
-                cfg["rotation_deg"],
-                cfg["post"] or "none",
-                cfg["foundation"] or "none"))
+    txt = (u"{}  —  {:g} mm, ends {}, rot {:+g}°  |  post: {}  |  "
+           u"fnd: {}".format(
+               name, cfg["spacing_mm"],
+               "ON" if cfg["endpoints"] else "off",
+               cfg["rotation_deg"],
+               cfg["post"] or "none",
+               cfg["foundation"] or "none"))
+    if not cfg.get("same_ends", True):
+        txt += u"  |  END post: {} / fnd: {}".format(
+            cfg["end_post"] or "none",
+            cfg["end_foundation"] or "none")
+    return txt
 
 
 class ConfigEditWindow(forms.WPFWindow):
@@ -70,6 +75,13 @@ class ConfigEditWindow(forms.WPFWindow):
         self._fill_pick(self.CmbFoundation, found_labels, "")
         self._select_pick(self.CmbPost, cfg["post"])
         self._select_pick(self.CmbFoundation, cfg["foundation"])
+        self._fill_pick(self.CmbEndPost, post_labels, "")
+        self._fill_pick(self.CmbEndFoundation, found_labels, "")
+        self._select_pick(self.CmbEndPost, cfg["end_post"])
+        self._select_pick(self.CmbEndFoundation,
+                          cfg["end_foundation"])
+        self.ChkSameEnds.IsChecked = bool(cfg["same_ends"])
+        self.on_same_ends(None, None)
 
     # ---- family pickers (post + foundation share the behaviour) ------
     @staticmethod
@@ -144,6 +156,28 @@ class ConfigEditWindow(forms.WPFWindow):
         except Exception:
             pass
 
+    def on_end_post_search(self, sender, args):
+        try:
+            self._apply_search(self.CmbEndPost, self.post_labels,
+                               self.TxtEndPostSearch, "end_post")
+        except Exception:
+            pass
+
+    def on_end_found_search(self, sender, args):
+        try:
+            self._apply_search(self.CmbEndFoundation,
+                               self.found_labels,
+                               self.TxtEndFoundSearch, "end_fnd")
+        except Exception:
+            pass
+
+    def on_same_ends(self, sender, args):
+        try:
+            self.PnlEnds.IsEnabled = not bool(
+                self.ChkSameEnds.IsChecked)
+        except Exception:
+            pass
+
     # ---- save / cancel -----------------------------------------------
     def on_save(self, sender, args):
         name = (self.TxtName.Text or "").strip()
@@ -166,15 +200,24 @@ class ConfigEditWindow(forms.WPFWindow):
             return
         post = self._picked(self.CmbPost)
         foundation = self._picked(self.CmbFoundation)
-        if not post and not foundation:
-            self.StatusText.Text = ("Both post and foundation are "
-                                    "'(none)' - this configuration "
-                                    "would place nothing.")
+        same_ends = bool(self.ChkSameEnds.IsChecked)
+        end_post = self._picked(self.CmbEndPost)
+        end_foundation = self._picked(self.CmbEndFoundation)
+        probe = {"post": post, "foundation": foundation,
+                 "endpoints": bool(self.ChkEnds.IsChecked),
+                 "same_ends": same_ends, "end_post": end_post,
+                 "end_foundation": end_foundation}
+        if not F.places_something(probe):
+            self.StatusText.Text = ("This configuration would place "
+                                    "NOTHING - every family is "
+                                    "'(none)'.")
             return
         self.result = {"name": name, "spacing": spacing,
                        "endpoints": bool(self.ChkEnds.IsChecked),
                        "rotation": rotation, "post": post,
-                       "foundation": foundation}
+                       "foundation": foundation,
+                       "same_ends": same_ends, "end_post": end_post,
+                       "end_foundation": end_foundation}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -229,7 +272,9 @@ class ConfigsWindow(forms.WPFWindow):
         try:
             F.upsert_config(self.settings, r["name"], r["spacing"],
                             r["endpoints"], r["rotation"],
-                            r["foundation"], r["post"])
+                            r["foundation"], r["post"],
+                            r["same_ends"], r["end_post"],
+                            r["end_foundation"])
         except ValueError as ex:
             self.StatusText.Text = str(ex)
             return

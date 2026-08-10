@@ -223,28 +223,55 @@ def _place_one(doc, symbol, hit, lvl, ang):
     return inst
 
 
-def place_instances(doc, symbol, poly, dists, terrain_id, ri, ray_z,
-                    levels, extra_rot=0.0, foundation_symbol=None):
-    """Place ``symbol`` (and ``foundation_symbol`` under it, when
-    given) at every station, draped and rotated - the line's
+def station_pick(dists, length, primary, secondary,
+                 end_primary=None, end_secondary=None,
+                 same_ends=True, tol=1e-6):
+    """The per-station family chooser for place_instances: endpoint
+    stations (0 / length) get the END pair when ``same_ends`` is
+    off, everything else the in-between pair. Either slot may be
+    None ('none' in the config)."""
+    if same_ends:
+        return lambda d: (primary, secondary)
+    ends = set(d for d in dists
+               if d <= tol or d >= length - tol)
+
+    def pick(d):
+        if d in ends:
+            return end_primary, end_secondary
+        return primary, secondary
+    return pick
+
+
+def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
+                    levels, extra_rot=0.0):
+    """Place at every station, draped and rotated - the line's
     direction plus ``extra_rot`` (radians, the config's custom
-    rotation). Runs inside the caller's open Transaction. Returns
-    (records, missed, failed, why): records = [{"uid", "station_ft",
-    "angle"(, "foundation_uid")}] for the registry, missed =
-    stations with no terrain hit, failed = count of placement errors
-    (first reason in why)."""
+    rotation). ``pick(d)`` returns (symbol, foundation_symbol) for
+    the station - either may be None (a station picking (None,
+    None) is silently left empty). Runs inside the caller's open
+    Transaction. Returns (records, missed, failed, why): records =
+    [{"uid", "station_ft", "angle"(, "foundation_uid")}] for the
+    registry, missed = stations with no terrain hit, failed = count
+    of placement errors (first reason in why)."""
     records, missed, failed = [], [], 0
     failed_reason = [None]
-    for s in (symbol, foundation_symbol):
-        if s is None:
-            continue
-        try:
-            if not s.IsActive:
-                s.Activate()
-                doc.Regenerate()
-        except Exception:
-            pass
+    activated = set()
     for d in dists:
+        symbol, foundation_symbol = pick(d)
+        if symbol is None and foundation_symbol is not None:
+            symbol, foundation_symbol = foundation_symbol, None
+        if symbol is None:
+            continue
+        for s in (symbol, foundation_symbol):
+            if s is None or id_value(s.Id) in activated:
+                continue
+            activated.add(id_value(s.Id))
+            try:
+                if not s.IsActive:
+                    s.Activate()
+                    doc.Regenerate()
+            except Exception:
+                pass
         p, tang = F.point_at(poly, d)
         hit = topmost_hit(doc, ri, XYZ(p[0], p[1], ray_z), terrain_id)
         if hit is None:
