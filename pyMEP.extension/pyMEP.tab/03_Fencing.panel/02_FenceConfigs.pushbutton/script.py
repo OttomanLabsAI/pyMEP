@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 """Fence Configurations - the list of named set-ups used by Place
-New Fence and Update Fence, with Add / Remove / Save.
+New Fence and Update Fence.
 
-Each configuration: spacing (mm), place-at-endpoints, a custom
-ROTATION in degrees on top of line-aligned (0 follows the line, 90
-stands across it), the POST family (Generic Models / Columns /
-Structural Columns) and the FOUNDATION family (Structural
-Foundations) - either may be '(none)'. Saved in pyMEP settings, so
-they survive updates; Update Fence re-reads them by name, so an edit
-here re-spaces / re-rotates / re-founds its fences on the next
-update.
+The main window is the LIST: every configuration with its values,
+plus Add new / Edit / Remove (double-click a row to edit). Add new
+and Edit open the configuration EDITOR - name, spacing, rotation,
+endpoints, and the post + foundation families, each behind a text
+search (posts from Generic Models / Columns / Structural Columns,
+foundations from Structural Foundations; '(none)' allowed on both).
+
+Saved in pyMEP settings, so they survive updates; Update Fence
+re-reads them by name, so an edit here re-spaces / re-rotates /
+re-posts / re-founds its fences on the next update.
 """
 
 __title__  = "Fence\nConfigs"
@@ -29,9 +31,10 @@ import pymep_fence_revit as FR
 
 doc = revit.doc
 
-XAML_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
-    "pymep_fence_configs.xaml")
+_LIB = os.path.dirname(os.path.abspath(
+    sys.modules["pymep_config"].__file__))
+XAML_LIST = os.path.join(_LIB, "pymep_fence_configs.xaml")
+XAML_EDIT = os.path.join(_LIB, "pymep_fence_config_edit.xaml")
 
 NONE_LABEL = "(none)"
 
@@ -46,48 +49,26 @@ def _row_text(name, cfg):
                 cfg["foundation"] or "none"))
 
 
-class ConfigsWindow(forms.WPFWindow):
-    def __init__(self, settings, post_labels, found_labels):
-        forms.WPFWindow.__init__(self, XAML_PATH)
-        self.settings = settings
+class ConfigEditWindow(forms.WPFWindow):
+    """The editor: one configuration's values. result = {"name",
+    "spacing", "endpoints", "rotation", "post", "foundation"} or
+    None on cancel - the caller persists."""
+
+    def __init__(self, title, name, cfg, post_labels, found_labels):
+        forms.WPFWindow.__init__(self, XAML_EDIT)
+        self.result = None
         self.post_labels = post_labels
         self.found_labels = found_labels
-        self._names = []
+        self.Title = title
+        self.TxtTitle.Text = title
+        self.TxtName.Text = name
+        self.TxtSpacing.Text = "{:g}".format(cfg["spacing_mm"])
+        self.TxtRotation.Text = "{:g}".format(cfg["rotation_deg"])
+        self.ChkEnds.IsChecked = bool(cfg["endpoints"])
         self._fill_pick(self.CmbPost, post_labels, "")
         self._fill_pick(self.CmbFoundation, found_labels, "")
-        self._fill(settings.get(F.SETTINGS_LAST))
-
-    # ---- config list -------------------------------------------------
-    def _fill(self, want):
-        cfgs = F.get_configs(self.settings)
-        self._names = sorted(cfgs.keys(), key=lambda s: s.lower())
-        self.LstConfigs.Items.Clear()
-        for n in self._names:
-            self.LstConfigs.Items.Add(_row_text(n, cfgs[n]))
-        pick = want if want in cfgs else self._names[0]
-        self.LstConfigs.SelectedIndex = self._names.index(pick)
-
-    def _selected_name(self):
-        i = self.LstConfigs.SelectedIndex
-        if 0 <= i < len(self._names):
-            return self._names[i]
-        return None
-
-    def on_pick(self, sender, args):
-        try:
-            name = self._selected_name()
-            cfg = F.get_configs(self.settings).get(name)
-            if cfg is None:
-                return
-            self.TxtName.Text = name
-            self.TxtSpacing.Text = "{:g}".format(cfg["spacing_mm"])
-            self.TxtRotation.Text = "{:g}".format(cfg["rotation_deg"])
-            self.ChkEnds.IsChecked = bool(cfg["endpoints"])
-            self._select_pick(self.CmbPost, cfg["post"])
-            self._select_pick(self.CmbFoundation, cfg["foundation"])
-            self.StatusText.Text = ""
-        except Exception:
-            pass
+        self._select_pick(self.CmbPost, cfg["post"])
+        self._select_pick(self.CmbFoundation, cfg["foundation"])
 
     # ---- family pickers (post + foundation share the behaviour) ------
     @staticmethod
@@ -137,12 +118,100 @@ class ConfigsWindow(forms.WPFWindow):
         except Exception:
             pass
 
-    # ---- add / remove / save -----------------------------------------
+    # ---- save / cancel -----------------------------------------------
+    def on_save(self, sender, args):
+        name = (self.TxtName.Text or "").strip()
+        if not name:
+            self.StatusText.Text = "The configuration needs a name."
+            return
+        try:
+            spacing = float(self.TxtSpacing.Text)
+        except Exception:
+            spacing = 0.0
+        if spacing <= 0:
+            self.StatusText.Text = ("Spacing must be a positive "
+                                    "number (mm).")
+            return
+        try:
+            rotation = float(self.TxtRotation.Text or 0.0)
+        except Exception:
+            self.StatusText.Text = ("Rotation must be a number "
+                                    "(degrees).")
+            return
+        post = self._picked(self.CmbPost)
+        foundation = self._picked(self.CmbFoundation)
+        if not post and not foundation:
+            self.StatusText.Text = ("Both post and foundation are "
+                                    "'(none)' - this configuration "
+                                    "would place nothing.")
+            return
+        self.result = {"name": name, "spacing": spacing,
+                       "endpoints": bool(self.ChkEnds.IsChecked),
+                       "rotation": rotation, "post": post,
+                       "foundation": foundation}
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.Close()
+
+
+class ConfigsWindow(forms.WPFWindow):
+    """The list window: rows + Add new / Edit / Remove."""
+
+    def __init__(self, settings, post_labels, found_labels):
+        forms.WPFWindow.__init__(self, XAML_LIST)
+        self.settings = settings
+        self.post_labels = post_labels
+        self.found_labels = found_labels
+        self._names = []
+        self._fill(settings.get(F.SETTINGS_LAST))
+
+    def _fill(self, want):
+        cfgs = F.get_configs(self.settings)
+        self._names = sorted(cfgs.keys(), key=lambda s: s.lower())
+        self.LstConfigs.Items.Clear()
+        for n in self._names:
+            self.LstConfigs.Items.Add(_row_text(n, cfgs[n]))
+        pick = want if want in cfgs else self._names[0]
+        self.LstConfigs.SelectedIndex = self._names.index(pick)
+        self.TxtInfo.Text = ("{} configuration(s) - used by Place "
+                             "New Fence and Update Fence.".format(
+                                 len(self._names)))
+
+    def _selected_name(self):
+        i = self.LstConfigs.SelectedIndex
+        if 0 <= i < len(self._names):
+            return self._names[i]
+        return None
+
     def _persist(self):
         try:
             save_settings(self.settings)
         except Exception:
             pass
+
+    def _run_editor(self, title, name, cfg, editing):
+        """Open the editor; on Save, store (renaming when the name
+        changed on an edit)."""
+        win = ConfigEditWindow(title, name, cfg, self.post_labels,
+                               self.found_labels)
+        win.ShowDialog()
+        r = win.result
+        if r is None:
+            return
+        try:
+            F.upsert_config(self.settings, r["name"], r["spacing"],
+                            r["endpoints"], r["rotation"],
+                            r["foundation"], r["post"])
+        except ValueError as ex:
+            self.StatusText.Text = str(ex)
+            return
+        if editing and name and r["name"] != name:
+            F.delete_config(self.settings, name)
+        self._persist()
+        self._fill(r["name"])
+        self.StatusText.Text = ""
 
     def on_add(self, sender, args):
         cfgs = F.get_configs(self.settings)
@@ -151,15 +220,16 @@ class ConfigsWindow(forms.WPFWindow):
         while name in cfgs:
             name = "New config {}".format(n)
             n += 1
-        F.upsert_config(self.settings, name,
-                        F.DEFAULT_CONFIG["spacing_mm"],
-                        F.DEFAULT_CONFIG["endpoints"],
-                        F.DEFAULT_CONFIG["rotation_deg"],
-                        F.DEFAULT_CONFIG["foundation"],
-                        F.DEFAULT_CONFIG["post"])
-        self._persist()
-        self._fill(name)
-        self.StatusText.Text = ""
+        self._run_editor("Add fence configuration", name,
+                         dict(F.DEFAULT_CONFIG), editing=False)
+
+    def on_edit(self, sender, args):
+        name = self._selected_name()
+        cfg = F.get_configs(self.settings).get(name)
+        if cfg is None:
+            return
+        self._run_editor("Edit fence configuration - {}".format(name),
+                         name, cfg, editing=True)
 
     def on_remove(self, sender, args):
         try:
@@ -172,34 +242,6 @@ class ConfigsWindow(forms.WPFWindow):
             self.StatusText.Text = ""
         except Exception as ex:
             self.StatusText.Text = str(ex)
-
-    def on_save(self, sender, args):
-        selected = self._selected_name()
-        new_name = (self.TxtName.Text or "").strip()
-        post = self._picked(self.CmbPost)
-        foundation = self._picked(self.CmbFoundation)
-        try:
-            F.upsert_config(self.settings, new_name,
-                            self.TxtSpacing.Text,
-                            bool(self.ChkEnds.IsChecked),
-                            self.TxtRotation.Text,
-                            foundation, post)
-        except ValueError as ex:
-            self.StatusText.Text = str(ex)
-            return
-        except Exception as ex:
-            self.StatusText.Text = str(ex)
-            return
-        # a changed Name RENAMES the picked configuration
-        if selected and new_name and selected != new_name:
-            F.delete_config(self.settings, selected)
-        self._persist()
-        self._fill(new_name)
-        self.StatusText.Text = ("both post and foundation are "
-                                "'(none)' - this configuration "
-                                "places nothing"
-                                if not post and not foundation
-                                else "")
 
     def on_close(self, sender, args):
         self.Close()
