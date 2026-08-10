@@ -111,6 +111,34 @@
                 </StackPanel>
             </GroupBox>
 
+            <GroupBox Header="Endpoint post + foundation">
+                <StackPanel>
+                    <CheckBox x:Name="ChkSameEnds" Margin="0,2,0,0"
+                              IsChecked="True"
+                              Content="keep them the same as the in-between posts"
+                              Checked="on_same_ends"
+                              Unchecked="on_same_ends"/>
+                    <StackPanel x:Name="PnlEnds" Margin="0,6,0,0">
+                        <TextBlock Text="End post family"
+                                   FontWeight="SemiBold"
+                                   Margin="0,4,0,0"/>
+                        <TextBox x:Name="TxtEndPostSearch"
+                                 TextChanged="on_end_post_search"/>
+                        <ComboBox x:Name="CmbEndPost"
+                                  Margin="0,6,0,0"/>
+                        <TextBlock Text="End foundation family"
+                                   FontWeight="SemiBold"
+                                   Margin="0,10,0,0"/>
+                        <TextBox x:Name="TxtEndFoundSearch"
+                                 TextChanged="on_end_found_search"/>
+                        <ComboBox x:Name="CmbEndFoundation"
+                                  Margin="0,6,0,0"/>
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Untick to give the line's TWO ENDPOINT stations their own post + foundation (gate / corner posts, heavier piles). Same category rules and text search; '(none)' allowed on both - both '(none)' leaves the endpoints empty. Ignored while 'place at the line's endpoints' is off."/>
+                </StackPanel>
+            </GroupBox>
+
             <TextBlock x:Name="StatusText" Foreground="#B00020"
                        TextWrapping="Wrap" Margin="0,0,0,8" Text=""/>
         </StackPanel>

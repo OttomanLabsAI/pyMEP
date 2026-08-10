@@ -121,6 +121,10 @@ def _config_notes(rec, eff):
         notes.append("foundation '{}' -> '{}'".format(
             rec.get("foundation") or "none",
             eff["foundation"] or "none"))
+    if F.end_families(_rec_cfg(rec)) != F.end_families(eff):
+        ep, ef = F.end_families(eff)
+        notes.append("endpoint families -> post '{}' / foundation "
+                     "'{}'".format(ep or "none", ef or "none"))
     return notes
 
 
@@ -128,11 +132,22 @@ def _rec_post(rec):
     return str(rec.get("post") or rec.get("family") or "")
 
 
+def _rec_cfg(rec):
+    """The record's snapshot in config shape, for end_families()."""
+    return {"post": _rec_post(rec),
+            "foundation": str(rec.get("foundation") or ""),
+            "same_ends": bool(rec.get("same_ends", True)),
+            "end_post": str(rec.get("end_post") or ""),
+            "end_foundation": str(rec.get("end_foundation") or "")}
+
+
 def _families_changed(rec, eff):
-    """A post or foundation swap / add / remove always REBUILDS -
-    moving cannot change what stands at the stations."""
+    """A post or foundation swap / add / remove - in-between OR at
+    the endpoints - always REBUILDS: moving cannot change what
+    stands at the stations."""
     return (_rec_post(rec) != eff["post"] or
-            str(rec.get("foundation") or "") != eff["foundation"])
+            str(rec.get("foundation") or "") != eff["foundation"] or
+            F.end_families(_rec_cfg(rec)) != F.end_families(eff))
 
 
 # ---- resolve every record against the model + the CURRENT config ----
@@ -348,37 +363,53 @@ try:
                         doc.Delete(f_el.Id)
                     except Exception:
                         pass
-            post_symbol = None
-            if eff["post"]:
-                post_symbol = FR.symbol_by_label(
-                    doc, eff["post"], F.POST_CATEGORIES)
-                if post_symbol is None:
-                    results.append((label, "failed",
-                                    "post family '{}' not in the "
-                                    "model".format(eff["post"])))
-                    continue
-            foundation_symbol = None
-            if eff["foundation"]:
-                foundation_symbol = FR.symbol_by_label(
-                    doc, eff["foundation"], F.FOUNDATION_CATEGORIES)
-                if foundation_symbol is None:
-                    results.append((label, "failed",
-                                    "foundation family '{}' not in "
-                                    "the model".format(
-                                        eff["foundation"])))
-                    continue
+            bad = []
+
+            def _resolve(lbl, cats, what):
+                if not lbl:
+                    return None
+                sym = FR.symbol_by_label(doc, lbl, cats)
+                if sym is None:
+                    bad.append("{} family '{}' not in the "
+                               "model".format(what, lbl))
+                return sym
+
+            post_symbol = _resolve(eff["post"], F.POST_CATEGORIES,
+                                   "post")
+            foundation_symbol = _resolve(eff["foundation"],
+                                         F.FOUNDATION_CATEGORIES,
+                                         "foundation")
+            if eff["same_ends"]:
+                end_post_symbol = post_symbol
+                end_found_symbol = foundation_symbol
+            else:
+                end_post_symbol = _resolve(eff["end_post"],
+                                           F.POST_CATEGORIES,
+                                           "end post")
+                end_found_symbol = _resolve(eff["end_foundation"],
+                                            F.FOUNDATION_CATEGORIES,
+                                            "end foundation")
+            if bad:
+                results.append((label, "failed", "; ".join(bad)))
+                continue
             primary, secondary = post_symbol, foundation_symbol
             if primary is None:
                 primary, secondary = foundation_symbol, None
-            if primary is None:
+            end_primary, end_secondary = (end_post_symbol,
+                                          end_found_symbol)
+            if end_primary is None:
+                end_primary, end_secondary = end_found_symbol, None
+            if primary is None and end_primary is None:
                 results.append((label, "failed",
-                                "the config places nothing (post "
-                                "and foundation both none)"))
+                                "the config places nothing (every "
+                                "family is none)"))
                 continue
+            pick = FR.station_pick(dists, length, primary,
+                                   secondary, end_primary,
+                                   end_secondary, eff["same_ends"])
             records, missed, failed, why = FR.place_instances(
-                doc, primary, poly, dists, terrain_id, ri, ray_z,
-                levels, extra_rot,
-                foundation_symbol=secondary)
+                doc, pick, poly, dists, terrain_id, ri, ray_z,
+                levels, extra_rot)
             action = "rebuilt"
             note = "{} -> {} post(s)".format(len(survivors),
                                              len(records))
@@ -400,6 +431,9 @@ try:
         rec["post"] = eff["post"]
         rec["family"] = eff["post"]
         rec["foundation"] = eff["foundation"]
+        rec["same_ends"] = eff["same_ends"]
+        rec["end_post"] = eff["end_post"]
+        rec["end_foundation"] = eff["end_foundation"]
         rec["updated"] = datetime.datetime.now().strftime(
             "%Y-%m-%dT%H:%M:%S")
         updates.append(rec)
