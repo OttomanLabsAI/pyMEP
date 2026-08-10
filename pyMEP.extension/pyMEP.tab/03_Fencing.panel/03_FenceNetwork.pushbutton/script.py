@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Fence Network - model a whole fence layout from its LINES: each
 line's LINE STYLE picks its fence configuration, corners get the
-highest-priority end post, and each line's first post TOUCHES the
-corner foundation's circle.
+highest-priority end post, and the in-between posts run at the
+spacing with the leftover shortening the last bay.
 
 Draw the layout as model lines using the styles bound in Fence
 Configs (each config: line style, spacing, priority, families).
@@ -18,8 +18,9 @@ as-is), pick the TERRAIN, confirm the mapping - then:
     to it on their line - the two end foundation circles TOUCH
     (family 'Diameter' parameters);
   - then the in-between posts fill each stretch at the config's
-    spacing, the first touching the nearest circle. No Diameter
-    parameter found - normal spacing, first post skipped;
+    spacing, counted from the corner (or from its double post) -
+    the leftover only SHORTENS the last bay, posts never double
+    up along a run;
   - everything is ray-cast onto the terrain like Place New Fence.
 
 The network is RECORDED, so Update Fence can rebuild it after the

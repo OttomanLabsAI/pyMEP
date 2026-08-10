@@ -401,10 +401,10 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
         TERMINATES at that corner places its own end post right next
         to the winner's, on its own line - offset so the two end
         foundation circles TOUCH (family 'Diameter' parameters);
-      - each line then fills in between at its config's spacing, the
-        first post touching the nearest circle (corner post or
-        double post); a family without a Diameter parameter drops
-        that run to normal spacing with its first post skipped.
+      - each line then fills in between at its config's spacing,
+        counted from the corner (or from its double post) - the
+        leftover only SHORTENS the last bay, so posts never double
+        up along a run.
 
     Returns (records, notes, placed, missed). Raises ValueError
     (before anything is placed) on the sanity cap or when nothing is
@@ -510,8 +510,9 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
     # ---- plan the DOUBLE posts + per-edge node marks ------------------
     # doubles: winner has END PRIORITY on -> every OTHER config's line
     # TERMINATING there sets its own end post tangent to the winner's
+    # (ONE post next to the big one - nothing else touches)
     doubles = []            # (e_i, station, ni)
-    clear_override = {}     # (e_i, ni) -> in-between clearance
+    dbl_at = {}             # (e_i, ni) -> the double's station
     for ni, nd in enumerate(nodes):
         if not nd["end_priority"]:
             continue
@@ -528,15 +529,13 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
             d = nd["r"] + r_end
             for st in sts:
                 if st <= tol:                       # line starts here
-                    doubles.append((e_i, min(d, e["length"]), ni))
+                    dbl = min(d, e["length"])
                 elif st >= e["length"] - tol:       # line ends here
-                    doubles.append((e_i, max(e["length"] - d, 0.0),
-                                    ni))
+                    dbl = max(e["length"] - d, 0.0)
                 else:
                     continue                        # passes through
-                r_fnd = _fnd_radius(e["cfg"], False)
-                if r_fnd is not None:
-                    clear_override[(e_i, ni)] = d + r_end + r_fnd
+                doubles.append((e_i, dbl, ni))
+                dbl_at[(e_i, ni)] = dbl
 
     # ---- in-between stations per edge segment ------------------------
     total = len(nodes) + len(doubles)
@@ -553,6 +552,7 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                 continue
             merged.append((st, ni))
         r_edge = _fnd_radius(e["cfg"], False)
+        r_end_own = _fnd_radius(e["cfg"], True)
         spacing_ft = mm2ft(e["cfg"]["spacing_mm"])
         sts_all = []
         for k in range(len(merged) - 1):
@@ -562,10 +562,21 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
             if sub <= tol:
                 continue
 
-            def _clear(ni2):
-                ov = clear_override.get((e_i, ni2))
-                if ov is not None:
-                    return ov
+            # the spacing counts from the near boundary's DOUBLE post
+            # when one sits on this line; the far end stops clear of
+            # the far double / corner circle - the leftover only
+            # SHORTENS the last bay
+            def _anchor(ni2, boundary):
+                st2 = dbl_at.get((e_i, ni2))
+                return abs(st2 - boundary) if st2 is not None else 0.0
+
+            def _far_clear(ni2, boundary):
+                st2 = dbl_at.get((e_i, ni2))
+                if st2 is not None:
+                    gap = (r_end_own + r_edge) \
+                        if (r_end_own is not None and
+                            r_edge is not None) else spacing_ft
+                    return abs(st2 - boundary) + gap
                 rn = nodes[ni2]["r"]
                 if rn is not None and r_edge is not None:
                     return rn + r_edge
@@ -574,12 +585,14 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
             p0 = int(nodes[n0]["cfg"].get("priority") or 99)
             p1 = int(nodes[n1]["cfg"].get("priority") or 99)
             if p0 <= p1:
-                seg = F.edge_stations(sub, spacing_ft, _clear(n0),
-                                      _clear(n1))
+                seg = F.edge_stations(sub, spacing_ft,
+                                      _anchor(n0, s0),
+                                      _far_clear(n1, s1))
                 sts_all.extend(s0 + d for d in seg)
             else:
-                seg = F.edge_stations(sub, spacing_ft, _clear(n1),
-                                      _clear(n0))
+                seg = F.edge_stations(sub, spacing_ft,
+                                      _anchor(n1, s1),
+                                      _far_clear(n0, s0))
                 sts_all.extend(s1 - d for d in seg)
         e["stations"] = sorted(sts_all)
         total += len(e["stations"])

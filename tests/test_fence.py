@@ -271,29 +271,30 @@ class EndFamilies(unittest.TestCase):
 
 
 class NetworkMaths(unittest.TestCase):
-    def test_edge_stations_touching_first_post(self):
-        # end fnd r=2 + line fnd r=0.5 -> first at 2.5, then spacing
+    def test_edge_stations_full_bay_from_the_corner(self):
+        # no touching in-betweens: first post one SPACING from the
+        # corner, run stops clear of the far circle
+        sts = F.edge_stations(20.0, 5.0, 0.0, 2.5)
+        self.assertEqual(sts, [5.0, 10.0, 15.0])
+
+    def test_edge_stations_spacing_counts_from_the_double(self):
+        # a double post at 2.5 anchors the run - next at 7.5
         sts = F.edge_stations(20.0, 5.0, 2.5, 2.5)
-        self.assertEqual(sts, [2.5, 7.5, 12.5, 17.5])
+        self.assertEqual(sts, [7.5, 12.5, 17.5])
 
-    def test_edge_stations_stops_clear_of_far_circle(self):
-        sts = F.edge_stations(19.0, 5.0, 2.5, 2.5)
-        self.assertEqual(sts, [2.5, 7.5, 12.5])
+    def test_edge_stations_last_bay_shortens(self):
+        # 19 long, far clearance 2: last post at 15, last bay 2 -
+        # shorter than the spacing, never doubled up
+        sts = F.edge_stations(19.0, 5.0, 0.0, 2.0)
+        self.assertEqual(sts, [5.0, 10.0, 15.0])
 
-    def test_edge_stations_fallback_skips_first(self):
-        # no Diameter anywhere: normal grid minus the first post,
-        # stopping one spacing clear of the far end
-        sts = F.edge_stations(20.0, 5.0, None, None)
-        self.assertEqual(sts, [10.0, 15.0])
-
-    def test_edge_stations_mixed_ends(self):
-        # start diameter known, far end unknown
-        sts = F.edge_stations(20.0, 5.0, 3.0, None)
-        self.assertEqual(sts, [3.0, 8.0, 13.0])
+    def test_edge_stations_unknown_circles_keep_one_spacing(self):
+        sts = F.edge_stations(20.0, 5.0, 0.0, None)
+        self.assertEqual(sts, [5.0, 10.0, 15.0])
 
     def test_edge_stations_too_short(self):
-        self.assertEqual(F.edge_stations(4.0, 5.0, 2.5, 2.5), [])
-        self.assertEqual(F.edge_stations(20.0, 0.0, 2.5, 2.5), [])
+        self.assertEqual(F.edge_stations(4.0, 5.0, 0.0, 2.5), [])
+        self.assertEqual(F.edge_stations(20.0, 0.0, 0.0, 2.5), [])
 
     def test_cluster_nodes(self):
         pts = [(0.0, 0.0), (10.0, 0.0), (10.005, 0.0), (0.0, 0.002),
