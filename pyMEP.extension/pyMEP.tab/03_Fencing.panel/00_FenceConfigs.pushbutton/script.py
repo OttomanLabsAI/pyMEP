@@ -429,13 +429,22 @@ class ConfigsWindow(forms.WPFWindow):
         self._sync_mark()
 
     def _sync_mark(self):
-        """The GLOBAL numbering tick + prefix."""
+        """The GLOBAL ticks: MARK numbering + prefix, TOC param +
+        equation."""
         self._mark_busy = True
         try:
             on, pref = F.mark_settings(self.settings)
             self.ChkMark.IsChecked = on
             if self.TxtMarkPrefix.Text != pref:
                 self.TxtMarkPrefix.Text = pref
+            t_on, t_par, t_eq = F.toc_settings(self.settings)
+            self.ChkToc.IsChecked = t_on
+            if self.TxtTocParam.Text != t_par:
+                self.TxtTocParam.Text = t_par
+            if self.TxtTocFormula.Text != t_eq:
+                self.TxtTocFormula.Text = t_eq
+            self.TxtTocParam.IsEnabled = t_on
+            self.TxtTocFormula.IsEnabled = t_on
         finally:
             self._mark_busy = False
 
@@ -463,6 +472,47 @@ class ConfigsWindow(forms.WPFWindow):
             self.settings[F.SETTINGS_MARK_PREFIX] = \
                 (self.TxtMarkPrefix.Text or "").strip()
             self._persist()
+        except Exception:
+            pass
+
+    def on_toc_toggle(self, sender, args):
+        """GLOBAL: every foundation gets the TOC equation's value
+        (applies on the next place / move / Update Fence run)."""
+        if getattr(self, "_mark_busy", True):
+            return
+        try:
+            self.settings[F.SETTINGS_TOC] = bool(
+                self.ChkToc.IsChecked)
+            self._persist()
+            self._sync_mark()
+            self.StatusText.Text = ""
+        except Exception as ex:
+            self.StatusText.Text = str(ex)
+
+    def on_toc_param(self, sender, args):
+        if getattr(self, "_mark_busy", True):
+            return
+        try:
+            self.settings[F.SETTINGS_TOC_PARAM] = \
+                (self.TxtTocParam.Text or "").strip()
+            self._persist()
+        except Exception:
+            pass
+
+    def on_toc_formula(self, sender, args):
+        """Save the equation as typed - and TEST it against dummy
+        values so a typo shows up immediately."""
+        if getattr(self, "_mark_busy", True):
+            return
+        try:
+            eq = (self.TxtTocFormula.Text or "").strip()
+            self.settings[F.SETTINGS_TOC_FORMULA] = eq
+            self._persist()
+            try:
+                F.eval_toc(eq, 1000.0, 100.0, 200.0)
+                self.StatusText.Text = ""
+            except ValueError as ex:
+                self.StatusText.Text = str(ex)
         except Exception:
             pass
 

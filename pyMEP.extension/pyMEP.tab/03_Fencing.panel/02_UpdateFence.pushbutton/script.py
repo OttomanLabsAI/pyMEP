@@ -68,6 +68,14 @@ if not data["fences"]:
 
 settings = load_settings()
 _mark_on, _mark_prefix = F.mark_settings(settings)
+_toc_on, _toc_param, _toc_eq = F.toc_settings(settings)
+_toc = (_toc_param, _toc_eq) if _toc_on else None
+if _toc_on:
+    try:
+        F.eval_toc(_toc_eq, 1000.0, 100.0, 200.0)
+    except ValueError as _ex:
+        log("! {} - TOC skipped this run".format(_ex))
+        _toc = None
 
 
 def _nm(el):
@@ -530,7 +538,8 @@ try:
                                      F.get_configs(settings),
                                      view3d,
                                      mark_opts=(_mark_on,
-                                                _mark_prefix))
+                                                _mark_prefix),
+                                     toc_opts=_toc)
             except ValueError as ex:
                 results.append((label, "failed", str(ex)))
                 continue
@@ -606,7 +615,8 @@ try:
             records, missed, failed = FR.move_instances(
                 doc, triples, poly, terrain_id, ri, ray_z, extra_rot,
                 coord_params=(eff["easting_param"],
-                              eff["northing_param"]))
+                              eff["northing_param"]),
+                toc=_toc)
             action = "moved"
             note = "{} post(s) re-draped".format(
                 len(records) - len(missed) - failed)
@@ -682,7 +692,8 @@ try:
                               eff["northing_param"]),
                 marks=[_mark_prefix + str(i + 1)
                        for i in range(len(dists))]
-                if _mark_on else None)
+                if _mark_on else None,
+                toc=_toc)
             action = "rebuilt"
             note = "{} -> {} post(s)".format(len(survivors),
                                              len(records))

@@ -55,6 +55,7 @@ doc = revit.doc
 uidoc = revit.uidoc
 output = script.get_output()
 log = Logger(output, "FenceNetwork")
+_toc = None
 
 log("### Fence Network")
 
@@ -115,6 +116,15 @@ def get_lines():
 def main():
     settings = load_settings()
     cfgs = F.get_configs(settings)
+    global _toc
+    _toc_on, _toc_param, _toc_eq = F.toc_settings(settings)
+    _toc = (_toc_param, _toc_eq) if _toc_on else None
+    if _toc_on:
+        try:
+            F.eval_toc(_toc_eq, 1000.0, 100.0, 200.0)
+        except ValueError as _ex:
+            log("! {} - TOC skipped this run".format(_ex))
+            _toc = None
     bound = dict((c["line_style"], n) for n, c in cfgs.items()
                  if c.get("line_style"))
     if not bound:
@@ -278,7 +288,8 @@ def main():
                 "instance(s) removed.".format(r0.get("id"), gone))
         records, notes, placed, missed = FR.model_network(
             doc, lines, terrains, cfgs, view3d, say=log,
-            mark_opts=F.mark_settings(settings))
+            mark_opts=F.mark_settings(settings),
+            toc_opts=_toc)
         t.Commit()
     except ValueError as ex:
         try:

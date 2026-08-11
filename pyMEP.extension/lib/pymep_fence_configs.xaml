@@ -54,6 +54,27 @@
                          TextChanged="on_mark_prefix"
                          ToolTip="Lands in front of every number: FF -> FF1, FF2..."/>
             </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <CheckBox x:Name="ChkToc"
+                          VerticalAlignment="Center"
+                          Content="populate TOC"
+                          Checked="on_toc_toggle"
+                          Unchecked="on_toc_toggle"
+                          ToolTip="Every FOUNDATION gets the equation's value written into the named parameter - on placing, moving and rebuilding."/>
+                <TextBlock Text="parameter" Margin="16,0,8,0"
+                           VerticalAlignment="Center"/>
+                <TextBox x:Name="TxtTocParam" Width="90"
+                         Height="24"
+                         VerticalContentAlignment="Center"
+                         TextChanged="on_toc_param"/>
+                <TextBlock Text="equation" Margin="16,0,8,0"
+                           VerticalAlignment="Center"/>
+                <TextBox x:Name="TxtTocFormula" Width="150"
+                         Height="24"
+                         VerticalContentAlignment="Center"
+                         TextChanged="on_toc_formula"
+                         ToolTip="Evaluated per foundation. Variables: z = ground level at the post (mm, survey), e / n = easting / northing (metres); abs, min, max, round and the math functions work. Empty = z itself. Example: z + 50"/>
+            </StackPanel>
             <Grid Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
