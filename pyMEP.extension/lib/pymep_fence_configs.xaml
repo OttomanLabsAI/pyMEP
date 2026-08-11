@@ -54,27 +54,37 @@
                          TextChanged="on_mark_prefix"
                          ToolTip="Lands in front of every number: FF -> FF1, FF2..."/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                <CheckBox x:Name="ChkToc"
+            <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <CheckBox x:Name="ChkToc" Grid.Column="0"
                           VerticalAlignment="Center"
                           Content="populate TOC"
                           Checked="on_toc_toggle"
                           Unchecked="on_toc_toggle"
                           ToolTip="Every FOUNDATION gets the equation's value written into the named parameter - on placing, moving and rebuilding."/>
-                <TextBlock Text="parameter" Margin="16,0,8,0"
+                <TextBlock Grid.Column="1" Text="parameter"
+                           Margin="16,0,8,0"
                            VerticalAlignment="Center"/>
-                <TextBox x:Name="TxtTocParam" Width="90"
-                         Height="24"
+                <TextBox x:Name="TxtTocParam" Grid.Column="2"
+                         Width="90" Height="24"
                          VerticalContentAlignment="Center"
                          TextChanged="on_toc_param"/>
-                <TextBlock Text="equation" Margin="16,0,8,0"
+                <TextBlock Grid.Column="3" Text="equation"
+                           Margin="16,0,8,0"
                            VerticalAlignment="Center"/>
-                <TextBox x:Name="TxtTocFormula" Width="150"
+                <TextBox x:Name="TxtTocFormula" Grid.Column="4"
                          Height="24"
+                         HorizontalAlignment="Stretch"
                          VerticalContentAlignment="Center"
                          TextChanged="on_toc_formula"
                          ToolTip="Evaluated per foundation. Use the foundation's OWN parameters by name - Height Offset From Level - Embedment - plus z = ground level at the post (mm, survey) and e / n = easting / northing (metres); abs, min, max, round and the math functions work; lengths are millimetres. Empty = z itself."/>
-            </StackPanel>
+            </Grid>
             <Grid Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
