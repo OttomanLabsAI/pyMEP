@@ -141,6 +141,8 @@ class FenceWindow(forms.WPFWindow):
             "panel_width_param": cfg["panel_width_param"],
             "easting_param": cfg["easting_param"],
             "northing_param": cfg["northing_param"],
+            "terrain_mode": cfg["terrain_mode"],
+            "terrains": cfg["terrains"],
             "justify": self.justify(),
             "config": str(self.CmbConfig.SelectedItem or ""),
         }
@@ -269,13 +271,6 @@ def main():
         log("No line picked - nothing placed.")
         log.close()
         script.exit()
-    terrain = pick_one(TerrainFilter(),
-                       "Pick the TERRAIN (toposolid / topography / "
-                       "floor / roof)")
-    if terrain is None:
-        log("No terrain picked - nothing placed.")
-        log.close()
-        script.exit()
 
     poly = FR.tessellate(line_el)
     if not poly:
@@ -289,6 +284,21 @@ def main():
     closed = F.is_closed(poly)
     log("Line **{}**: **{:.3f} m** along its length{}.".format(
         line_el.Id, length * 0.3048, ", CLOSED loop" if closed else ""))
+
+    # terrain: the CONFIG decides (named topos / AUTO under the
+    # line) - an empty answer falls back to picking it
+    terrains, t_note = FR.resolve_terrains(doc, opt, [poly])
+    if t_note:
+        log("- " + t_note)
+    if not terrains:
+        terrain = pick_one(TerrainFilter(),
+                           "Pick the TERRAIN (toposolid / "
+                           "topography / floor / roof)")
+        if terrain is None:
+            log("No terrain picked - nothing placed.")
+            log.close()
+            script.exit()
+        terrains = [terrain]
 
     spacing_ft = UnitUtils.ConvertToInternalUnits(
         opt["spacing_mm"], UnitTypeId.Millimeters)
@@ -318,10 +328,13 @@ def main():
                     "re-run.", exitscript=True)
 
     ri = FR.make_intersector(view3d)
-    ray_z = FR.ray_start_z([terrain, line_el])
-    terrain_id = FR.id_value(terrain.Id)
-    log("Ray-casting in 3D view **{}** onto **{}** (id {}).".format(
-        view3d.Name, FR.element_name(terrain), terrain_id))
+    ray_z = FR.ray_start_z(terrains + [line_el])
+    terrain_id = set(FR.id_value(t.Id) for t in terrains)
+    log("Ray-casting in 3D view **{}** onto **{}**.".format(
+        view3d.Name, ", ".join(
+            "{} (id {})".format(FR.element_name(t),
+                                FR.id_value(t.Id))
+            for t in terrains)))
     levels = FR.sorted_levels(doc)
 
     pick = FR.station_pick(dists, length, primary, secondary,
@@ -364,7 +377,8 @@ def main():
                                 "project_files")
             rec = {
                 "line_uid": line_el.UniqueId,
-                "terrain_uid": terrain.UniqueId,
+                "terrain_uid": terrains[0].UniqueId,
+                "terrain_uids": [t.UniqueId for t in terrains],
                 "family": opt["post"] if post_symbol is not None
                 else "",
                 "spacing_mm": opt["spacing_mm"],

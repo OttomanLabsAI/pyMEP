@@ -92,6 +92,20 @@ def _by_uid(uid):
         return None
 
 
+def _terrains_of(rec):
+    """The record's terrain element(s) still in the model - newer
+    records carry terrain_uids (a config can drape over several
+    topos), older ones a single terrain_uid."""
+    uids = rec.get("terrain_uids") or \
+        ([rec.get("terrain_uid")] if rec.get("terrain_uid") else [])
+    out = []
+    for uid in uids:
+        el = _by_uid(uid)
+        if el is not None:
+            out.append(el)
+    return out
+
+
 def _mm2ft(mm):
     return UnitUtils.ConvertToInternalUnits(float(mm),
                                             UnitTypeId.Millimeters)
@@ -195,7 +209,7 @@ _touch_tol = FR.mm2ft(FR.NODE_TOL_MM)
 rows = []   # dicts: rec, line_el, terrain, survivors, eff, plan text
 for rec in data["fences"]:
     if rec.get("kind") == "network":
-        terrain = _by_uid(rec.get("terrain_uid"))
+        terrains = _terrains_of(rec)
         net_lines = []
         gone_lines = 0
         for l in rec.get("lines") or []:
@@ -236,7 +250,7 @@ for rec in data["fences"]:
         if adopted:
             notes.append("{} NEW line(s) touching the network will "
                          "JOIN it".format(adopted))
-        if terrain is None:
+        if not terrains:
             plan = ("record will be DROPPED (terrain gone, no "
                     "posts left)" if not survivors else
                     "SKIP - the terrain was deleted")
@@ -252,14 +266,14 @@ for rec in data["fences"]:
                     "post(s) - re-solved against the lines, "
                     "terrain and configs as they are now".format(
                         len(net_lines), len(survivors)))
-        rows.append({"rec": rec, "line": None, "terrain": terrain,
+        rows.append({"rec": rec, "line": None, "terrains": terrains,
                      "survivors": survivors, "eff": None,
                      "net_lines": net_lines,
                      "plan": plan + ("; " + "; ".join(notes)
                                      if notes else "")})
         continue
     line_el = _by_uid(rec.get("line_uid"))
-    terrain = _by_uid(rec.get("terrain_uid"))
+    terrains = _terrains_of(rec)
     survivors = []
     for inst_d in rec.get("instances") or []:
         el = _by_uid(inst_d.get("uid"))
@@ -277,7 +291,7 @@ for rec in data["fences"]:
                 if not survivors else
                 "SKIP - the line was deleted; re-place with Place "
                 "New Fence")
-    elif terrain is None:
+    elif not terrains:
         plan = ("record will be DROPPED (terrain gone, no posts "
                 "left)" if not survivors else
                 "SKIP - the terrain was deleted")
@@ -300,7 +314,7 @@ for rec in data["fences"]:
             else:
                 plan = "REBUILD: {} post(s) -> {} station(s)".format(
                     len(survivors), len(dists))
-    rows.append({"rec": rec, "line": line_el, "terrain": terrain,
+    rows.append({"rec": rec, "line": line_el, "terrains": terrains,
                  "survivors": survivors, "eff": eff,
                  "net_lines": None,
                  "plan": plan + ("; " + "; ".join(notes)
@@ -443,7 +457,7 @@ t.Start()
 try:
     for row in picked:
         rec = row["rec"]
-        line_el, terrain = row["line"], row["terrain"]
+        line_el, terrains = row["line"], row["terrains"]
         survivors, eff = row["survivors"], row["eff"]
         label = F.fence_label(rec)
         fid = rec.get("id")
@@ -468,7 +482,7 @@ try:
                                     row["superseded_by"],
                                     len(survivors))))
                 continue
-            if terrain is None or not row["net_lines"]:
+            if not terrains or not row["net_lines"]:
                 if not survivors:
                     drops.append(fid)
                     results.append((label, "dropped",
@@ -503,7 +517,7 @@ try:
                         pass
             try:
                 records, net_notes, placed, missed_n = \
-                    FR.model_network(doc, row["net_lines"], terrain,
+                    FR.model_network(doc, row["net_lines"], terrains,
                                      F.get_configs(settings),
                                      view3d)
             except ValueError as ex:
@@ -526,7 +540,7 @@ try:
                                 "terrain".format(missed_n)
                                 if missed_n else "")))
             continue
-        if line_el is None or terrain is None:
+        if line_el is None or not terrains:
             if not survivors:
                 drops.append(fid)
                 results.append((label, "dropped",
@@ -558,8 +572,8 @@ try:
                                          F.MAX_INSTANCES)))
             continue
 
-        ray_z = FR.ray_start_z([terrain, line_el])
-        terrain_id = FR.id_value(terrain.Id)
+        ray_z = FR.ray_start_z(terrains + [line_el])
+        terrain_id = set(FR.id_value(t.Id) for t in terrains)
         extra_rot = math.radians(eff["rotation_deg"])
         cfg_notes = _config_notes(rec, eff)
 
