@@ -1,7 +1,7 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Place New Fence"
-        Width="520" Height="600" MinWidth="470" MinHeight="520"
+        Width="560" Height="640" MinWidth="470" MinHeight="520"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False"
         Background="White">

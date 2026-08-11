@@ -119,12 +119,6 @@ def main():
     global _toc
     _toc_on, _toc_param, _toc_eq = F.toc_settings(settings)
     _toc = (_toc_param, _toc_eq) if _toc_on else None
-    if _toc_on:
-        try:
-            F.eval_toc(_toc_eq, 1000.0, 100.0, 200.0)
-        except ValueError as _ex:
-            log("! {} - TOC skipped this run".format(_ex))
-            _toc = None
     bound = dict((c["line_style"], n) for n, c in cfgs.items()
                  if c.get("line_style"))
     if not bound:

@@ -70,12 +70,7 @@ settings = load_settings()
 _mark_on, _mark_prefix = F.mark_settings(settings)
 _toc_on, _toc_param, _toc_eq = F.toc_settings(settings)
 _toc = (_toc_param, _toc_eq) if _toc_on else None
-if _toc_on:
-    try:
-        F.eval_toc(_toc_eq, 1000.0, 100.0, 200.0)
-    except ValueError as _ex:
-        log("! {} - TOC skipped this run".format(_ex))
-        _toc = None
+_toc_probs = []
 
 
 def _nm(el):
@@ -616,7 +611,7 @@ try:
                 doc, triples, poly, terrain_id, ri, ray_z, extra_rot,
                 coord_params=(eff["easting_param"],
                               eff["northing_param"]),
-                toc=_toc)
+                toc=_toc, toc_problems=_toc_probs)
             action = "moved"
             note = "{} post(s) re-draped".format(
                 len(records) - len(missed) - failed)
@@ -693,7 +688,7 @@ try:
                 marks=[_mark_prefix + str(i + 1)
                        for i in range(len(dists))]
                 if _mark_on else None,
-                toc=_toc)
+                toc=_toc, toc_problems=_toc_probs)
             action = "rebuilt"
             note = "{} -> {} post(s)".format(len(survivors),
                                              len(records))
@@ -735,6 +730,9 @@ except Exception:
     except Exception:
         pass
     raise
+
+if _toc_probs:
+    log("! TOC: {}".format(_toc_probs[0]))
 
 # registry writes AFTER the model commit, so a rollback never leaves
 # the record pointing at instances that were not really changed

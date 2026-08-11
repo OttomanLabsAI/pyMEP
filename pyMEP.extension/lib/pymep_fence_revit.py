@@ -414,14 +414,56 @@ def set_coord_params(doc, inst, pt, east_name, north_name):
             continue
 
 
-def set_toc(doc, inst, pt, param_name, formula):
+def _toc_params(doc, inst):
+    """{parameter name: value} for the TOC equation - the
+    foundation's INSTANCE parameters (Doubles as millimetres), its
+    TYPE's filling the gaps."""
+    out = {}
+
+    def scan(el, overwrite):
+        try:
+            pars = el.Parameters
+        except Exception:
+            return
+        for par in pars:
+            try:
+                nm = par.Definition.Name
+                if not par.HasValue:
+                    continue
+                st = par.StorageType
+                if st == StorageType.Double:
+                    if overwrite or nm not in out:
+                        out[nm] = UnitUtils.ConvertFromInternalUnits(
+                            par.AsDouble(), UnitTypeId.Millimeters)
+                elif st == StorageType.Integer:
+                    out.setdefault(nm, float(par.AsInteger()))
+                elif st == StorageType.String:
+                    try:
+                        out.setdefault(nm, float(par.AsString()))
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+
+    scan(inst, True)
+    try:
+        typ = doc.GetElement(inst.GetTypeId())
+        if typ is not None:
+            scan(typ, False)
+    except Exception:
+        pass
+    return out
+
+
+def set_toc(doc, inst, pt, param_name, formula, problems=None):
     """TOC: evaluate the equation at the placement point and write
-    the result into the named instance parameter. Variables come
-    from the SURVEY-basis point: z = ground level (mm), e / n =
-    easting / northing (metres). A Length parameter gets the value
-    as millimetres (converted to internal), a Text parameter the
-    number to 1 decimal. Silently skipped when the instance has no
-    such parameter."""
+    the result into the named instance parameter. The equation may
+    use the foundation's OWN parameters by name (instance first,
+    then type - lengths in mm) plus z / e / n from the SURVEY-basis
+    point. A Length parameter gets the value as millimetres
+    (converted to internal), a Text parameter the number to 1
+    decimal. The FIRST failure reason is appended to ``problems``
+    when a list is given."""
     if inst is None or not param_name:
         return
     try:
@@ -436,12 +478,19 @@ def set_toc(doc, inst, pt, param_name, formula):
             sp.X, UnitTypeId.Meters)
         n_m = UnitUtils.ConvertFromInternalUnits(
             sp.Y, UnitTypeId.Meters)
-        val = F.eval_toc(formula, z_mm, e_m, n_m)
-    except Exception:
+        val = F.eval_toc(formula, z_mm, e_m, n_m,
+                         _toc_params(doc, inst))
+    except Exception as ex:
+        if problems is not None and not problems:
+            problems.append("{}".format(ex))
         return
     try:
         par = inst.LookupParameter(param_name)
         if par is None or par.IsReadOnly:
+            if problems is not None and not problems:
+                problems.append(
+                    "parameter '{}' is missing or read-only on the "
+                    "foundation".format(param_name))
             return
         if par.StorageType == StorageType.Double:
             par.Set(mm2ft(val))
@@ -523,7 +572,7 @@ def station_pick(dists, length, primary, secondary,
 def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
                     levels, extra_rot=0.0, panel_symbol=None,
                     panel_width_param=None, coord_params=None,
-                    marks=None, toc=None):
+                    marks=None, toc=None, toc_problems=None):
     """Place at every station, draped and rotated - the line's
     direction plus ``extra_rot`` (radians, the config's custom
     rotation). ``pick(d)`` returns (symbol, foundation_symbol) for
@@ -574,7 +623,8 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
                 set_coord_params(doc, inst, hit, coord_params[0],
                                  coord_params[1])
             if toc:
-                set_toc(doc, inst, hit, toc[0], toc[1])
+                set_toc(doc, inst, hit, toc[0], toc[1],
+                        toc_problems)
         set_mark(inst, mark)
         rec = {"uid": inst.UniqueId, "station_ft": d, "angle": ang}
         if foundation_symbol is not None:
@@ -587,7 +637,8 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
                                      coord_params[0],
                                      coord_params[1])
                 if toc:
-                    set_toc(doc, f_inst, hit, toc[0], toc[1])
+                    set_toc(doc, f_inst, hit, toc[0], toc[1],
+                            toc_problems)
                 set_mark(f_inst, mark)
             except Exception as ex:
                 failed += 1
@@ -608,7 +659,8 @@ def _move_one(doc, el, hit, rot_delta):
 
 
 def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
-                   extra_rot=0.0, coord_params=None, toc=None):
+                   extra_rot=0.0, coord_params=None, toc=None,
+                   toc_problems=None):
     """MOVE each stored instance (and its foundation, when the record
     has one that still exists) to its new station: pairs =
     [(instance_dict, element, new_station)]. The rotation applied is
@@ -635,7 +687,8 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
                     set_coord_params(doc, el, hit, coord_params[0],
                                      coord_params[1])
                 if toc:
-                    set_toc(doc, el, hit, toc[0], toc[1])
+                    set_toc(doc, el, hit, toc[0], toc[1],
+                            toc_problems)
             rec = {"uid": inst_d.get("uid"), "station_ft": d,
                    "angle": new_ang}
             f_uid = inst_d.get("foundation_uid")
@@ -651,7 +704,7 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
                                              coord_params[1])
                         if toc:
                             set_toc(doc, f_el, hit, toc[0],
-                                    toc[1])
+                                    toc[1], toc_problems)
                 except Exception:
                     failed += 1
             records.append(rec)
@@ -968,6 +1021,7 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
     # ---- place: corners FIRST, then doubles, then in-between ---------
     records = []
     missed = [0]
+    toc_problems = []
     sym_cache = {}
 
     def _sym(label, cats, what):
@@ -1021,7 +1075,8 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
         if _is_foundation(inst):
             set_coord_params(doc, inst, hit, coords[0], coords[1])
             if toc_opts:
-                set_toc(doc, inst, hit, toc_opts[0], toc_opts[1])
+                set_toc(doc, inst, hit, toc_opts[0], toc_opts[1],
+                        toc_problems)
         if mark_on:
             set_mark(inst, mark)
         rec = {"uid": inst.UniqueId}
@@ -1033,7 +1088,7 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
                                  coords[1])
                 if toc_opts:
                     set_toc(doc, f_inst, hit, toc_opts[0],
-                            toc_opts[1])
+                            toc_opts[1], toc_problems)
                 if mark_on:
                     set_mark(f_inst, mark)
             except Exception as ex:
@@ -1067,5 +1122,7 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
                      net_missed,
                      e["cfg"].get("panel_width_param") or None)
     missed[0] += len(net_missed)
+    if toc_problems:
+        note("! TOC: {}".format(toc_problems[0]))
 
     return records, notes, len(records), missed[0]
