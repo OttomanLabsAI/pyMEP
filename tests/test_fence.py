@@ -587,6 +587,30 @@ class Intersections(unittest.TestCase):
         self.assertRaises(ValueError, F.eval_toc,
                           "__import__('os')", 100.0)
 
+    def test_eval_toc_parameter_names(self):
+        # the equation may use the foundation's OWN parameters by
+        # name - spaces and all - or in [brackets]
+        p = {"Height Offset From Level": 855.5, "Embedment": 300.0,
+             "Height": 9999.0}
+        self.assertEqual(F.eval_toc(
+            "Height Offset From Level - Embedment", 0.0, params=p),
+            555.5)
+        self.assertEqual(F.eval_toc(
+            "[Height Offset From Level] + 10", 0.0, params=p),
+            865.5)
+        # longest name wins - 'Height' inside the long name is NOT
+        # matched on its own
+        self.assertEqual(F.eval_toc(
+            "Height Offset From Level", 0.0, params=p), 855.5)
+        # mixes with z and functions
+        self.assertEqual(F.eval_toc("max(z, Embedment) + 1", 100.0,
+                                    params=p), 301.0)
+        # unknown names raise with a pointer at the spelling
+        self.assertRaises(ValueError, F.eval_toc, "[Nope]", 0.0,
+                          0.0, 0.0, p)
+        self.assertRaises(ValueError, F.eval_toc, "Embedmet + 1",
+                          0.0, 0.0, 0.0, p)
+
     def test_network_marks_longest_chain_absorbs_one_spur(self):
         # no circle: the LONGEST run is the chain - one spur joins
         # it, the other hangs off as a branch. A LONGER spur wins

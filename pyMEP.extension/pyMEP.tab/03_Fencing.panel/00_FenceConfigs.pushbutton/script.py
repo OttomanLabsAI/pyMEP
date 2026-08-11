@@ -500,19 +500,15 @@ class ConfigsWindow(forms.WPFWindow):
             pass
 
     def on_toc_formula(self, sender, args):
-        """Save the equation as typed - and TEST it against dummy
-        values so a typo shows up immediately."""
+        """Save the equation as typed - parameter names resolve per
+        foundation at run time, so no early check here; the run
+        reports the first problem it hits."""
         if getattr(self, "_mark_busy", True):
             return
         try:
-            eq = (self.TxtTocFormula.Text or "").strip()
-            self.settings[F.SETTINGS_TOC_FORMULA] = eq
+            self.settings[F.SETTINGS_TOC_FORMULA] = \
+                (self.TxtTocFormula.Text or "").strip()
             self._persist()
-            try:
-                F.eval_toc(eq, 1000.0, 100.0, 200.0)
-                self.StatusText.Text = ""
-            except ValueError as ex:
-                self.StatusText.Text = str(ex)
         except Exception:
             pass
 

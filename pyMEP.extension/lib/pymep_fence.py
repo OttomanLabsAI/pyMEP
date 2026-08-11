@@ -95,30 +95,65 @@ def toc_settings(settings):
             str(settings.get(SETTINGS_TOC_FORMULA) or "").strip())
 
 
-def eval_toc(formula, z_mm, e_m=0.0, n_m=0.0):
+def eval_toc(formula, z_mm, e_m=0.0, n_m=0.0, params=None):
     """Evaluate the TOC equation at one foundation.
 
-    Variables: ``z`` = the draped GROUND level at the post
+    The equation may use the foundation's OWN PARAMETERS by name,
+    spaces and all - 'Height Offset From Level - Embedment' - or in
+    [brackets]; ``params`` maps parameter name -> value (lengths in
+    millimetres). Longer names substitute first, so overlapping
+    names resolve to the longest match.
+
+    Extra variables: ``z`` = the draped GROUND level at the post
     (millimetres, survey basis), ``e`` / ``n`` = the survey
     EASTING / NORTHING (metres) - plus abs, min, max, round and the
     math functions (sqrt, floor, ceil, sin, cos, tan, atan, atan2,
     log, exp, pow, pi). An empty equation returns ``z`` untouched.
     Returns the value in MILLIMETRES; raises ValueError with the
     reason when the equation cannot be evaluated."""
-    if not str(formula or "").strip():
+    f = str(formula or "").strip()
+    if not f:
         return float(z_mm)
     import math as _math
+    import re as _re
     ns = {"z": float(z_mm), "e": float(e_m), "n": float(n_m),
           "abs": abs, "min": min, "max": max, "round": round}
     for nm in ("sqrt", "floor", "ceil", "sin", "cos", "tan",
                "atan", "atan2", "log", "exp", "pow", "pi", "fabs"):
         ns[nm] = getattr(_math, nm)
+    # parameter names -> placeholder variables, [brackets] first
+    box = [0]
+
+    def _hold(val):
+        v = "_p{}".format(box[0])
+        box[0] += 1
+        ns[v] = float(val)
+        return v
+
+    def _brk(mo):
+        name = mo.group(1).strip()
+        if not params or name not in params:
+            raise ValueError(
+                "TOC equation: parameter '{}' is not on the "
+                "foundation".format(name))
+        return _hold(params[name])
+
+    expr = _re.sub(r"\[([^\]]+)\]", _brk, f)
+    if params:
+        for name in sorted(params, key=len, reverse=True):
+            pat = r"(?<!\w)" + _re.escape(name) + r"(?!\w)"
+            if _re.search(pat, expr):
+                expr = _re.sub(pat, _hold(params[name]), expr)
     try:
-        v = eval(compile(str(formula), "<toc>", "eval"),
+        v = eval(compile(expr, "<toc>", "eval"),
                  {"__builtins__": {}}, ns)
         return float(v)
     except Exception as ex:
-        raise ValueError("TOC equation failed: {}".format(ex))
+        raise ValueError(
+            "TOC equation failed: {} - words the equation cannot "
+            "resolve are treated as PARAMETER names; check the "
+            "spelling against the foundation's parameters".format(
+                ex))
 
 # the categories a POST may come from / the FOUNDATION must come from
 POST_CATEGORIES = ["OST_GenericModel", "OST_Columns",

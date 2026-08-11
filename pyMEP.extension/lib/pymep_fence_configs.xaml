@@ -1,7 +1,7 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Fence Configurations"
-        Width="560" Height="440" MinWidth="500" MinHeight="360"
+        Width="1000" Height="640" MinWidth="640" MinHeight="480"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False"
         Background="White">
@@ -36,7 +36,7 @@
         </Border>
 
         <StackPanel Grid.Row="1" Margin="14,12,14,0">
-            <ListBox x:Name="LstConfigs" Height="220"
+            <ListBox x:Name="LstConfigs" Height="300"
                      MouseDoubleClick="on_edit"
                      SelectionChanged="on_row_selected"/>
             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
@@ -73,7 +73,7 @@
                          Height="24"
                          VerticalContentAlignment="Center"
                          TextChanged="on_toc_formula"
-                         ToolTip="Evaluated per foundation. Variables: z = ground level at the post (mm, survey), e / n = easting / northing (metres); abs, min, max, round and the math functions work. Empty = z itself. Example: z + 50"/>
+                         ToolTip="Evaluated per foundation. Use the foundation's OWN parameters by name - Height Offset From Level - Embedment - plus z = ground level at the post (mm, survey) and e / n = easting / northing (metres); abs, min, max, round and the math functions work; lengths are millimetres. Empty = z itself."/>
             </StackPanel>
             <Grid Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>
