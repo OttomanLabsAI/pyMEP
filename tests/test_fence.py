@@ -587,10 +587,11 @@ class Intersections(unittest.TestCase):
         self.assertRaises(ValueError, F.eval_toc,
                           "__import__('os')", 100.0)
 
-    def test_network_marks_two_branches_lettered(self):
-        # two spurs at the same corner get A and B (clockwise from
-        # north), each with its own count
-        xy = [(0.0, 0.0), (6.0, 0.0), (6.0, 5.0), (6.0, -5.0)]
+    def test_network_marks_longest_chain_absorbs_one_spur(self):
+        # no circle: the LONGEST run is the chain - one spur joins
+        # it, the other hangs off as a branch. A LONGER spur wins
+        # the chain regardless of group.
+        xy = [(0.0, 0.0), (6.0, 0.0), (6.0, 5.0), (6.0, -9.0)]
         edges = {
             0: {"poly": [(0.0, 0.0, 0.0), (6.0, 0.0, 0.0)],
                 "posts": [(0.0, "node", 0), (6.0, "node", 1)],
@@ -598,16 +599,52 @@ class Intersections(unittest.TestCase):
             1: {"poly": [(6.0, 0.0, 0.0), (6.0, 5.0, 0.0)],
                 "posts": [(0.0, "node", 1), (5.0, "node", 2)],
                 "group": "spur"},
-            2: {"poly": [(6.0, 0.0, 0.0), (6.0, -5.0, 0.0)],
-                "posts": [(0.0, "node", 1), (5.0, "node", 3)],
+            2: {"poly": [(6.0, 0.0, 0.0), (6.0, -9.0, 0.0)],
+                "posts": [(0.0, "node", 1), (9.0, "node", 3)],
                 "group": "spur"},
         }
         m = F.network_marks(edges, xy, 0)
         self.assertEqual(m[("node", 0)], "1")
         self.assertEqual(m[("node", 1)], "2")
-        # north-going spur bears 0 deg -> A; south-going -> B
+        # the 9-long south spur continues the chain; the 5-long
+        # north spur branches off corner 2
+        self.assertEqual(m[("node", 3)], "3")
         self.assertEqual(m[("node", 2)], "2A1")
-        self.assertEqual(m[("node", 3)], "2B1")
+
+    def test_network_marks_full_circle_beats_styles(self):
+        # a loop of MIXED styles with a spur: the FULL CIRCLE is
+        # always the main chain (clockwise), the spur branches
+        xy = [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0),
+              (8.0, 0.0)]
+        pl = lambda a, b: [(xy[a][0], xy[a][1], 0.0),
+                           (xy[b][0], xy[b][1], 0.0)]
+        edges = {
+            0: {"poly": pl(0, 1), "posts": [(0.0, "node", 0),
+                                            (4.0, "node", 1)],
+                "group": "impact"},
+            1: {"poly": pl(1, 2), "posts": [(0.0, "node", 1),
+                                            (4.0, "node", 2)],
+                "group": "standard"},
+            2: {"poly": pl(2, 3), "posts": [(0.0, "node", 2),
+                                            (4.0, "node", 3)],
+                "group": "standard"},
+            3: {"poly": pl(3, 0), "posts": [(0.0, "node", 3),
+                                            (4.0, "node", 0)],
+                "group": "standard"},
+            # spur off node 1, pointing away from the loop
+            4: {"poly": pl(1, 4), "posts": [(0.0, "node", 1),
+                                            (4.0, "node", 4)],
+                "group": "palladine"},
+        }
+        m = F.network_marks(edges, xy, 0)
+        # drawn counter-clockwise -> numbered the OTHER way round:
+        # the whole loop is the chain despite the style changes
+        self.assertEqual(m[("node", 0)], "1")
+        self.assertEqual(m[("node", 3)], "2")
+        self.assertEqual(m[("node", 2)], "3")
+        self.assertEqual(m[("node", 1)], "4")
+        # the spur branches off corner 4
+        self.assertEqual(m[("node", 4)], "4A1")
 
     def test_polys_touch(self):
         a = [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0)]
