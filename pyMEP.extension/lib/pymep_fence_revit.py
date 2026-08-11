@@ -233,11 +233,14 @@ def _place_one(doc, symbol, hit, lvl, ang):
     return inst
 
 
-def set_panel_width(inst, width_ft):
-    """Drive the panel family's width to the bay: tries the usual
-    parameter names; False when the family has none (it then keeps
-    its native size)."""
-    for nm in ("Width", "width", "Panel Width", "Length", "length"):
+def set_panel_width(inst, width_ft, param_name=None):
+    """Drive the panel family's width to the bay: the config's own
+    spacing parameter NAME first, then the usual suspects; False
+    when none exists (the family keeps its native size)."""
+    names = ("Width", "width", "Panel Width", "Length", "length")
+    if param_name:
+        names = (param_name,) + names
+    for nm in names:
         try:
             par = inst.LookupParameter(nm)
             if par is not None and not par.IsReadOnly:
@@ -249,7 +252,8 @@ def set_panel_width(inst, width_ft):
 
 
 def place_panels(doc, panel_symbol, poly, post_stations, terrain_id,
-                 ri, ray_z, levels, records, missed):
+                 ri, ray_z, levels, records, missed,
+                 width_param=None):
     """One panel per BAY between consecutive posts: placed at the
     bay's CENTRE, aligned to the line, draped, width driven to the
     bay length. Appends to records / missed in place."""
@@ -272,7 +276,7 @@ def place_panels(doc, panel_symbol, poly, post_stations, terrain_id,
         ang = math.atan2(tang[1], tang[0])
         try:
             inst = _place_one(doc, panel_symbol, hit, lvl, ang)
-            set_panel_width(inst, width)
+            set_panel_width(inst, width, width_param)
             records.append({"uid": inst.UniqueId, "station_ft": mid,
                             "angle": ang, "panel": True})
         except Exception:
@@ -299,7 +303,8 @@ def station_pick(dists, length, primary, secondary,
 
 
 def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
-                    levels, extra_rot=0.0, panel_symbol=None):
+                    levels, extra_rot=0.0, panel_symbol=None,
+                    panel_width_param=None):
     """Place at every station, draped and rotated - the line's
     direction plus ``extra_rot`` (radians, the config's custom
     rotation). ``pick(d)`` returns (symbol, foundation_symbol) for
@@ -354,7 +359,7 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
                     failed_reason[0] = "foundation: {}".format(ex)
         records.append(rec)
     place_panels(doc, panel_symbol, poly, dists, terrain_id, ri,
-                 ray_z, levels, records, missed)
+                 ray_z, levels, records, missed, panel_width_param)
     return records, missed, failed, failed_reason[0]
 
 
@@ -744,7 +749,8 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
             continue
         place_panels(doc, pnl_sym, e["poly"], e["post_stations"],
                      terrain_id, ri, ray_z, levels, records,
-                     net_missed)
+                     net_missed,
+                     e["cfg"].get("panel_width_param") or None)
     missed[0] += len(net_missed)
 
     return records, notes, len(records), missed[0]

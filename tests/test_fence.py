@@ -131,7 +131,7 @@ class ConfigStore(unittest.TestCase):
                           "same_ends": True, "end_post": "",
                           "end_foundation": "", "line_style": "",
                           "priority": 99, "end_priority": False,
-                          "panel": ""})
+                          "panel": "", "panel_width_param": ""})
 
     def test_upsert_validates(self):
         self.assertRaises(ValueError, F.upsert_config, {}, "  ",
@@ -171,7 +171,8 @@ class ConfigStore(unittest.TestCase):
                           "foundation": "", "same_ends": True,
                           "end_post": "", "end_foundation": "",
                           "line_style": "", "priority": 99,
-                          "end_priority": False, "panel": ""})
+                          "end_priority": False, "panel": "",
+                          "panel_width_param": ""})
 
 
 class EffectiveConfig(unittest.TestCase):
@@ -179,7 +180,8 @@ class EffectiveConfig(unittest.TestCase):
             "rotation_deg": 0.0, "post": "", "foundation": "",
             "same_ends": True, "end_post": "", "end_foundation": "",
             "line_style": "", "priority": 99,
-            "end_priority": False, "panel": ""}
+            "end_priority": False, "panel": "",
+            "panel_width_param": ""}
 
     def test_current_config_wins(self):
         s = {}
@@ -195,7 +197,8 @@ class EffectiveConfig(unittest.TestCase):
                                "end_foundation": "",
                                "line_style": "",
                                "priority": 99,
-                               "end_priority": False, "panel": ""})
+                               "end_priority": False, "panel": "",
+                               "panel_width_param": ""})
 
     def test_missing_config_falls_back_to_snapshot(self):
         eff = F.effective_config({}, "Deleted", self.SNAP)
@@ -213,7 +216,8 @@ class EffectiveConfig(unittest.TestCase):
                                "end_foundation": "",
                                "line_style": "",
                                "priority": 99,
-                               "end_priority": False, "panel": ""})
+                               "end_priority": False, "panel": "",
+                               "panel_width_param": ""})
 
     def test_snapshot_family_becomes_the_post(self):
         # records from before posts joined configs carry 'family'

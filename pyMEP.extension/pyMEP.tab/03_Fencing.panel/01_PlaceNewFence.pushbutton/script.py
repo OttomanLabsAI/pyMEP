@@ -138,6 +138,7 @@ class FenceWindow(forms.WPFWindow):
             "end_post": cfg["end_post"],
             "end_foundation": cfg["end_foundation"],
             "panel": cfg["panel"],
+            "panel_width_param": cfg["panel_width_param"],
             "justify": self.justify(),
             "config": str(self.CmbConfig.SelectedItem or ""),
         }
@@ -330,7 +331,8 @@ def main():
         records, missed, failed, why = FR.place_instances(
             doc, pick, poly, dists, terrain_id, ri, ray_z,
             levels, extra_rot=math.radians(opt["rotation_deg"]),
-            panel_symbol=panel_symbol)
+            panel_symbol=panel_symbol,
+            panel_width_param=opt["panel_width_param"] or None)
         t.Commit()
     except Exception:
         try:
@@ -373,6 +375,7 @@ def main():
                 "end_foundation": opt["end_foundation"],
                 "panel": opt["panel"]
                 if panel_symbol is not None else "",
+                "panel_width_param": opt["panel_width_param"],
                 "justify": opt["justify"],
                 "config": opt["config"],
                 "instances": records,
