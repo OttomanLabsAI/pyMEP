@@ -135,7 +135,8 @@ class ConfigStore(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": []})
+                          "terrains": [],
+                          "mark": False})
 
     def test_upsert_validates(self):
         self.assertRaises(ValueError, F.upsert_config, {}, "  ",
@@ -180,7 +181,8 @@ class ConfigStore(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": []})
+                          "terrains": [],
+                          "mark": False})
 
 
 class EffectiveConfig(unittest.TestCase):
@@ -193,7 +195,8 @@ class EffectiveConfig(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": []}
+                          "terrains": [],
+                          "mark": False}
 
     def test_current_config_wins(self):
         s = {}
@@ -214,7 +217,8 @@ class EffectiveConfig(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": []})
+                          "terrains": [],
+                          "mark": False})
 
     def test_missing_config_falls_back_to_snapshot(self):
         eff = F.effective_config({}, "Deleted", self.SNAP)
@@ -237,7 +241,8 @@ class EffectiveConfig(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": []})
+                          "terrains": [],
+                          "mark": False})
 
     def test_snapshot_family_becomes_the_post(self):
         # records from before posts joined configs carry 'family'
@@ -474,6 +479,96 @@ class Intersections(unittest.TestCase):
         F.upsert_config(s, "x", 1000, True, terrain_mode="pick")
         self.assertEqual(F.get_configs(s)["x"]["terrain_mode"],
                          F.TERRAIN_PICK)
+
+    def test_network_marks_single_line(self):
+        # one line, nodes at both ends, two in-between posts:
+        # numbered from the start
+        edges = {0: {"poly": [(0.0, 0.0, 0.0), (9.0, 0.0, 0.0)],
+                     "posts": [(0.0, "node", 0),
+                               (3.0, "post", (0, 3.0)),
+                               (6.0, "post", (0, 6.0)),
+                               (9.0, "node", 1)]}}
+        m = F.network_marks(edges, [(0.0, 0.0), (9.0, 0.0)], 0)
+        self.assertEqual(m[("node", 0)], "1")
+        self.assertEqual(m[("post", (0, 3.0))], "2")
+        self.assertEqual(m[("post", (0, 6.0))], "3")
+        self.assertEqual(m[("node", 1)], "4")
+
+    def test_network_marks_ccw_loop_reversed(self):
+        # a square drawn COUNTER-clockwise: the walk re-runs the
+        # other way so the numbers go CLOCKWISE from the start
+        xy = [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)]
+        pl = lambda a, b: [(xy[a][0], xy[a][1], 0.0),
+                           (xy[b][0], xy[b][1], 0.0)]
+        edges = {
+            0: {"poly": pl(0, 1), "posts": [(0.0, "node", 0),
+                                            (2.0, "post", (0, 2.0)),
+                                            (4.0, "node", 1)]},
+            1: {"poly": pl(1, 2), "posts": [(0.0, "node", 1),
+                                            (4.0, "node", 2)]},
+            2: {"poly": pl(2, 3), "posts": [(0.0, "node", 2),
+                                            (4.0, "node", 3)]},
+            3: {"poly": pl(3, 0), "posts": [(0.0, "node", 3),
+                                            (4.0, "node", 0)]},
+        }
+        m = F.network_marks(edges, xy, 0)
+        self.assertEqual(m[("node", 0)], "1")
+        # clockwise from (0,0): up the left side first
+        self.assertEqual(m[("node", 3)], "2")
+        self.assertEqual(m[("node", 2)], "3")
+        self.assertEqual(m[("node", 1)], "4")
+        # the in-between post on edge 0 is numbered walking 1 -> 0
+        self.assertEqual(m[("post", (0, 2.0))], "5")
+
+    def test_network_marks_branch_naming(self):
+        # a straight chain with a spur at its middle corner: the
+        # spur numbers off the corner's mark with a letter
+        xy = [(0.0, 0.0), (6.0, 0.0), (12.0, 0.0), (6.0, 5.0)]
+        edges = {
+            0: {"poly": [(0.0, 0.0, 0.0), (12.0, 0.0, 0.0)],
+                "posts": [(0.0, "node", 0),
+                          (3.0, "post", (0, 3.0)),
+                          (6.0, "node", 1),
+                          (9.0, "post", (0, 9.0)),
+                          (12.0, "node", 2)]},
+            1: {"poly": [(6.0, 0.0, 0.0), (6.0, 5.0, 0.0)],
+                "posts": [(0.0, "node", 1),
+                          (1.0, "double", (1, 1)),
+                          (3.0, "post", (1, 3.0)),
+                          (5.0, "node", 3)]},
+        }
+        m = F.network_marks(edges, xy, 0)
+        self.assertEqual(m[("node", 0)], "1")
+        self.assertEqual(m[("post", (0, 3.0))], "2")
+        self.assertEqual(m[("node", 1)], "3")
+        self.assertEqual(m[("post", (0, 9.0))], "4")
+        self.assertEqual(m[("node", 2)], "5")
+        # the spur off corner 3: its OWN numbering, double first
+        self.assertEqual(m[("double", (1, 1))], "3A1")
+        self.assertEqual(m[("post", (1, 3.0))], "3A2")
+        self.assertEqual(m[("node", 3)], "3A3")
+
+    def test_network_marks_two_branches_lettered(self):
+        # two spurs at the same corner get A and B (clockwise from
+        # north), each with its own count
+        xy = [(0.0, 0.0), (6.0, 0.0), (6.0, 5.0), (6.0, -5.0)]
+        edges = {
+            0: {"poly": [(0.0, 0.0, 0.0), (6.0, 0.0, 0.0)],
+                "posts": [(0.0, "node", 0), (6.0, "node", 1)],
+                "group": "main"},
+            1: {"poly": [(6.0, 0.0, 0.0), (6.0, 5.0, 0.0)],
+                "posts": [(0.0, "node", 1), (5.0, "node", 2)],
+                "group": "spur"},
+            2: {"poly": [(6.0, 0.0, 0.0), (6.0, -5.0, 0.0)],
+                "posts": [(0.0, "node", 1), (5.0, "node", 3)],
+                "group": "spur"},
+        }
+        m = F.network_marks(edges, xy, 0)
+        self.assertEqual(m[("node", 0)], "1")
+        self.assertEqual(m[("node", 1)], "2")
+        # north-going spur bears 0 deg -> A; south-going -> B
+        self.assertEqual(m[("node", 2)], "2A1")
+        self.assertEqual(m[("node", 3)], "2B1")
 
     def test_polys_touch(self):
         a = [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0)]

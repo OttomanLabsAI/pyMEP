@@ -144,6 +144,9 @@ def _config_notes(rec, eff):
     if str(rec.get("panel") or "") != eff["panel"]:
         notes.append("panel '{}' -> '{}'".format(
             rec.get("panel") or "none", eff["panel"] or "none"))
+    if bool(rec.get("mark", False)) != eff["mark"]:
+        notes.append("MARK numbering {}".format(
+            "on" if eff["mark"] else "off"))
     if F.end_families(_rec_cfg(rec)) != F.end_families(eff):
         ep, ef = F.end_families(eff)
         notes.append("endpoint families -> post '{}' / foundation "
@@ -173,6 +176,7 @@ def _families_changed(rec, eff):
             str(rec.get("panel") or "") != eff["panel"] or
             str(rec.get("panel_width_param") or "") !=
             eff["panel_width_param"] or
+            bool(rec.get("mark", False)) != eff["mark"] or
             F.end_families(_rec_cfg(rec)) != F.end_families(eff))
 
 
@@ -668,7 +672,9 @@ try:
                 levels, extra_rot, panel_symbol=panel_symbol,
                 panel_width_param=eff["panel_width_param"] or None,
                 coord_params=(eff["easting_param"],
-                              eff["northing_param"]))
+                              eff["northing_param"]),
+                marks=[str(i + 1) for i in range(len(dists))]
+                if eff["mark"] else None)
             action = "rebuilt"
             note = "{} -> {} post(s)".format(len(survivors),
                                              len(records))
@@ -697,6 +703,7 @@ try:
         rec["panel_width_param"] = eff["panel_width_param"]
         rec["easting_param"] = eff["easting_param"]
         rec["northing_param"] = eff["northing_param"]
+        rec["mark"] = eff["mark"]
         rec["updated"] = datetime.datetime.now().strftime(
             "%Y-%m-%dT%H:%M:%S")
         updates.append(rec)
