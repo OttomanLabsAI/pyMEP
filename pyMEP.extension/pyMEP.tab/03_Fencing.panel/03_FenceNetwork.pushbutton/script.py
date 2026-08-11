@@ -6,9 +6,9 @@ spacing with the leftover shortening the last bay.
 
 Draw the layout as model lines using the styles bound in Fence
 Configs (each config: line style, spacing, priority, families).
-Pick the lines - click them or drag a selection box, FINISH ends
-(a pre-selection is used as-is) - pick the TERRAIN, confirm the
-mapping - then:
+Pick the lines - click them or drag a selection box, ENTER (or
+FINISH) locks the selection in, a pre-selection is used as-is -
+pick the TERRAIN, confirm the mapping - then:
 
   - corners come FIRST, and EVERY intersection of the lines is a
     corner: shared endpoints, mid-line crossings, T-junctions. The
@@ -45,6 +45,7 @@ from pymep_config import load_settings, get_export_folder
 from pymep_log import Logger
 import pymep_fence as F
 import pymep_fence_revit as FR
+import pymep_pickui as PU
 
 from Autodesk.Revit.DB import (BuiltInCategory, CurveElement,
                                Transaction)
@@ -87,16 +88,18 @@ class TerrainFilter(ISelectionFilter):
 def get_lines():
     """Pre-selected model lines, or a normal multi-select: click
     lines AND/OR drag a selection box (the filter lets only curves
-    in) - hit FINISH on the options bar; ESC cancels."""
+    in) - press ENTER (or hit FINISH on the options bar) to lock
+    the selection in; ESC cancels."""
     picked = [el for el in revit.get_selection().elements
               if isinstance(el, CurveElement)]
     if picked:
         return picked
     try:
-        refs = uidoc.Selection.PickObjects(
-            ObjectType.Element, LineFilter(),
-            "Pick the fence LINES - click them or drag a selection "
-            "box, then hit FINISH")
+        with PU.EnterFinishesPick(uidoc.Application):
+            refs = uidoc.Selection.PickObjects(
+                ObjectType.Element, LineFilter(),
+                "Pick the fence LINES - click them or drag a "
+                "selection box, then press ENTER (or hit FINISH)")
     except Exception:
         return []
     got, seen = [], set()
