@@ -782,23 +782,23 @@ def network_marks(edges, node_xy, start, tol=1e-6, prefix=""):
     kind, key), ...], "group": <optional line style / config>}}
     with kind "node" (corner, key = node index), "double" (key as
     the caller wants it back) or "post" (key as the caller wants it
-    back); every line END must carry a node. A run only continues
-    onto its OWN line or its own group - a different group hangs
-    off it as a branch.
+    back); every line END must carry a node. ``group`` steers the
+    BRANCH walks only (a branch follows its own line / style); the
+    MAIN CHAIN ignores groups entirely.
     ``node_xy``: [(x, y)] per node index. ``start``: the edge id of
     the HIGHEST-PRIORITY line - numbering begins at its station-0
     end.
 
-    Returns {(kind, key): mark}. The MAIN CHAIN walks from the
-    start taking the most CLOCKWISE (rightmost) turn at every
-    corner and numbers '1', '2', ... in walk order; when the chain
-    closes a loop that runs counter-clockwise it is re-walked the
-    other way, so the numbers always run CLOCKWISE. Every line
-    hanging OFF a numbered corner is a BRANCH with its OWN system:
-    the corner's mark + a letter per branch (clockwise from north)
-    + its own running number - '7A1', '7A2'; a second branch at the
-    same corner '7B1'; sub-branches recurse ('7A2A1'). Disconnected
-    parts get a 'C2-' / 'C3-' prefix and the same treatment."""
+    Returns {(kind, key): mark}. The MAIN CHAIN is the FULL CIRCLE
+    through the start line whenever one exists - line styles do not
+    break it - numbered '1', '2', ... CLOCKWISE from the start
+    line's station-0 end. With no circle, the LONGEST run from that
+    start (by physical length) is the chain. Everything hanging OFF
+    the chain is a BRANCH with its OWN system: the corner's mark +
+    a letter per branch (clockwise from north) + its own running
+    number - '7A1', '7A2'; a second branch at the same corner
+    '7B1'; sub-branches recurse ('7A2A1'). Disconnected parts get a
+    'C2-' / 'C3-' prefix and the same treatment."""
     import math as _math
 
     # ---- segments: node-to-node stretches of each line ---------------
@@ -903,32 +903,103 @@ def network_marks(edges, node_xy, start, tol=1e-6, prefix=""):
                 next_k += 1
         return next_k
 
+    def _far(si, dirn):
+        return segs[si]["n1"] if dirn > 0 else segs[si]["n0"]
+
+    def _find_cycle(start_node, first_arm):
+        """The FULL CIRCLE through the start line: a backtracking
+        walk preferring the most CLOCKWISE turn - dead-end spurs
+        are backed out of, so the perimeter is found even with
+        branches hanging off it. None when no cycle closes."""
+        budget = [4000]
+
+        def dfs(path, nodes_in, node, d_in):
+            if budget[0] <= 0:
+                return None
+            budget[0] -= 1
+            used = set(p[0] for p in path)
+            cands = []
+            for si, dirn in sorted(node_arms.get(node) or []):
+                if si in visited or si in used:
+                    continue
+                do = _dir(si, dirn, "out")
+                turn = _math.atan2(
+                    d_in[0] * do[1] - d_in[1] * do[0],
+                    d_in[0] * do[0] + d_in[1] * do[1])
+                cands.append((turn, si, dirn))
+            cands.sort()
+            for _t, si, dirn in cands:
+                far = _far(si, dirn)
+                if far == start_node:
+                    return path + [(si, dirn)]
+                if far in nodes_in:
+                    continue
+                r = dfs(path + [(si, dirn)], nodes_in | {far},
+                        far, _dir(si, dirn, "in"))
+                if r is not None:
+                    return r
+            return None
+
+        si0, d0 = first_arm
+        far0 = _far(si0, d0)
+        if far0 == start_node:
+            return [first_arm]      # one closed line
+        return dfs([first_arm], {start_node, far0}, far0,
+                   _dir(si0, d0, "in"))
+
+    def _find_longest(start_node, first_arm):
+        """No circle: the LONGEST run from the start line's start,
+        by physical length - the rest hangs off it as branches."""
+        best = {"len": -1.0, "path": [first_arm]}
+        budget = [6000]
+
+        def dfs(path, nodes_in, node, total):
+            if budget[0] <= 0:
+                return
+            budget[0] -= 1
+            used = set(p[0] for p in path)
+            extended = False
+            for si, dirn in sorted(node_arms.get(node) or []):
+                if si in visited or si in used:
+                    continue
+                far = _far(si, dirn)
+                if far in nodes_in:
+                    continue
+                extended = True
+                dfs(path + [(si, dirn)], nodes_in | {far}, far,
+                    total + (segs[si]["s1"] - segs[si]["s0"]))
+            if not extended and total > best["len"]:
+                best["len"] = total
+                best["path"] = path
+
+        si0, d0 = first_arm
+        far0 = _far(si0, d0)
+        dfs([first_arm], {start_node, far0}, far0,
+            segs[si0]["s1"] - segs[si0]["s0"])
+        return best["path"]
+
     def _chain(first_node, first_arm, mark_fn):
-        """The main run: number the start corner, walk rightmost;
-        a loop that came back COUNTER-clockwise is re-walked the
-        other way so the numbers run clockwise."""
+        """The MAIN CHAIN: the FULL CIRCLE through the start line
+        when one exists (always the main chain - numbered
+        CLOCKWISE), else the LONGEST run from the start. Everything
+        else branches off it."""
+        arms = _find_cycle(first_node, first_arm)
+        if arms is not None:
+            ring = [first_node]
+            for si, dirn in arms[:-1]:
+                ring.append(_far(si, dirn))
+            area = 0.0
+            for i in range(len(ring)):
+                x0, y0 = node_xy[ring[i]]
+                x1, y1 = node_xy[ring[(i + 1) % len(ring)]]
+                area += x0 * y1 - x1 * y0
+            if area > 0:            # counter-clockwise: flip
+                arms = [(si, -dirn)
+                        for si, dirn in reversed(arms)]
+        else:
+            arms = _find_longest(first_node, first_arm)
         marks[("node", first_node)] = mark_fn(1)
-        before = set(marks)
-        seq, _k, nodes_seen = _walk(first_arm, 2, mark_fn)
-        closed = nodes_seen and nodes_seen[-1] == first_node and \
-            len(seq) > 1
-        if not closed:
-            return
-        ring = [first_node] + nodes_seen[:-1]
-        area = 0.0
-        for i in range(len(ring)):
-            x0, y0 = node_xy[ring[i]]
-            x1, y1 = node_xy[ring[(i + 1) % len(ring)]]
-            area += x0 * y1 - x1 * y0
-        if area <= 0:
-            return                  # already clockwise
-        # counter-clockwise: wipe THIS walk's numbers and replay the
-        # same loop the other way around
-        for h in [h for h in marks if h not in before]:
-            del marks[h]
-        visited.difference_update(si for si, _d in seq)
-        rev = [(si, -dirn) for si, dirn in reversed(seq)]
-        _replay(rev, 2, mark_fn)
+        _replay(arms, 2, mark_fn)
 
     def _branches():
         """Grow branches off every numbered corner until none are
