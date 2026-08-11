@@ -53,6 +53,11 @@ def _row_text(name, cfg, style_names=None):
             cfg["end_foundation"] or "none")
     if cfg.get("panel"):
         txt += u"  |  panel: {}".format(cfg["panel"])
+    if cfg.get("terrain_mode") == F.TERRAIN_AUTO:
+        txt += u"  |  topo: AUTO"
+    elif cfg.get("terrain_mode") == F.TERRAIN_NAMED:
+        txt += u"  |  topo: {}".format(
+            u", ".join(cfg.get("terrains") or []) or "?")
     if cfg.get("line_style"):
         stale = style_names is not None and \
             cfg["line_style"] not in style_names
@@ -69,7 +74,7 @@ class ConfigEditWindow(forms.WPFWindow):
     on cancel - the caller persists."""
 
     def __init__(self, title, name, cfg, post_labels, found_labels,
-                 style_names, panel_labels):
+                 style_names, panel_labels, terrain_labels):
         forms.WPFWindow.__init__(self, XAML_EDIT)
         self.result = None
         self.post_labels = post_labels
@@ -106,6 +111,20 @@ class ConfigEditWindow(forms.WPFWindow):
             self.CmbLineStyle.Items.Add(nm2)
         self._select_pick(self.CmbLineStyle, cfg["line_style"])
         self.ChkEndPriority.IsChecked = bool(cfg["end_priority"])
+        # terrain: mode radios + the multi-select name list (stored
+        # names missing from this model stay listed so they survive)
+        stored = list(cfg.get("terrains") or [])
+        self.terrain_labels = list(terrain_labels) + \
+            [n for n in stored if n not in terrain_labels]
+        self._terr_sel = set(stored)
+        self._terr_busy = False
+        mode = cfg.get("terrain_mode") or F.TERRAIN_PICK
+        self.RbTerrainAuto.IsChecked = (mode == F.TERRAIN_AUTO)
+        self.RbTerrainNamed.IsChecked = (mode == F.TERRAIN_NAMED)
+        self.RbTerrainPick.IsChecked = mode not in (
+            F.TERRAIN_AUTO, F.TERRAIN_NAMED)
+        self._fill_terrains("")
+        self.on_terrain_mode(None, None)
 
     # ---- family pickers (post + foundation share the behaviour) ------
     @staticmethod
@@ -210,6 +229,52 @@ class ConfigEditWindow(forms.WPFWindow):
         except Exception:
             pass
 
+    # ---- terrain (mode radios + multi-select name list) --------------
+    def _fill_terrains(self, needle):
+        """Rebuild the list to the filter, re-ticking the names in
+        the selection set."""
+        self._terr_busy = True
+        try:
+            self.LstTerrains.Items.Clear()
+            needle = (needle or "").strip().lower()
+            for lbl in self.terrain_labels:
+                if needle and needle not in lbl.lower():
+                    continue
+                self.LstTerrains.Items.Add(lbl)
+            for item in list(self.LstTerrains.Items):
+                if item in self._terr_sel:
+                    self.LstTerrains.SelectedItems.Add(item)
+        finally:
+            self._terr_busy = False
+
+    def on_terrain_search(self, sender, args):
+        try:
+            self._fill_terrains(self.TxtTerrainSearch.Text)
+        except Exception:
+            pass
+
+    def on_terrain_pick(self, sender, args):
+        """Keep the selection SET in step: ticks made through any
+        filter accumulate, unticking only drops what is visible."""
+        if getattr(self, "_terr_busy", True):
+            return
+        try:
+            visible = set(self.LstTerrains.Items)
+            picked = set(self.LstTerrains.SelectedItems)
+            self._terr_sel = (self._terr_sel - visible) | picked
+            if picked and not bool(
+                    self.RbTerrainNamed.IsChecked):
+                self.RbTerrainNamed.IsChecked = True
+        except Exception:
+            pass
+
+    def on_terrain_mode(self, sender, args):
+        try:
+            self.PnlTerrains.IsEnabled = bool(
+                self.RbTerrainNamed.IsChecked)
+        except Exception:
+            pass
+
     # ---- save / cancel -----------------------------------------------
     def on_save(self, sender, args):
         name = (self.TxtName.Text or "").strip()
@@ -244,6 +309,19 @@ class ConfigEditWindow(forms.WPFWindow):
                                     "NOTHING - every family is "
                                     "'(none)'.")
             return
+        if bool(self.RbTerrainAuto.IsChecked):
+            terrain_mode = F.TERRAIN_AUTO
+        elif bool(self.RbTerrainNamed.IsChecked):
+            terrain_mode = F.TERRAIN_NAMED
+        else:
+            terrain_mode = F.TERRAIN_PICK
+        terrains = [n for n in self.terrain_labels
+                    if n in self._terr_sel]
+        if terrain_mode == F.TERRAIN_NAMED and not terrains:
+            self.StatusText.Text = ("Tick at least one terrain "
+                                    "element - or choose another "
+                                    "terrain option.")
+            return
         self.result = {"name": name, "spacing": spacing,
                        "endpoints": bool(self.ChkEnds.IsChecked),
                        "rotation": rotation, "post": post,
@@ -260,7 +338,9 @@ class ConfigEditWindow(forms.WPFWindow):
                        "easting_param":
                            (self.TxtEastParam.Text or "").strip(),
                        "northing_param":
-                           (self.TxtNorthParam.Text or "").strip()}
+                           (self.TxtNorthParam.Text or "").strip(),
+                       "terrain_mode": terrain_mode,
+                       "terrains": terrains}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -272,13 +352,14 @@ class ConfigsWindow(forms.WPFWindow):
     """The list window: rows + Add new / Edit / Remove."""
 
     def __init__(self, settings, post_labels, found_labels,
-                 style_names, panel_labels):
+                 style_names, panel_labels, terrain_labels):
         forms.WPFWindow.__init__(self, XAML_LIST)
         self.settings = settings
         self.post_labels = post_labels
         self.found_labels = found_labels
         self.style_names = style_names
         self.panel_labels = panel_labels
+        self.terrain_labels = terrain_labels
         self._names = []
         self._fill(settings.get(F.SETTINGS_LAST))
 
@@ -313,7 +394,8 @@ class ConfigsWindow(forms.WPFWindow):
         edit keeps its place, a new config joins at the bottom."""
         win = ConfigEditWindow(title, name, cfg, self.post_labels,
                                self.found_labels, self.style_names,
-                               self.panel_labels)
+                               self.panel_labels,
+                               self.terrain_labels)
         win.ShowDialog()
         r = win.result
         if r is None:
@@ -332,7 +414,8 @@ class ConfigsWindow(forms.WPFWindow):
                             r["end_foundation"], r["line_style"],
                             prio, r["end_priority"], r["panel"],
                             r["panel_width_param"],
-                            r["easting_param"], r["northing_param"])
+                            r["easting_param"], r["northing_param"],
+                            r["terrain_mode"], r["terrains"])
         except ValueError as ex:
             self.StatusText.Text = str(ex)
             return
@@ -409,6 +492,8 @@ style_names = sorted(set(
     s2.Name for s2 in line_style_subcategories(doc)))
 panel_labels = [lbl for lbl, _fs
                 in FR.placeable_symbols(doc, F.PANEL_CATEGORIES)]
+terrain_labels = sorted(set(
+    FR.element_name(el) for el in FR.terrain_elements(doc)))
 ConfigsWindow(load_settings(), post_labels, found_labels,
-              style_names, panel_labels).ShowDialog()
+              style_names, panel_labels, terrain_labels).ShowDialog()
 script.exit()

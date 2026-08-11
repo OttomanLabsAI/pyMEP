@@ -34,6 +34,13 @@ DEFAULT_NAME = "Default"
 EASTING_PARAM = "EASTINGS"
 NORTHING_PARAM = "NORTHINGS"
 
+# where the terrain comes from: picked when the button runs (the
+# default), the named element(s) stored in the config, or AUTO -
+# every topo whose footprint the lines touch
+TERRAIN_PICK = "pick"
+TERRAIN_NAMED = "named"
+TERRAIN_AUTO = "auto"
+
 DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "rotation_deg": 0.0, "post": "", "foundation": "",
                   "same_ends": True, "end_post": "",
@@ -42,7 +49,25 @@ DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "end_priority": False, "panel": "",
                   "panel_width_param": "",
                   "easting_param": EASTING_PARAM,
-                  "northing_param": NORTHING_PARAM}
+                  "northing_param": NORTHING_PARAM,
+                  "terrain_mode": TERRAIN_PICK,
+                  "terrains": []}
+
+
+def _terrain_mode(v):
+    v = str(v or "").strip().lower()
+    return v if v in (TERRAIN_NAMED, TERRAIN_AUTO) else TERRAIN_PICK
+
+
+def _terrain_list(v):
+    if not isinstance(v, (list, tuple)):
+        return []
+    out = []
+    for n in v:
+        n = str(n or "").strip()
+        if n and n not in out:
+            out.append(n)
+    return out
 
 # the categories a POST may come from / the FOUNDATION must come from
 POST_CATEGORIES = ["OST_GenericModel", "OST_Columns",
@@ -224,7 +249,11 @@ def get_configs(settings):
                                           or EASTING_PARAM),
                                   "northing_param":
                                       str(c.get("northing_param")
-                                          or NORTHING_PARAM)}
+                                          or NORTHING_PARAM),
+                                  "terrain_mode": _terrain_mode(
+                                      c.get("terrain_mode")),
+                                  "terrains": _terrain_list(
+                                      c.get("terrains"))}
             except Exception:
                 continue
     if not out:
@@ -237,7 +266,8 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   same_ends=True, end_post="", end_foundation="",
                   line_style="", priority=99, end_priority=False,
                   panel="", panel_width_param="",
-                  easting_param="", northing_param=""):
+                  easting_param="", northing_param="",
+                  terrain_mode=TERRAIN_PICK, terrains=None):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
@@ -286,7 +316,9 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                       EASTING_PARAM,
                   "northing_param":
                       str(northing_param or "").strip() or
-                      NORTHING_PARAM}
+                      NORTHING_PARAM,
+                  "terrain_mode": _terrain_mode(terrain_mode),
+                  "terrains": _terrain_list(terrains)}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
 
@@ -353,7 +385,10 @@ def effective_config(settings, name, snapshot):
                 str(snapshot.get("easting_param") or EASTING_PARAM),
             "northing_param":
                 str(snapshot.get("northing_param") or
-                    NORTHING_PARAM)}
+                    NORTHING_PARAM),
+            "terrain_mode": _terrain_mode(
+                snapshot.get("terrain_mode")),
+            "terrains": _terrain_list(snapshot.get("terrains"))}
 
 
 def delete_config(settings, name):
@@ -556,6 +591,29 @@ def panel_bays(stations, min_len, tol=1e-6, skip=None):
             continue
         out.append((mid, w))
     return out
+
+
+def bbox2d(polys):
+    """Plan-view bounding box (min_x, min_y, max_x, max_y) over one
+    or more polylines - None when there are no points."""
+    xs, ys = [], []
+    for poly in polys or []:
+        for p in poly or []:
+            xs.append(p[0])
+            ys.append(p[1])
+    if not xs:
+        return None
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def boxes_overlap_2d(a, b, margin=0.0):
+    """True when two (min_x, min_y, max_x, max_y) boxes overlap in
+    plan, either grown by ``margin`` - the relevance test AUTO
+    terrain uses to match topos to the fence lines."""
+    if a is None or b is None:
+        return False
+    return not (a[2] + margin < b[0] or b[2] + margin < a[0] or
+                a[3] + margin < b[1] or b[3] + margin < a[1])
 
 
 def polys_touch(pa, pb, tol):

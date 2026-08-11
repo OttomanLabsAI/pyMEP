@@ -133,7 +133,9 @@ class ConfigStore(unittest.TestCase):
                           "priority": 99, "end_priority": False,
                           "panel": "", "panel_width_param": "",
                           "easting_param": "EASTINGS",
-                          "northing_param": "NORTHINGS"})
+                          "northing_param": "NORTHINGS",
+                          "terrain_mode": "pick",
+                          "terrains": []})
 
     def test_upsert_validates(self):
         self.assertRaises(ValueError, F.upsert_config, {}, "  ",
@@ -176,7 +178,9 @@ class ConfigStore(unittest.TestCase):
                           "end_priority": False, "panel": "",
                           "panel_width_param": "",
                           "easting_param": "EASTINGS",
-                          "northing_param": "NORTHINGS"})
+                          "northing_param": "NORTHINGS",
+                          "terrain_mode": "pick",
+                          "terrains": []})
 
 
 class EffectiveConfig(unittest.TestCase):
@@ -187,7 +191,9 @@ class EffectiveConfig(unittest.TestCase):
             "end_priority": False, "panel": "",
             "panel_width_param": "",
                           "easting_param": "EASTINGS",
-                          "northing_param": "NORTHINGS"}
+                          "northing_param": "NORTHINGS",
+                          "terrain_mode": "pick",
+                          "terrains": []}
 
     def test_current_config_wins(self):
         s = {}
@@ -206,7 +212,9 @@ class EffectiveConfig(unittest.TestCase):
                                "end_priority": False, "panel": "",
                                "panel_width_param": "",
                           "easting_param": "EASTINGS",
-                          "northing_param": "NORTHINGS"})
+                          "northing_param": "NORTHINGS",
+                          "terrain_mode": "pick",
+                          "terrains": []})
 
     def test_missing_config_falls_back_to_snapshot(self):
         eff = F.effective_config({}, "Deleted", self.SNAP)
@@ -227,7 +235,9 @@ class EffectiveConfig(unittest.TestCase):
                                "end_priority": False, "panel": "",
                                "panel_width_param": "",
                           "easting_param": "EASTINGS",
-                          "northing_param": "NORTHINGS"})
+                          "northing_param": "NORTHINGS",
+                          "terrain_mode": "pick",
+                          "terrains": []})
 
     def test_snapshot_family_becomes_the_post(self):
         # records from before posts joined configs carry 'family'
@@ -426,6 +436,39 @@ class Intersections(unittest.TestCase):
         # no skip spans: unchanged behaviour
         self.assertEqual(F.panel_bays(sts, 0.5, skip=[]),
                          F.panel_bays(sts, 0.5))
+
+    def test_bbox2d_and_overlap(self):
+        # the AUTO-terrain relevance test: plan bounding boxes
+        a = F.bbox2d([[(0.0, 0.0, 0.0), (10.0, 5.0, 2.0)]])
+        self.assertEqual(a, (0.0, 0.0, 10.0, 5.0))
+        self.assertEqual(
+            F.bbox2d([[(1.0, 1.0, 0.0)], [(-2.0, 4.0, 0.0)]]),
+            (-2.0, 1.0, 1.0, 4.0))
+        self.assertIsNone(F.bbox2d([]))
+        self.assertIsNone(F.bbox2d([[]]))
+        b = (12.0, 0.0, 20.0, 5.0)     # 2 to the right of a
+        self.assertFalse(F.boxes_overlap_2d(a, b))
+        self.assertTrue(F.boxes_overlap_2d(a, b, margin=2.0))
+        self.assertTrue(F.boxes_overlap_2d(a, (5.0, 2.0, 6.0, 3.0)))
+        self.assertFalse(F.boxes_overlap_2d(a, None))
+        self.assertFalse(F.boxes_overlap_2d(None, b))
+
+    def test_terrain_config_normalised(self):
+        s = {}
+        F.upsert_config(s, "x", 1000, True,
+                        terrain_mode="AUTO", terrains=None)
+        self.assertEqual(F.get_configs(s)["x"]["terrain_mode"],
+                         F.TERRAIN_AUTO)
+        F.upsert_config(s, "x", 1000, True, terrain_mode="named",
+                        terrains=["Topo A", " Topo A ", "", "Topo B"])
+        cfg = F.get_configs(s)["x"]
+        self.assertEqual(cfg["terrain_mode"], F.TERRAIN_NAMED)
+        self.assertEqual(cfg["terrains"], ["Topo A", "Topo B"])
+        F.upsert_config(s, "x", 1000, True, terrain_mode="bogus",
+                        terrains="not-a-list")
+        cfg = F.get_configs(s)["x"]
+        self.assertEqual(cfg["terrain_mode"], F.TERRAIN_PICK)
+        self.assertEqual(cfg["terrains"], [])
 
     def test_polys_touch(self):
         a = [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0)]

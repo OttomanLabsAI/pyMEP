@@ -166,8 +166,14 @@ def ray_start_z(elements):
 
 
 def topmost_hit(doc, ri, origin, terrain_id):
-    """The picked terrain's TOP surface under a straight-down ray -
-    smallest proximity among hits on that element only."""
+    """The terrain's TOP surface under a straight-down ray - smallest
+    proximity among hits on the terrain element(s) only.
+    ``terrain_id`` is one element id or a set/list of them (a config
+    may drape over MULTIPLE topos)."""
+    if isinstance(terrain_id, (set, frozenset, list, tuple)):
+        ids = terrain_id
+    else:
+        ids = (terrain_id,)
     refs = ri.Find(origin, XYZ(0, 0, -1))
     if refs is None or refs.Count == 0:
         return None
@@ -179,13 +185,121 @@ def topmost_hit(doc, ri, origin, terrain_id):
         el = doc.GetElement(ref.ElementId)
         if isinstance(el, RevitLinkInstance):
             continue
-        if id_value(ref.ElementId) != terrain_id:
+        if id_value(ref.ElementId) not in ids:
             continue
         if best is None or rc.Proximity < best.Proximity:
             best = rc
     if best is None:
         return None
     return best.GetReference().GlobalPoint
+
+
+# everything a fence may drape onto; AUTO terrain only considers the
+# actual topo categories - floors and roofs everywhere would
+# false-positive, they stay pick/named-only
+TERRAIN_CAT_NAMES = ("OST_Toposolid", "OST_Topography",
+                     "OST_Floors", "OST_Roofs")
+AUTO_TERRAIN_CAT_NAMES = ("OST_Toposolid", "OST_Topography")
+
+# AUTO matches a topo whose plan footprint comes this close to the
+# lines' footprint
+AUTO_TERRAIN_MARGIN_MM = 500.0
+
+
+def terrain_cat_ids(names=TERRAIN_CAT_NAMES):
+    out = set()
+    for n in names:
+        if hasattr(BuiltInCategory, n):
+            out.add(int(getattr(BuiltInCategory, n)))
+    return out
+
+
+def terrain_elements(doc, names=TERRAIN_CAT_NAMES):
+    """Every model element of the terrain categories."""
+    out = []
+    for n in names:
+        if not hasattr(BuiltInCategory, n):
+            continue
+        try:
+            for el in FilteredElementCollector(doc).OfCategory(
+                    getattr(BuiltInCategory, n)) \
+                    .WhereElementIsNotElementType():
+                out.append(el)
+        except Exception:
+            continue
+    return out
+
+
+def terrains_by_name(doc, names):
+    """The terrain-category elements whose NAME matches any of the
+    stored config names (case-insensitive) - every element carrying
+    the name matches, so 'the topo called X' can be several pieces.
+    Returns (elements, missing_names)."""
+    want = dict((str(n).strip().lower(), str(n)) for n in names or []
+                if str(n).strip())
+    found, hit = [], set()
+    for el in terrain_elements(doc):
+        key = element_name(el).strip().lower()
+        if key in want:
+            found.append(el)
+            hit.add(key)
+    missing = [want[k] for k in want if k not in hit]
+    return found, missing
+
+
+def _el_bbox2d(el):
+    try:
+        bb = el.get_BoundingBox(None)
+        if bb is None:
+            return None
+        return (bb.Min.X, bb.Min.Y, bb.Max.X, bb.Max.Y)
+    except Exception:
+        return None
+
+
+def auto_terrains(doc, polys):
+    """AUTO terrain: every Toposolid / Topography element whose plan
+    footprint overlaps the lines' footprint (bounding boxes, with a
+    small margin). Over-inclusion is harmless - the ray-cast only
+    ever lands on the surfaces that are really under a station."""
+    lines_bb = F.bbox2d(polys)
+    if lines_bb is None:
+        return []
+    margin = mm2ft(AUTO_TERRAIN_MARGIN_MM)
+    out = []
+    for el in terrain_elements(doc, AUTO_TERRAIN_CAT_NAMES):
+        if F.boxes_overlap_2d(lines_bb, _el_bbox2d(el), margin):
+            out.append(el)
+    return out
+
+
+def resolve_terrains(doc, cfg, polys):
+    """The terrain elements a config asks for: (elements, note).
+    Empty elements means the CALLER should fall back to picking -
+    the note says why (also logged when elements were found)."""
+    mode = str(cfg.get("terrain_mode") or "").strip().lower()
+    if mode == F.TERRAIN_AUTO:
+        els = auto_terrains(doc, polys)
+        if not els:
+            return [], ("AUTO terrain found no topo under the "
+                        "lines - pick it instead")
+        return els, "AUTO terrain: {}".format(", ".join(
+            sorted(set(element_name(e) for e in els))))
+    if mode == F.TERRAIN_NAMED:
+        names = cfg.get("terrains") or []
+        if not names:
+            return [], ("the config names no terrain - pick it "
+                        "instead")
+        els, missing = terrains_by_name(doc, names)
+        note = "config terrain: {}".format(", ".join(
+            str(n) for n in names))
+        if missing:
+            note += " (NOT in the model: {})".format(", ".join(
+                str(n) for n in missing))
+        if not els:
+            return [], note + " - pick it instead"
+        return els, note
+    return [], ""
 
 
 def sorted_levels(doc):
@@ -510,6 +624,8 @@ def symbol_diameter_ft(symbol):
 
 def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
     """Model a fence NETWORK inside the caller's open Transaction.
+    ``terrain`` is one element or a list of them - stations drape
+    onto whichever of the terrain surfaces the ray actually hits.
 
     Strategy: CORNERS FIRST, then the in-between posts.
 
@@ -542,8 +658,10 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
 
     ri = make_intersector(view3d)
     levels = sorted_levels(doc)
-    terrain_id = id_value(terrain.Id)
-    ray_z = ray_start_z([terrain] + list(line_els))
+    terrains = list(terrain) if isinstance(
+        terrain, (list, tuple)) else [terrain]
+    terrain_id = set(id_value(t.Id) for t in terrains)
+    ray_z = ray_start_z(terrains + list(line_els))
     tol = mm2ft(NODE_TOL_MM)
 
     # ---- lines -> configs by style -----------------------------------

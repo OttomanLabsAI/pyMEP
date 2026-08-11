@@ -131,21 +131,41 @@ def main():
         log.close()
         script.exit()
     log("**{}** line(s) picked.".format(len(lines)))
-    try:
-        terrain = doc.GetElement(uidoc.Selection.PickObject(
-            ObjectType.Element, TerrainFilter(),
-            "Pick the TERRAIN (toposolid / topography / floor / "
-            "roof)").ElementId)
-    except Exception:
-        log("No terrain picked - nothing modelled.")
-        log.close()
-        script.exit()
 
-    # mapping preview - what will happen, before anything is placed
     styles = {}
     for el in lines:
         st = FR.line_style_name(el)
         styles[st] = styles.get(st, 0) + 1
+
+    # terrain: the highest-priority MAPPED config decides (named
+    # topos / AUTO under the lines) - an empty answer falls back to
+    # picking it like before
+    terrains = []
+    t_cfg = None
+    for n in F.priority_order(cfgs):
+        if cfgs[n].get("line_style") in styles:
+            t_cfg = n
+            break
+    if t_cfg is not None:
+        terrains, t_note = FR.resolve_terrains(
+            doc, cfgs[t_cfg],
+            [pl for pl in (FR.tessellate(el) for el in lines)
+             if pl])
+        if t_note:
+            log("- terrain from config '{}': {}".format(
+                t_cfg, t_note))
+    if not terrains:
+        try:
+            terrains = [doc.GetElement(uidoc.Selection.PickObject(
+                ObjectType.Element, TerrainFilter(),
+                "Pick the TERRAIN (toposolid / topography / floor "
+                "/ roof)").ElementId)]
+        except Exception:
+            log("No terrain picked - nothing modelled.")
+            log.close()
+            script.exit()
+
+    # mapping preview - what will happen, before anything is placed
     lines_txt = []
     for st in sorted(styles):
         cfg_name = bound.get(st)
@@ -257,7 +277,7 @@ def main():
             log("Superseding **fence network {}** - {} old "
                 "instance(s) removed.".format(r0.get("id"), gone))
         records, notes, placed, missed = FR.model_network(
-            doc, lines, terrain, cfgs, view3d, say=log)
+            doc, lines, terrains, cfgs, view3d, say=log)
         t.Commit()
     except ValueError as ex:
         try:
@@ -290,7 +310,8 @@ def main():
         try:
             rec = {
                 "kind": "network",
-                "terrain_uid": terrain.UniqueId,
+                "terrain_uid": terrains[0].UniqueId,
+                "terrain_uids": [t.UniqueId for t in terrains],
                 "lines": [{"uid": el.UniqueId,
                            "style": FR.line_style_name(el)}
                           for el in lines],
