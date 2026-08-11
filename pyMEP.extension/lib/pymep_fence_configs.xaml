@@ -37,7 +37,13 @@
 
         <StackPanel Grid.Row="1" Margin="14,12,14,0">
             <ListBox x:Name="LstConfigs" Height="220"
-                     MouseDoubleClick="on_edit"/>
+                     MouseDoubleClick="on_edit"
+                     SelectionChanged="on_row_selected"/>
+            <CheckBox x:Name="ChkMark" Margin="0,8,0,0"
+                      Content="populate the MARK parameter (this configuration)"
+                      Checked="on_mark_toggle"
+                      Unchecked="on_mark_toggle"
+                      ToolTip="Every post + foundation gets a Mark: Fence Network numbers CLOCKWISE from the start of the top-priority line (1, 2, 3...); lines of another configuration branching off the chain get their own system - corner mark + letter + count (7A1, 7A2; a second branch 7B1). Place New Fence numbers from the line's start. Takes effect on the next model / Update Fence run."/>
             <Grid Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>

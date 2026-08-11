@@ -78,7 +78,6 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
@@ -94,13 +93,9 @@
                                   Grid.Column="0" Grid.ColumnSpan="3"
                                   Margin="0,8,0,0"
                                   Content="place at the line's endpoints"/>
-                        <CheckBox x:Name="ChkMark" Grid.Row="3"
-                                  Grid.Column="0" Grid.ColumnSpan="3"
-                                  Margin="0,8,0,0"
-                                  Content="populate the MARK parameter"/>
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Rotation is EXTRA on top of line-aligned: 0 follows the line, 90 stands across it, negative turns the other way. MARK numbers every post + foundation: in Fence Network the numbers run CLOCKWISE from the start of the top-priority line (1, 2, 3...), and every line branching OFF the chain gets its own system - the corner's mark + a letter + its own count (7A1, 7A2; a second branch 7B1). Place New Fence numbers from the line's start."/>
+                               Text="Rotation is EXTRA on top of line-aligned: 0 follows the line, 90 stands across it, negative turns the other way. MARK numbering lives on the Fence Configurations list - tick it there per configuration."/>
                 </StackPanel>
             </GroupBox>
 
