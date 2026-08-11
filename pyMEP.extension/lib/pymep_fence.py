@@ -33,7 +33,8 @@ DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "same_ends": True, "end_post": "",
                   "end_foundation": "",
                   "line_style": "", "priority": 99,
-                  "end_priority": False, "panel": ""}
+                  "end_priority": False, "panel": "",
+                  "panel_width_param": ""}
 
 # the categories a POST may come from / the FOUNDATION must come from
 POST_CATEGORIES = ["OST_GenericModel", "OST_Columns",
@@ -206,7 +207,10 @@ def get_configs(settings):
                                       c.get("end_priority",
                                             False)),
                                   "panel":
-                                      str(c.get("panel") or "")}
+                                      str(c.get("panel") or ""),
+                                  "panel_width_param":
+                                      str(c.get("panel_width_param")
+                                          or "")}
             except Exception:
                 continue
     if not out:
@@ -218,7 +222,7 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   rotation_deg=0.0, foundation="", post="",
                   same_ends=True, end_post="", end_foundation="",
                   line_style="", priority=99, end_priority=False,
-                  panel=""):
+                  panel="", panel_width_param=""):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
@@ -259,7 +263,9 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   "line_style": str(line_style or "").strip(),
                   "priority": priority,
                   "end_priority": bool(end_priority),
-                  "panel": str(panel or "").strip()}
+                  "panel": str(panel or "").strip(),
+                  "panel_width_param":
+                      str(panel_width_param or "").strip()}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
 
@@ -319,7 +325,9 @@ def effective_config(settings, name, snapshot):
             "priority": int(_num(snapshot.get("priority"), 99)),
             "end_priority": bool(snapshot.get("end_priority",
                                               False)),
-            "panel": str(snapshot.get("panel") or "")}
+            "panel": str(snapshot.get("panel") or ""),
+            "panel_width_param":
+                str(snapshot.get("panel_width_param") or "")}
 
 
 def delete_config(settings, name):

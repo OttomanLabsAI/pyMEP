@@ -157,6 +157,8 @@ def _families_changed(rec, eff):
     return (_rec_post(rec) != eff["post"] or
             str(rec.get("foundation") or "") != eff["foundation"] or
             str(rec.get("panel") or "") != eff["panel"] or
+            str(rec.get("panel_width_param") or "") !=
+            eff["panel_width_param"] or
             F.end_families(_rec_cfg(rec)) != F.end_families(eff))
 
 
@@ -647,7 +649,8 @@ try:
                                    end_secondary, eff["same_ends"])
             records, missed, failed, why = FR.place_instances(
                 doc, pick, poly, dists, terrain_id, ri, ray_z,
-                levels, extra_rot, panel_symbol=panel_symbol)
+                levels, extra_rot, panel_symbol=panel_symbol,
+                panel_width_param=eff["panel_width_param"] or None)
             action = "rebuilt"
             note = "{} -> {} post(s)".format(len(survivors),
                                              len(records))
@@ -673,6 +676,7 @@ try:
         rec["end_post"] = eff["end_post"]
         rec["end_foundation"] = eff["end_foundation"]
         rec["panel"] = eff["panel"]
+        rec["panel_width_param"] = eff["panel_width_param"]
         rec["updated"] = datetime.datetime.now().strftime(
             "%Y-%m-%dT%H:%M:%S")
         updates.append(rec)

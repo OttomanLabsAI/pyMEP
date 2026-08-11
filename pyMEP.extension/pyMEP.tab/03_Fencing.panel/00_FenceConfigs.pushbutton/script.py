@@ -89,6 +89,7 @@ class ConfigEditWindow(forms.WPFWindow):
                           cfg["end_foundation"])
         self._fill_pick(self.CmbPanel, panel_labels, "")
         self._select_pick(self.CmbPanel, cfg["panel"])
+        self.TxtPanelParam.Text = cfg["panel_width_param"]
         self.ChkSameEnds.IsChecked = bool(cfg["same_ends"])
         self.on_same_ends(None, None)
         self.CmbLineStyle.Items.Clear()
@@ -245,7 +246,9 @@ class ConfigEditWindow(forms.WPFWindow):
                            self._picked(self.CmbLineStyle),
                        "end_priority":
                            bool(self.ChkEndPriority.IsChecked),
-                       "panel": self._picked(self.CmbPanel)}
+                       "panel": self._picked(self.CmbPanel),
+                       "panel_width_param":
+                           (self.TxtPanelParam.Text or "").strip()}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -315,7 +318,8 @@ class ConfigsWindow(forms.WPFWindow):
                             r["foundation"], r["post"],
                             r["same_ends"], r["end_post"],
                             r["end_foundation"], r["line_style"],
-                            prio, r["end_priority"], r["panel"])
+                            prio, r["end_priority"], r["panel"],
+                            r["panel_width_param"])
         except ValueError as ex:
             self.StatusText.Text = str(ex)
             return
