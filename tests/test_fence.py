@@ -386,6 +386,15 @@ class Intersections(unittest.TestCase):
         self.assertEqual(len(hits), 1)
         self.assertAlmostEqual(hits[0][0], 5.0)
 
+    def test_polys_touch(self):
+        a = [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0)]
+        crossing = [(5.0, -5.0, 0.0), (5.0, 5.0, 0.0)]
+        touching = [(10.0, 0.01, 0.0), (10.0, 8.0, 0.0)]
+        far = [(0.0, 5.0, 0.0), (10.0, 5.0, 0.0)]
+        self.assertTrue(F.polys_touch(a, crossing, 0.1))
+        self.assertTrue(F.polys_touch(a, touching, 0.1))
+        self.assertFalse(F.polys_touch(a, far, 0.1))
+
     def test_project_to_poly(self):
         poly = [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0)]
         d, away, px, py = F.project_to_poly(poly, 6.0, 2.0)
