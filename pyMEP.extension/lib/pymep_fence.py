@@ -512,16 +512,23 @@ def project_to_poly(poly, x, y):
     return best
 
 
-def panel_bays(stations, min_len, tol=1e-6):
+def panel_bays(stations, min_len, tol=1e-6, skip=None):
     """Panel placements along one run, from the SORTED post
     stations: [(centre, width)] per bay between consecutive posts.
     Bays shorter than ``min_len`` (touching double posts) get no
-    panel."""
+    panel, and neither does any bay whose centre falls in a
+    ``skip`` span (lo, hi) - the corner-post-to-DOUBLE-post gap is
+    foundation clearance, not a fence bay."""
     out = []
     for i in range(1, len(stations)):
         w = stations[i] - stations[i - 1]
-        if w >= min_len - tol:
-            out.append(((stations[i] + stations[i - 1]) / 2.0, w))
+        if w < min_len - tol:
+            continue
+        mid = (stations[i] + stations[i - 1]) / 2.0
+        if any(lo - tol <= mid <= hi + tol
+               for lo, hi in (skip or [])):
+            continue
+        out.append((mid, w))
     return out
 
 

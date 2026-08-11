@@ -39,7 +39,7 @@ XAML_EDIT = os.path.join(_LIB, "pymep_fence_config_edit.xaml")
 NONE_LABEL = "(none)"
 
 
-def _row_text(name, cfg):
+def _row_text(name, cfg, style_names=None):
     txt = (u"{}  —  {:g} mm, ends {}, rot {:+g}°  |  post: {}  |  "
            u"fnd: {}".format(
                name, cfg["spacing_mm"],
@@ -54,9 +54,13 @@ def _row_text(name, cfg):
     if cfg.get("panel"):
         txt += u"  |  panel: {}".format(cfg["panel"])
     if cfg.get("line_style"):
-        txt += u"  |  NET: '{}'{}".format(
+        stale = style_names is not None and \
+            cfg["line_style"] not in style_names
+        txt += u"  |  NET: '{}'{}{}".format(
             cfg["line_style"],
-            " END-PRIORITY" if cfg.get("end_priority") else "")
+            " END-PRIORITY" if cfg.get("end_priority") else "",
+            u"  !! style NOT in the model (renamed?) - Edit and "
+            u"re-pick" if stale else "")
     return txt
 
 
@@ -276,7 +280,7 @@ class ConfigsWindow(forms.WPFWindow):
         self.LstConfigs.Items.Clear()
         for i, n in enumerate(self._names):
             self.LstConfigs.Items.Add(u"{}.  {}".format(
-                i + 1, _row_text(n, cfgs[n])))
+                i + 1, _row_text(n, cfgs[n], self.style_names)))
         pick = want if want in cfgs else self._names[0]
         self.LstConfigs.SelectedIndex = self._names.index(pick)
         self.TxtInfo.Text = ("{} configuration(s), top wins corner "
