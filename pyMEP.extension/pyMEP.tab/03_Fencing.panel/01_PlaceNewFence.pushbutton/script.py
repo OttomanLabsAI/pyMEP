@@ -143,7 +143,6 @@ class FenceWindow(forms.WPFWindow):
             "northing_param": cfg["northing_param"],
             "terrain_mode": cfg["terrain_mode"],
             "terrains": cfg["terrains"],
-            "mark": cfg["mark"],
             "justify": self.justify(),
             "config": str(self.CmbConfig.SelectedItem or ""),
         }
@@ -206,6 +205,7 @@ def main():
 
     settings[F.SETTINGS_JUSTIFY] = opt["justify"]
     settings[F.SETTINGS_LAST] = opt["config"]
+    mark_on, mark_prefix = F.mark_settings(settings)
     try:
         save_settings(settings)
     except Exception:
@@ -351,8 +351,9 @@ def main():
             panel_width_param=opt["panel_width_param"] or None,
             coord_params=(opt["easting_param"],
                           opt["northing_param"]),
-            marks=[str(i + 1) for i in range(len(dists))]
-            if opt["mark"] else None)
+            marks=[mark_prefix + str(i + 1)
+                   for i in range(len(dists))]
+            if mark_on else None)
         t.Commit()
     except Exception:
         try:
@@ -399,7 +400,8 @@ def main():
                 "panel_width_param": opt["panel_width_param"],
                 "easting_param": opt["easting_param"],
                 "northing_param": opt["northing_param"],
-                "mark": opt["mark"],
+                "mark": mark_on,
+                "mark_prefix": mark_prefix,
                 "justify": opt["justify"],
                 "config": opt["config"],
                 "instances": records,

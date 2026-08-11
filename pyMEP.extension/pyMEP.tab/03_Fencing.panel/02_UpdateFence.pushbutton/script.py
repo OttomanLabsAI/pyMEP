@@ -67,6 +67,7 @@ if not data["fences"]:
                 "with Place New Fence first.", exitscript=True)
 
 settings = load_settings()
+_mark_on, _mark_prefix = F.mark_settings(settings)
 
 
 def _nm(el):
@@ -144,9 +145,12 @@ def _config_notes(rec, eff):
     if str(rec.get("panel") or "") != eff["panel"]:
         notes.append("panel '{}' -> '{}'".format(
             rec.get("panel") or "none", eff["panel"] or "none"))
-    if bool(rec.get("mark", False)) != eff["mark"]:
-        notes.append("MARK numbering {}".format(
-            "on" if eff["mark"] else "off"))
+    if bool(rec.get("mark", False)) != _mark_on or \
+            str(rec.get("mark_prefix") or "") != _mark_prefix:
+        notes.append("MARK numbering {}{}".format(
+            "on" if _mark_on else "off",
+            " (prefix '{}')".format(_mark_prefix)
+            if _mark_on and _mark_prefix else ""))
     if F.end_families(_rec_cfg(rec)) != F.end_families(eff):
         ep, ef = F.end_families(eff)
         notes.append("endpoint families -> post '{}' / foundation "
@@ -176,7 +180,8 @@ def _families_changed(rec, eff):
             str(rec.get("panel") or "") != eff["panel"] or
             str(rec.get("panel_width_param") or "") !=
             eff["panel_width_param"] or
-            bool(rec.get("mark", False)) != eff["mark"] or
+            bool(rec.get("mark", False)) != _mark_on or
+            str(rec.get("mark_prefix") or "") != _mark_prefix or
             F.end_families(_rec_cfg(rec)) != F.end_families(eff))
 
 
@@ -523,7 +528,9 @@ try:
                 records, net_notes, placed, missed_n = \
                     FR.model_network(doc, row["net_lines"], terrains,
                                      F.get_configs(settings),
-                                     view3d)
+                                     view3d,
+                                     mark_opts=(_mark_on,
+                                                _mark_prefix))
             except ValueError as ex:
                 results.append((label, "failed", str(ex)))
                 continue
@@ -673,8 +680,9 @@ try:
                 panel_width_param=eff["panel_width_param"] or None,
                 coord_params=(eff["easting_param"],
                               eff["northing_param"]),
-                marks=[str(i + 1) for i in range(len(dists))]
-                if eff["mark"] else None)
+                marks=[_mark_prefix + str(i + 1)
+                       for i in range(len(dists))]
+                if _mark_on else None)
             action = "rebuilt"
             note = "{} -> {} post(s)".format(len(survivors),
                                              len(records))
@@ -703,7 +711,8 @@ try:
         rec["panel_width_param"] = eff["panel_width_param"]
         rec["easting_param"] = eff["easting_param"]
         rec["northing_param"] = eff["northing_param"]
-        rec["mark"] = eff["mark"]
+        rec["mark"] = _mark_on
+        rec["mark_prefix"] = _mark_prefix
         rec["updated"] = datetime.datetime.now().strftime(
             "%Y-%m-%dT%H:%M:%S")
         updates.append(rec)

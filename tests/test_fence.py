@@ -135,8 +135,7 @@ class ConfigStore(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": [],
-                          "mark": False})
+                          "terrains": []})
 
     def test_upsert_validates(self):
         self.assertRaises(ValueError, F.upsert_config, {}, "  ",
@@ -181,8 +180,7 @@ class ConfigStore(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": [],
-                          "mark": False})
+                          "terrains": []})
 
 
 class EffectiveConfig(unittest.TestCase):
@@ -195,8 +193,7 @@ class EffectiveConfig(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": [],
-                          "mark": False}
+                          "terrains": []}
 
     def test_current_config_wins(self):
         s = {}
@@ -217,8 +214,7 @@ class EffectiveConfig(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": [],
-                          "mark": False})
+                          "terrains": []})
 
     def test_missing_config_falls_back_to_snapshot(self):
         eff = F.effective_config({}, "Deleted", self.SNAP)
@@ -241,8 +237,7 @@ class EffectiveConfig(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": [],
-                          "mark": False})
+                          "terrains": []})
 
     def test_snapshot_family_becomes_the_post(self):
         # records from before posts joined configs carry 'family'
@@ -547,6 +542,30 @@ class Intersections(unittest.TestCase):
         self.assertEqual(m[("double", (1, 1))], "3A1")
         self.assertEqual(m[("post", (1, 3.0))], "3A2")
         self.assertEqual(m[("node", 3)], "3A3")
+
+    def test_network_marks_prefix_and_sweep(self):
+        # the GLOBAL prefix lands in front of every number, branch
+        # anchors carry it through; a post the walks cannot reach
+        # still gets a (prefixed) fallback mark
+        edges = {0: {"poly": [(0.0, 0.0, 0.0), (6.0, 0.0, 0.0)],
+                     "posts": [(0.0, "node", 0),
+                               (3.0, "post", (0, 3.0)),
+                               (6.0, "node", 1)]},
+                 # degenerate: a lone edge with a single node and a
+                 # post - no segment, unreachable by any walk
+                 1: {"poly": [(20.0, 0.0, 0.0), (20.0, 1.0, 0.0)],
+                     "posts": [(0.5, "post", (1, 0.5))]}}
+        m = F.network_marks(edges, [(0.0, 0.0), (6.0, 0.0)], 0,
+                            prefix="FF")
+        self.assertEqual(m[("node", 0)], "FF1")
+        self.assertEqual(m[("post", (0, 3.0))], "FF2")
+        self.assertEqual(m[("node", 1)], "FF3")
+        self.assertEqual(m[("post", (1, 0.5))], "FFX1")
+
+    def test_mark_settings(self):
+        self.assertEqual(F.mark_settings({}), (False, ""))
+        s = {F.SETTINGS_MARK: True, F.SETTINGS_MARK_PREFIX: " FF "}
+        self.assertEqual(F.mark_settings(s), (True, "FF"))
 
     def test_network_marks_two_branches_lettered(self):
         # two spurs at the same corner get A and B (clockwise from

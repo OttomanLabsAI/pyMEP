@@ -642,7 +642,8 @@ def symbol_diameter_ft(symbol):
     return None
 
 
-def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
+def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
+                  mark_opts=None):
     """Model a fence NETWORK inside the caller's open Transaction.
     ``terrain`` is one element or a list of them - stations drape
     onto whichever of the terrain surfaces the ray actually hits.
@@ -666,7 +667,9 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
 
     Returns (records, notes, placed, missed). Raises ValueError
     (before anything is placed) on the sanity cap or when nothing is
-    mappable."""
+    mappable. ``mark_opts`` = (enabled, prefix) from
+    F.mark_settings: when enabled EVERY post + foundation gets a
+    Mark, numbered clockwise from the top-priority line."""
     import pymep_fence as F
 
     notes = []
@@ -887,8 +890,9 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                              total, F.MAX_INSTANCES))
 
     # ---- MARK numbering: clockwise from the top-priority line --------
+    mark_on, mark_prefix = mark_opts if mark_opts else (False, "")
     net_marks = {}
-    if any(e["cfg"].get("mark") for e in edges):
+    if mark_on:
         m_edges = {}
         for e_i, e in enumerate(edges):
             posts = [(st, "node", ni)
@@ -906,7 +910,7 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                           "priority") or 99), i))
         try:
             net_marks = F.network_marks(m_edges, centers, start_e,
-                                        tol)
+                                        tol, mark_prefix)
         except Exception as ex:
             note("! MARK numbering failed: {}".format(ex))
             net_marks = {}
@@ -966,7 +970,7 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                   cfg.get("northing_param") or F.NORTHING_PARAM)
         if _is_foundation(inst):
             set_coord_params(doc, inst, hit, coords[0], coords[1])
-        if cfg.get("mark"):
+        if mark_on:
             set_mark(inst, mark)
         rec = {"uid": inst.UniqueId}
         if secondary is not None:
@@ -975,7 +979,7 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                 rec["foundation_uid"] = f_inst.UniqueId
                 set_coord_params(doc, f_inst, hit, coords[0],
                                  coords[1])
-                if cfg.get("mark"):
+                if mark_on:
                     set_mark(f_inst, mark)
             except Exception as ex:
                 note("! foundation placement failed: {}".format(ex))

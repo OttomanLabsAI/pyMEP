@@ -26,6 +26,8 @@ SETTINGS_CONFIGS = "fence_configs"   # {name: {spacing_mm, endpoints}}
 SETTINGS_LAST = "fence_config"       # last used config name
 SETTINGS_JUSTIFY = "fence_justify"   # start | centre | end
 SETTINGS_FAMILY = "fence_family"     # last family label
+SETTINGS_MARK = "fence_mark"         # MARK numbering on/off (global)
+SETTINGS_MARK_PREFIX = "fence_mark_prefix"
 
 DEFAULT_NAME = "Default"
 
@@ -51,8 +53,7 @@ DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "easting_param": EASTING_PARAM,
                   "northing_param": NORTHING_PARAM,
                   "terrain_mode": TERRAIN_AUTO,
-                  "terrains": [],
-                  "mark": False}
+                  "terrains": []}
 
 
 def _terrain_mode(v):
@@ -69,6 +70,14 @@ def _terrain_list(v):
         if n and n not in out:
             out.append(n)
     return out
+
+
+def mark_settings(settings):
+    """(enabled, prefix) for MARK numbering - GLOBAL, ticked on the
+    Fence Configurations window; the prefix lands in front of every
+    number (FF -> FF1, FF2, corners FF7A1...)."""
+    return (bool(settings.get(SETTINGS_MARK, False)),
+            str(settings.get(SETTINGS_MARK_PREFIX) or "").strip())
 
 # the categories a POST may come from / the FOUNDATION must come from
 POST_CATEGORIES = ["OST_GenericModel", "OST_Columns",
@@ -254,9 +263,7 @@ def get_configs(settings):
                                   "terrain_mode": _terrain_mode(
                                       c.get("terrain_mode")),
                                   "terrains": _terrain_list(
-                                      c.get("terrains")),
-                                  "mark": bool(
-                                      c.get("mark", False))}
+                                      c.get("terrains"))}
             except Exception:
                 continue
     if not out:
@@ -270,8 +277,7 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   line_style="", priority=99, end_priority=False,
                   panel="", panel_width_param="",
                   easting_param="", northing_param="",
-                  terrain_mode=TERRAIN_AUTO, terrains=None,
-                  mark=False):
+                  terrain_mode=TERRAIN_AUTO, terrains=None):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
@@ -322,8 +328,7 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                       str(northing_param or "").strip() or
                       NORTHING_PARAM,
                   "terrain_mode": _terrain_mode(terrain_mode),
-                  "terrains": _terrain_list(terrains),
-                  "mark": bool(mark)}
+                  "terrains": _terrain_list(terrains)}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
 
@@ -393,8 +398,7 @@ def effective_config(settings, name, snapshot):
                     NORTHING_PARAM),
             "terrain_mode": _terrain_mode(
                 snapshot.get("terrain_mode")),
-            "terrains": _terrain_list(snapshot.get("terrains")),
-            "mark": bool(snapshot.get("mark", False))}
+            "terrains": _terrain_list(snapshot.get("terrains"))}
 
 
 def delete_config(settings, name):
@@ -726,8 +730,12 @@ def _letters(i):
     return out
 
 
-def network_marks(edges, node_xy, start, tol=1e-6):
-    """MARK values for every post of a fence network.
+def network_marks(edges, node_xy, start, tol=1e-6, prefix=""):
+    """MARK values for every post of a fence network. ``prefix``
+    lands in front of every number: 'FF' -> FF1, FF2... corners
+    FF7A1. Every post is GUARANTEED a mark - anything the walks
+    cannot reach (degenerate geometry) gets a prefix+X1, X2...
+    fallback.
 
     ``edges``: {e: {"poly": [(x, y, z)...], "posts": [(station,
     kind, key), ...], "group": <optional line style / config>}}
@@ -932,7 +940,8 @@ def network_marks(edges, node_xy, start, tol=1e-6):
                 arms0 = sorted(node_arms.get(first_node) or [])
                 first_arm = arms0[0] if arms0 else None
             if first_arm is not None:
-                _chain(first_node, first_arm, lambda k: str(k))
+                _chain(first_node, first_arm,
+                       (lambda p: lambda k: p + str(k))(prefix))
                 _branches()
 
     # ---- disconnected parts: their own C2- / C3- systems -------------
@@ -942,10 +951,19 @@ def network_marks(edges, node_xy, start, tol=1e-6):
             break
         comp += 1
         si = left[0]
-        pref = "C{}-".format(comp)
+        pref = "{}C{}-".format(prefix, comp)
         _chain(segs[si]["n0"], (si, 1),
                (lambda p: lambda k: p + str(k))(pref))
         _branches()
+
+    # ---- guarantee: NOTHING stays unnumbered -------------------------
+    x = 0
+    for e in sorted(edges.keys()):
+        for _st, kind, key in sorted(edges[e]["posts"],
+                                     key=lambda p: p[0]):
+            if (kind, key) not in marks:
+                x += 1
+                marks[(kind, key)] = "{}X{}".format(prefix, x)
 
     return marks
 

@@ -277,7 +277,8 @@ def main():
             log("Superseding **fence network {}** - {} old "
                 "instance(s) removed.".format(r0.get("id"), gone))
         records, notes, placed, missed = FR.model_network(
-            doc, lines, terrains, cfgs, view3d, say=log)
+            doc, lines, terrains, cfgs, view3d, say=log,
+            mark_opts=F.mark_settings(settings))
         t.Commit()
     except ValueError as ex:
         try:

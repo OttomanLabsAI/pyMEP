@@ -53,8 +53,6 @@ def _row_text(name, cfg, style_names=None):
             cfg["end_foundation"] or "none")
     if cfg.get("panel"):
         txt += u"  |  panel: {}".format(cfg["panel"])
-    if cfg.get("mark"):
-        txt += u"  |  MARK"
     if cfg.get("terrain_mode") == F.TERRAIN_PICK:
         txt += u"  |  topo: pick at run"
     elif cfg.get("terrain_mode") == F.TERRAIN_NAMED:
@@ -420,47 +418,53 @@ class ConfigsWindow(forms.WPFWindow):
                 i + 1, _row_text(n, cfgs[n], self.style_names)))
         pick = want if want in cfgs else self._names[0]
         self.LstConfigs.SelectedIndex = self._names.index(pick)
+        on, pref = F.mark_settings(self.settings)
         self.TxtInfo.Text = ("{} configuration(s), top wins corner "
-                             "posts in Fence Network.".format(
-                                 len(self._names)))
+                             "posts in Fence Network.{}".format(
+                                 len(self._names),
+                                 "  MARK numbering ON{}.".format(
+                                     " - prefix '{}'".format(pref)
+                                     if pref else "")
+                                 if on else ""))
         self._sync_mark()
 
     def _sync_mark(self):
-        """The MARK checkbox shows the SELECTED row's flag."""
+        """The GLOBAL numbering tick + prefix."""
         self._mark_busy = True
         try:
-            name = self._selected_name()
-            cfgs = F.get_configs(self.settings)
-            self.ChkMark.IsChecked = bool(
-                (cfgs.get(name) or {}).get("mark", False))
-            self.ChkMark.IsEnabled = name is not None
+            on, pref = F.mark_settings(self.settings)
+            self.ChkMark.IsChecked = on
+            if self.TxtMarkPrefix.Text != pref:
+                self.TxtMarkPrefix.Text = pref
         finally:
             self._mark_busy = False
 
     def on_row_selected(self, sender, args):
-        try:
-            if hasattr(self, "settings"):
-                self._sync_mark()
-        except Exception:
-            pass
+        pass
 
     def on_mark_toggle(self, sender, args):
-        """Tick = this configuration numbers its posts (applies on
-        the next model / Update Fence run)."""
+        """GLOBAL: every configuration numbers its posts (applies
+        on the next model / Update Fence run)."""
         if getattr(self, "_mark_busy", True):
             return
         try:
-            name = self._selected_name()
-            cfgs = F.get_configs(self.settings)
-            if name is None or name not in cfgs:
-                return
-            cfgs[name]["mark"] = bool(self.ChkMark.IsChecked)
-            self.settings[F.SETTINGS_CONFIGS] = cfgs
+            self.settings[F.SETTINGS_MARK] = bool(
+                self.ChkMark.IsChecked)
             self._persist()
-            self._fill(name)
+            self._fill(self._selected_name())
             self.StatusText.Text = ""
         except Exception as ex:
             self.StatusText.Text = str(ex)
+
+    def on_mark_prefix(self, sender, args):
+        if getattr(self, "_mark_busy", True):
+            return
+        try:
+            self.settings[F.SETTINGS_MARK_PREFIX] = \
+                (self.TxtMarkPrefix.Text or "").strip()
+            self._persist()
+        except Exception:
+            pass
 
     def _selected_name(self):
         i = self.LstConfigs.SelectedIndex
@@ -501,8 +505,7 @@ class ConfigsWindow(forms.WPFWindow):
                             prio, r["end_priority"], r["panel"],
                             r["panel_width_param"],
                             r["easting_param"], r["northing_param"],
-                            r["terrain_mode"], r["terrains"],
-                            bool(cfg.get("mark", False)))
+                            r["terrain_mode"], r["terrains"])
         except ValueError as ex:
             self.StatusText.Text = str(ex)
             return
