@@ -28,13 +28,21 @@ SETTINGS_JUSTIFY = "fence_justify"   # start | centre | end
 SETTINGS_FAMILY = "fence_family"     # last family label
 
 DEFAULT_NAME = "Default"
+
+# foundations get the placement point's survey coordinates written
+# into instance parameters of these names (per-config overridable)
+EASTING_PARAM = "EASTINGS"
+NORTHING_PARAM = "NORTHINGS"
+
 DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "rotation_deg": 0.0, "post": "", "foundation": "",
                   "same_ends": True, "end_post": "",
                   "end_foundation": "",
                   "line_style": "", "priority": 99,
                   "end_priority": False, "panel": "",
-                  "panel_width_param": ""}
+                  "panel_width_param": "",
+                  "easting_param": EASTING_PARAM,
+                  "northing_param": NORTHING_PARAM}
 
 # the categories a POST may come from / the FOUNDATION must come from
 POST_CATEGORIES = ["OST_GenericModel", "OST_Columns",
@@ -210,7 +218,13 @@ def get_configs(settings):
                                       str(c.get("panel") or ""),
                                   "panel_width_param":
                                       str(c.get("panel_width_param")
-                                          or "")}
+                                          or ""),
+                                  "easting_param":
+                                      str(c.get("easting_param")
+                                          or EASTING_PARAM),
+                                  "northing_param":
+                                      str(c.get("northing_param")
+                                          or NORTHING_PARAM)}
             except Exception:
                 continue
     if not out:
@@ -222,7 +236,8 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   rotation_deg=0.0, foundation="", post="",
                   same_ends=True, end_post="", end_foundation="",
                   line_style="", priority=99, end_priority=False,
-                  panel="", panel_width_param=""):
+                  panel="", panel_width_param="",
+                  easting_param="", northing_param=""):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
@@ -265,7 +280,13 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   "end_priority": bool(end_priority),
                   "panel": str(panel or "").strip(),
                   "panel_width_param":
-                      str(panel_width_param or "").strip()}
+                      str(panel_width_param or "").strip(),
+                  "easting_param":
+                      str(easting_param or "").strip() or
+                      EASTING_PARAM,
+                  "northing_param":
+                      str(northing_param or "").strip() or
+                      NORTHING_PARAM}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
 
@@ -327,7 +348,12 @@ def effective_config(settings, name, snapshot):
                                               False)),
             "panel": str(snapshot.get("panel") or ""),
             "panel_width_param":
-                str(snapshot.get("panel_width_param") or "")}
+                str(snapshot.get("panel_width_param") or ""),
+            "easting_param":
+                str(snapshot.get("easting_param") or EASTING_PARAM),
+            "northing_param":
+                str(snapshot.get("northing_param") or
+                    NORTHING_PARAM)}
 
 
 def delete_config(settings, name):

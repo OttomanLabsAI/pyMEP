@@ -23,6 +23,7 @@ from Autodesk.Revit.DB import (
     Line,
     ReferenceIntersector,
     RevitLinkInstance,
+    StorageType,
     UnitTypeId,
     UnitUtils,
     View3D,
@@ -251,6 +252,54 @@ def set_panel_width(inst, width_ft, param_name=None):
     return False
 
 
+def survey_xy(doc, pt):
+    """Internal point -> (EASTING, NORTHING) in the model's SHARED
+    (survey) coordinates, internal feet - what a setting-out schedule
+    wants. Falls back to the internal XY when the model has no
+    project location."""
+    try:
+        tf = doc.ActiveProjectLocation.GetTotalTransform().Inverse
+        sp = tf.OfPoint(pt)
+        return sp.X, sp.Y
+    except Exception:
+        return pt.X, pt.Y
+
+
+def _is_foundation(el):
+    try:
+        return el.Category is not None and id_value(
+            el.Category.Id) == int(
+                BuiltInCategory.OST_StructuralFoundation)
+    except Exception:
+        return False
+
+
+def set_coord_params(doc, inst, pt, east_name, north_name):
+    """Write the placement point's survey EASTING / NORTHING into
+    the instance's parameters of those names. A Length parameter
+    gets the internal value (displays in the project units), a Text
+    parameter the value in METRES to 3 decimals. Instances without
+    the parameters are silently left alone."""
+    if inst is None:
+        return
+    e, n = survey_xy(doc, pt)
+    for nm, val in ((east_name, e), (north_name, n)):
+        if not nm:
+            continue
+        try:
+            par = inst.LookupParameter(nm)
+            if par is None or par.IsReadOnly:
+                continue
+            if par.StorageType == StorageType.Double:
+                par.Set(val)
+            elif par.StorageType == StorageType.String:
+                par.Set("{:.3f}".format(
+                    UnitUtils.ConvertFromInternalUnits(
+                        val, UnitTypeId.Meters)))
+        except Exception:
+            continue
+
+
 def place_panels(doc, panel_symbol, poly, post_stations, terrain_id,
                  ri, ray_z, levels, records, missed,
                  width_param=None, skip=None):
@@ -306,16 +355,18 @@ def station_pick(dists, length, primary, secondary,
 
 def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
                     levels, extra_rot=0.0, panel_symbol=None,
-                    panel_width_param=None):
+                    panel_width_param=None, coord_params=None):
     """Place at every station, draped and rotated - the line's
     direction plus ``extra_rot`` (radians, the config's custom
     rotation). ``pick(d)`` returns (symbol, foundation_symbol) for
     the station - either may be None (a station picking (None,
-    None) is silently left empty). Runs inside the caller's open
-    Transaction. Returns (records, missed, failed, why): records =
-    [{"uid", "station_ft", "angle"(, "foundation_uid")}] for the
-    registry, missed = stations with no terrain hit, failed = count
-    of placement errors (first reason in why)."""
+    None) is silently left empty). ``coord_params`` = (easting,
+    northing) parameter names - every FOUNDATION placed gets the
+    survey coordinates written into them. Runs inside the caller's
+    open Transaction. Returns (records, missed, failed, why):
+    records = [{"uid", "station_ft", "angle"(, "foundation_uid")}]
+    for the registry, missed = stations with no terrain hit, failed
+    = count of placement errors (first reason in why)."""
     records, missed, failed = [], [], 0
     failed_reason = [None]
     activated = set()
@@ -349,12 +400,19 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
             if failed_reason[0] is None:
                 failed_reason[0] = "{}".format(ex)
             continue
+        if coord_params and _is_foundation(inst):
+            set_coord_params(doc, inst, hit, coord_params[0],
+                             coord_params[1])
         rec = {"uid": inst.UniqueId, "station_ft": d, "angle": ang}
         if foundation_symbol is not None:
             try:
                 f_inst = _place_one(doc, foundation_symbol, hit, lvl,
                                     ang)
                 rec["foundation_uid"] = f_inst.UniqueId
+                if coord_params:
+                    set_coord_params(doc, f_inst, hit,
+                                     coord_params[0],
+                                     coord_params[1])
             except Exception as ex:
                 failed += 1
                 if failed_reason[0] is None:
@@ -374,13 +432,15 @@ def _move_one(doc, el, hit, rot_delta):
 
 
 def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
-                   extra_rot=0.0):
+                   extra_rot=0.0, coord_params=None):
     """MOVE each stored instance (and its foundation, when the record
     has one that still exists) to its new station: pairs =
     [(instance_dict, element, new_station)]. The rotation applied is
     the DELTA from the stored angle (which includes any config
     rotation), so user tweaks on top survive AND a changed config
-    rotation lands. Returns (records, missed, failed) like
+    rotation lands. ``coord_params`` = (easting, northing) parameter
+    names - moved FOUNDATIONS get their survey coordinates
+    refreshed. Returns (records, missed, failed) like
     place_instances."""
     records, missed, failed = [], [], 0
     for inst_d, el, d in pairs:
@@ -394,6 +454,9 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
             old_ang = float(inst_d.get("angle") or 0.0)
             new_ang = math.atan2(tang[1], tang[0]) + extra_rot
             _move_one(doc, el, hit, new_ang - old_ang)
+            if coord_params and _is_foundation(el):
+                set_coord_params(doc, el, hit, coord_params[0],
+                                 coord_params[1])
             rec = {"uid": inst_d.get("uid"), "station_ft": d,
                    "angle": new_ang}
             f_uid = inst_d.get("foundation_uid")
@@ -403,6 +466,10 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
                     if f_el is not None:
                         _move_one(doc, f_el, hit, new_ang - old_ang)
                         rec["foundation_uid"] = f_uid
+                        if coord_params:
+                            set_coord_params(doc, f_el, hit,
+                                             coord_params[0],
+                                             coord_params[1])
                 except Exception:
                     failed += 1
             records.append(rec)
@@ -733,11 +800,17 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
         except Exception as ex:
             note("! placement failed: {}".format(ex))
             return
+        coords = (cfg.get("easting_param") or F.EASTING_PARAM,
+                  cfg.get("northing_param") or F.NORTHING_PARAM)
+        if _is_foundation(inst):
+            set_coord_params(doc, inst, hit, coords[0], coords[1])
         rec = {"uid": inst.UniqueId}
         if secondary is not None:
             try:
                 f_inst = _place_one(doc, secondary, hit, lvl, ang)
                 rec["foundation_uid"] = f_inst.UniqueId
+                set_coord_params(doc, f_inst, hit, coords[0],
+                                 coords[1])
             except Exception as ex:
                 note("! foundation placement failed: {}".format(ex))
         records.append(rec)

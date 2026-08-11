@@ -579,7 +579,9 @@ try:
             triples = [(inst_d, el_by_uid[inst_d.get("uid")], nd)
                        for inst_d, nd in pairs]
             records, missed, failed = FR.move_instances(
-                doc, triples, poly, terrain_id, ri, ray_z, extra_rot)
+                doc, triples, poly, terrain_id, ri, ray_z, extra_rot,
+                coord_params=(eff["easting_param"],
+                              eff["northing_param"]))
             action = "moved"
             note = "{} post(s) re-draped".format(
                 len(records) - len(missed) - failed)
@@ -650,7 +652,9 @@ try:
             records, missed, failed, why = FR.place_instances(
                 doc, pick, poly, dists, terrain_id, ri, ray_z,
                 levels, extra_rot, panel_symbol=panel_symbol,
-                panel_width_param=eff["panel_width_param"] or None)
+                panel_width_param=eff["panel_width_param"] or None,
+                coord_params=(eff["easting_param"],
+                              eff["northing_param"]))
             action = "rebuilt"
             note = "{} -> {} post(s)".format(len(survivors),
                                              len(records))
@@ -677,6 +681,8 @@ try:
         rec["end_foundation"] = eff["end_foundation"]
         rec["panel"] = eff["panel"]
         rec["panel_width_param"] = eff["panel_width_param"]
+        rec["easting_param"] = eff["easting_param"]
+        rec["northing_param"] = eff["northing_param"]
         rec["updated"] = datetime.datetime.now().strftime(
             "%Y-%m-%dT%H:%M:%S")
         updates.append(rec)
