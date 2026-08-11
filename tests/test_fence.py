@@ -131,7 +131,9 @@ class ConfigStore(unittest.TestCase):
                           "same_ends": True, "end_post": "",
                           "end_foundation": "", "line_style": "",
                           "priority": 99, "end_priority": False,
-                          "panel": "", "panel_width_param": ""})
+                          "panel": "", "panel_width_param": "",
+                          "easting_param": "EASTINGS",
+                          "northing_param": "NORTHINGS"})
 
     def test_upsert_validates(self):
         self.assertRaises(ValueError, F.upsert_config, {}, "  ",
@@ -172,7 +174,9 @@ class ConfigStore(unittest.TestCase):
                           "end_post": "", "end_foundation": "",
                           "line_style": "", "priority": 99,
                           "end_priority": False, "panel": "",
-                          "panel_width_param": ""})
+                          "panel_width_param": "",
+                          "easting_param": "EASTINGS",
+                          "northing_param": "NORTHINGS"})
 
 
 class EffectiveConfig(unittest.TestCase):
@@ -181,7 +185,9 @@ class EffectiveConfig(unittest.TestCase):
             "same_ends": True, "end_post": "", "end_foundation": "",
             "line_style": "", "priority": 99,
             "end_priority": False, "panel": "",
-            "panel_width_param": ""}
+            "panel_width_param": "",
+                          "easting_param": "EASTINGS",
+                          "northing_param": "NORTHINGS"}
 
     def test_current_config_wins(self):
         s = {}
@@ -198,7 +204,9 @@ class EffectiveConfig(unittest.TestCase):
                                "line_style": "",
                                "priority": 99,
                                "end_priority": False, "panel": "",
-                               "panel_width_param": ""})
+                               "panel_width_param": "",
+                          "easting_param": "EASTINGS",
+                          "northing_param": "NORTHINGS"})
 
     def test_missing_config_falls_back_to_snapshot(self):
         eff = F.effective_config({}, "Deleted", self.SNAP)
@@ -217,7 +225,9 @@ class EffectiveConfig(unittest.TestCase):
                                "line_style": "",
                                "priority": 99,
                                "end_priority": False, "panel": "",
-                               "panel_width_param": ""})
+                               "panel_width_param": "",
+                          "easting_param": "EASTINGS",
+                          "northing_param": "NORTHINGS"})
 
     def test_snapshot_family_becomes_the_post(self):
         # records from before posts joined configs carry 'family'
