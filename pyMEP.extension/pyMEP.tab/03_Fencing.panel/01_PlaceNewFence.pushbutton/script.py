@@ -99,6 +99,8 @@ class FenceWindow(forms.WPFWindow):
                        cfg["spacing_mm"],
                        "ON" if cfg["endpoints"] else "off",
                        cfg["rotation_deg"]))
+            if cfg["panel"]:
+                txt += u"\npanel: {}".format(cfg["panel"])
             if not cfg["same_ends"]:
                 txt += (u"\nENDPOINTS get: post {} | foundation "
                         u"{}".format(cfg["end_post"] or "none",
@@ -135,6 +137,7 @@ class FenceWindow(forms.WPFWindow):
             "same_ends": cfg["same_ends"],
             "end_post": cfg["end_post"],
             "end_foundation": cfg["end_foundation"],
+            "panel": cfg["panel"],
             "justify": self.justify(),
             "config": str(self.CmbConfig.SelectedItem or ""),
         }
@@ -233,6 +236,13 @@ def main():
     foundation_symbol = _resolve(opt["foundation"],
                                  F.FOUNDATION_CATEGORIES,
                                  "foundation")
+    panel_symbol = None
+    if opt["panel"]:
+        panel_symbol = FR.symbol_by_label(doc, opt["panel"],
+                                          F.PANEL_CATEGORIES)
+        if panel_symbol is None:
+            log("! panel family **{}** is NOT in this model - no "
+                "panels.".format(opt["panel"]))
     if opt["same_ends"]:
         end_post_symbol = post_symbol
         end_found_symbol = foundation_symbol
@@ -319,7 +329,8 @@ def main():
     try:
         records, missed, failed, why = FR.place_instances(
             doc, pick, poly, dists, terrain_id, ri, ray_z,
-            levels, extra_rot=math.radians(opt["rotation_deg"]))
+            levels, extra_rot=math.radians(opt["rotation_deg"]),
+            panel_symbol=panel_symbol)
         t.Commit()
     except Exception:
         try:
@@ -360,6 +371,8 @@ def main():
                 "same_ends": opt["same_ends"],
                 "end_post": opt["end_post"],
                 "end_foundation": opt["end_foundation"],
+                "panel": opt["panel"]
+                if panel_symbol is not None else "",
                 "justify": opt["justify"],
                 "config": opt["config"],
                 "instances": records,

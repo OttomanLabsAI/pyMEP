@@ -33,12 +33,16 @@ DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "same_ends": True, "end_post": "",
                   "end_foundation": "",
                   "line_style": "", "priority": 99,
-                  "end_priority": False}
+                  "end_priority": False, "panel": ""}
 
 # the categories a POST may come from / the FOUNDATION must come from
 POST_CATEGORIES = ["OST_GenericModel", "OST_Columns",
                    "OST_StructuralColumns"]
 FOUNDATION_CATEGORIES = ["OST_StructuralFoundation"]
+PANEL_CATEGORIES = ["OST_GenericModel", "OST_StructuralFraming"]
+
+# bays shorter than this get no panel (touching double posts)
+PANEL_MIN_MM = 100.0
 
 JUSTIFY_START = "start"
 JUSTIFY_CENTRE = "centre"
@@ -200,7 +204,9 @@ def get_configs(settings):
                                       c.get("priority"), 99)),
                                   "end_priority": bool(
                                       c.get("end_priority",
-                                            False))}
+                                            False)),
+                                  "panel":
+                                      str(c.get("panel") or "")}
             except Exception:
                 continue
     if not out:
@@ -211,7 +217,8 @@ def get_configs(settings):
 def upsert_config(settings, name, spacing_mm, endpoints,
                   rotation_deg=0.0, foundation="", post="",
                   same_ends=True, end_post="", end_foundation="",
-                  line_style="", priority=99, end_priority=False):
+                  line_style="", priority=99, end_priority=False,
+                  panel=""):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
@@ -251,7 +258,8 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                       str(end_foundation or "").strip(),
                   "line_style": str(line_style or "").strip(),
                   "priority": priority,
-                  "end_priority": bool(end_priority)}
+                  "end_priority": bool(end_priority),
+                  "panel": str(panel or "").strip()}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
 
@@ -310,7 +318,8 @@ def effective_config(settings, name, snapshot):
             "line_style": str(snapshot.get("line_style") or ""),
             "priority": int(_num(snapshot.get("priority"), 99)),
             "end_priority": bool(snapshot.get("end_priority",
-                                              False))}
+                                              False)),
+            "panel": str(snapshot.get("panel") or "")}
 
 
 def delete_config(settings, name):
@@ -493,6 +502,19 @@ def project_to_poly(poly, x, y):
             best = (run + seg * t, away, px, py)
         run += seg
     return best
+
+
+def panel_bays(stations, min_len, tol=1e-6):
+    """Panel placements along one run, from the SORTED post
+    stations: [(centre, width)] per bay between consecutive posts.
+    Bays shorter than ``min_len`` (touching double posts) get no
+    panel."""
+    out = []
+    for i in range(1, len(stations)):
+        w = stations[i] - stations[i - 1]
+        if w >= min_len - tol:
+            out.append(((stations[i] + stations[i - 1]) / 2.0, w))
+    return out
 
 
 def polys_touch(pa, pb, tol):

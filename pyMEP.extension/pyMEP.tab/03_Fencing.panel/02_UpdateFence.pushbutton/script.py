@@ -127,6 +127,9 @@ def _config_notes(rec, eff):
         notes.append("foundation '{}' -> '{}'".format(
             rec.get("foundation") or "none",
             eff["foundation"] or "none"))
+    if str(rec.get("panel") or "") != eff["panel"]:
+        notes.append("panel '{}' -> '{}'".format(
+            rec.get("panel") or "none", eff["panel"] or "none"))
     if F.end_families(_rec_cfg(rec)) != F.end_families(eff):
         ep, ef = F.end_families(eff)
         notes.append("endpoint families -> post '{}' / foundation "
@@ -153,6 +156,7 @@ def _families_changed(rec, eff):
     stands at the stations."""
     return (_rec_post(rec) != eff["post"] or
             str(rec.get("foundation") or "") != eff["foundation"] or
+            str(rec.get("panel") or "") != eff["panel"] or
             F.end_families(_rec_cfg(rec)) != F.end_families(eff))
 
 
@@ -630,12 +634,20 @@ try:
                                 "the config places nothing (every "
                                 "family is none)"))
                 continue
+            panel_symbol = None
+            if eff["panel"]:
+                panel_symbol = FR.symbol_by_label(
+                    doc, eff["panel"], F.PANEL_CATEGORIES)
+                if panel_symbol is None:
+                    log("! fence {}: panel family **{}** is NOT in "
+                        "this model - no panels.".format(
+                            fid, eff["panel"]))
             pick = FR.station_pick(dists, length, primary,
                                    secondary, end_primary,
                                    end_secondary, eff["same_ends"])
             records, missed, failed, why = FR.place_instances(
                 doc, pick, poly, dists, terrain_id, ri, ray_z,
-                levels, extra_rot)
+                levels, extra_rot, panel_symbol=panel_symbol)
             action = "rebuilt"
             note = "{} -> {} post(s)".format(len(survivors),
                                              len(records))
@@ -660,6 +672,7 @@ try:
         rec["same_ends"] = eff["same_ends"]
         rec["end_post"] = eff["end_post"]
         rec["end_foundation"] = eff["end_foundation"]
+        rec["panel"] = eff["panel"]
         rec["updated"] = datetime.datetime.now().strftime(
             "%Y-%m-%dT%H:%M:%S")
         updates.append(rec)

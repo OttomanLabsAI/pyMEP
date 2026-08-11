@@ -144,6 +144,16 @@
                 </StackPanel>
             </GroupBox>
 
+            <GroupBox Header="Fence panel family">
+                <StackPanel>
+                    <TextBox x:Name="TxtPanelSearch"
+                             TextChanged="on_panel_search"/>
+                    <ComboBox x:Name="CmbPanel" Margin="0,6,0,0"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Generic Models and Structural Framing, point-based (type above to filter). '(none)' places no panels. One panel per BAY between consecutive posts: placed at the bay's CENTRE, aligned to the line, draped like the posts - and its Width parameter is driven to the bay (the spacing; shorter on the last bay). Bays under 100 mm (touching double posts) get none."/>
+                </StackPanel>
+            </GroupBox>
+
             <TextBlock x:Name="StatusText" Foreground="#B00020"
                        TextWrapping="Wrap" Margin="0,0,0,8" Text=""/>
         </StackPanel>

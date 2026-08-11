@@ -130,7 +130,8 @@ class ConfigStore(unittest.TestCase):
                           "foundation": "Pad : 600x600",
                           "same_ends": True, "end_post": "",
                           "end_foundation": "", "line_style": "",
-                          "priority": 99, "end_priority": False})
+                          "priority": 99, "end_priority": False,
+                          "panel": ""})
 
     def test_upsert_validates(self):
         self.assertRaises(ValueError, F.upsert_config, {}, "  ",
@@ -170,7 +171,7 @@ class ConfigStore(unittest.TestCase):
                           "foundation": "", "same_ends": True,
                           "end_post": "", "end_foundation": "",
                           "line_style": "", "priority": 99,
-                          "end_priority": False})
+                          "end_priority": False, "panel": ""})
 
 
 class EffectiveConfig(unittest.TestCase):
@@ -178,7 +179,7 @@ class EffectiveConfig(unittest.TestCase):
             "rotation_deg": 0.0, "post": "", "foundation": "",
             "same_ends": True, "end_post": "", "end_foundation": "",
             "line_style": "", "priority": 99,
-            "end_priority": False}
+            "end_priority": False, "panel": ""}
 
     def test_current_config_wins(self):
         s = {}
@@ -194,7 +195,7 @@ class EffectiveConfig(unittest.TestCase):
                                "end_foundation": "",
                                "line_style": "",
                                "priority": 99,
-                               "end_priority": False})
+                               "end_priority": False, "panel": ""})
 
     def test_missing_config_falls_back_to_snapshot(self):
         eff = F.effective_config({}, "Deleted", self.SNAP)
@@ -212,7 +213,7 @@ class EffectiveConfig(unittest.TestCase):
                                "end_foundation": "",
                                "line_style": "",
                                "priority": 99,
-                               "end_priority": False})
+                               "end_priority": False, "panel": ""})
 
     def test_snapshot_family_becomes_the_post(self):
         # records from before posts joined configs carry 'family'
@@ -385,6 +386,16 @@ class Intersections(unittest.TestCase):
         hits = F.poly_intersections(pa, pb)
         self.assertEqual(len(hits), 1)
         self.assertAlmostEqual(hits[0][0], 5.0)
+
+    def test_panel_bays(self):
+        # bays between consecutive posts: centre + width; the tiny
+        # bay at a touching double post gets NO panel
+        bays = F.panel_bays([0.0, 2.0, 7.0, 12.0, 12.05], 0.5)
+        self.assertEqual(len(bays), 3)
+        self.assertEqual(bays[0], (1.0, 2.0))
+        self.assertEqual(bays[1], (4.5, 5.0))
+        self.assertEqual(bays[2], (9.5, 5.0))
+        self.assertEqual(F.panel_bays([3.0], 0.5), [])
 
     def test_polys_touch(self):
         a = [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0)]

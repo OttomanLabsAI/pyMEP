@@ -51,6 +51,8 @@ def _row_text(name, cfg):
         txt += u"  |  END post: {} / fnd: {}".format(
             cfg["end_post"] or "none",
             cfg["end_foundation"] or "none")
+    if cfg.get("panel"):
+        txt += u"  |  panel: {}".format(cfg["panel"])
     if cfg.get("line_style"):
         txt += u"  |  NET: '{}'{}".format(
             cfg["line_style"],
@@ -63,11 +65,12 @@ class ConfigEditWindow(forms.WPFWindow):
     on cancel - the caller persists."""
 
     def __init__(self, title, name, cfg, post_labels, found_labels,
-                 style_names):
+                 style_names, panel_labels):
         forms.WPFWindow.__init__(self, XAML_EDIT)
         self.result = None
         self.post_labels = post_labels
         self.found_labels = found_labels
+        self.panel_labels = panel_labels
         self._last = {}     # last real pick per combo, survives filters
         self.Title = title
         self.TxtTitle.Text = title
@@ -84,6 +87,8 @@ class ConfigEditWindow(forms.WPFWindow):
         self._select_pick(self.CmbEndPost, cfg["end_post"])
         self._select_pick(self.CmbEndFoundation,
                           cfg["end_foundation"])
+        self._fill_pick(self.CmbPanel, panel_labels, "")
+        self._select_pick(self.CmbPanel, cfg["panel"])
         self.ChkSameEnds.IsChecked = bool(cfg["same_ends"])
         self.on_same_ends(None, None)
         self.CmbLineStyle.Items.Clear()
@@ -173,6 +178,13 @@ class ConfigEditWindow(forms.WPFWindow):
         except Exception:
             pass
 
+    def on_panel_search(self, sender, args):
+        try:
+            self._apply_search(self.CmbPanel, self.panel_labels,
+                               self.TxtPanelSearch, "panel")
+        except Exception:
+            pass
+
     def on_end_found_search(self, sender, args):
         try:
             self._apply_search(self.CmbEndFoundation,
@@ -232,7 +244,8 @@ class ConfigEditWindow(forms.WPFWindow):
                        "line_style":
                            self._picked(self.CmbLineStyle),
                        "end_priority":
-                           bool(self.ChkEndPriority.IsChecked)}
+                           bool(self.ChkEndPriority.IsChecked),
+                       "panel": self._picked(self.CmbPanel)}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -244,12 +257,13 @@ class ConfigsWindow(forms.WPFWindow):
     """The list window: rows + Add new / Edit / Remove."""
 
     def __init__(self, settings, post_labels, found_labels,
-                 style_names):
+                 style_names, panel_labels):
         forms.WPFWindow.__init__(self, XAML_LIST)
         self.settings = settings
         self.post_labels = post_labels
         self.found_labels = found_labels
         self.style_names = style_names
+        self.panel_labels = panel_labels
         self._names = []
         self._fill(settings.get(F.SETTINGS_LAST))
 
@@ -283,7 +297,8 @@ class ConfigsWindow(forms.WPFWindow):
         changed on an edit). The priority comes from the LIST: an
         edit keeps its place, a new config joins at the bottom."""
         win = ConfigEditWindow(title, name, cfg, self.post_labels,
-                               self.found_labels, self.style_names)
+                               self.found_labels, self.style_names,
+                               self.panel_labels)
         win.ShowDialog()
         r = win.result
         if r is None:
@@ -300,7 +315,7 @@ class ConfigsWindow(forms.WPFWindow):
                             r["foundation"], r["post"],
                             r["same_ends"], r["end_post"],
                             r["end_foundation"], r["line_style"],
-                            prio, r["end_priority"])
+                            prio, r["end_priority"], r["panel"])
         except ValueError as ex:
             self.StatusText.Text = str(ex)
             return
@@ -375,6 +390,8 @@ found_labels = [lbl for lbl, _fs
 from pymep_vt_serialize import line_style_subcategories
 style_names = sorted(set(
     s2.Name for s2 in line_style_subcategories(doc)))
+panel_labels = [lbl for lbl, _fs
+                in FR.placeable_symbols(doc, F.PANEL_CATEGORIES)]
 ConfigsWindow(load_settings(), post_labels, found_labels,
-              style_names).ShowDialog()
+              style_names, panel_labels).ShowDialog()
 script.exit()

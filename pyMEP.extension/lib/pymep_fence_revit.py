@@ -233,6 +233,52 @@ def _place_one(doc, symbol, hit, lvl, ang):
     return inst
 
 
+def set_panel_width(inst, width_ft):
+    """Drive the panel family's width to the bay: tries the usual
+    parameter names; False when the family has none (it then keeps
+    its native size)."""
+    for nm in ("Width", "width", "Panel Width", "Length", "length"):
+        try:
+            par = inst.LookupParameter(nm)
+            if par is not None and not par.IsReadOnly:
+                par.Set(width_ft)
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def place_panels(doc, panel_symbol, poly, post_stations, terrain_id,
+                 ri, ray_z, levels, records, missed):
+    """One panel per BAY between consecutive posts: placed at the
+    bay's CENTRE, aligned to the line, draped, width driven to the
+    bay length. Appends to records / missed in place."""
+    if panel_symbol is None or len(post_stations) < 2:
+        return
+    try:
+        if not panel_symbol.IsActive:
+            panel_symbol.Activate()
+            doc.Regenerate()
+    except Exception:
+        pass
+    for mid, width in F.panel_bays(sorted(post_stations),
+                                   mm2ft(F.PANEL_MIN_MM)):
+        p, tang = F.point_at(poly, mid)
+        hit = topmost_hit(doc, ri, XYZ(p[0], p[1], ray_z), terrain_id)
+        if hit is None:
+            missed.append(mid)
+            continue
+        lvl = level_for(levels, hit.Z)
+        ang = math.atan2(tang[1], tang[0])
+        try:
+            inst = _place_one(doc, panel_symbol, hit, lvl, ang)
+            set_panel_width(inst, width)
+            records.append({"uid": inst.UniqueId, "station_ft": mid,
+                            "angle": ang, "panel": True})
+        except Exception:
+            pass
+
+
 def station_pick(dists, length, primary, secondary,
                  end_primary=None, end_secondary=None,
                  same_ends=True, tol=1e-6):
@@ -253,7 +299,7 @@ def station_pick(dists, length, primary, secondary,
 
 
 def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
-                    levels, extra_rot=0.0):
+                    levels, extra_rot=0.0, panel_symbol=None):
     """Place at every station, draped and rotated - the line's
     direction plus ``extra_rot`` (radians, the config's custom
     rotation). ``pick(d)`` returns (symbol, foundation_symbol) for
@@ -307,6 +353,8 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
                 if failed_reason[0] is None:
                     failed_reason[0] = "foundation: {}".format(ex)
         records.append(rec)
+    place_panels(doc, panel_symbol, poly, dists, terrain_id, ri,
+                 ray_z, levels, records, missed)
     return records, missed, failed, failed_reason[0]
 
 
@@ -595,11 +643,20 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                                       _far_clear(n0, s0))
                 sts_all.extend(s1 - d for d in seg)
         e["stations"] = sorted(sts_all)
-        total += len(e["stations"])
+        e["post_stations"] = sorted(
+            [st for st, _ni in merged] +
+            [st for (ei2, st, _ni) in doubles if ei2 == e_i] +
+            sts_all)
+        n_panels = len(F.panel_bays(e["post_stations"],
+                                    mm2ft(F.PANEL_MIN_MM))) \
+            if e["cfg"].get("panel") else 0
+        total += len(e["stations"]) + n_panels
         note("line {} ('{}' -> {}): {} corner(s), {} in-between "
-             "post(s)".format(
+             "post(s){}".format(
                  id_value(e["el"].Id), e["style"], e["name"],
-                 len(merged), len(e["stations"])))
+                 len(merged), len(e["stations"]),
+                 ", {} panel(s)".format(n_panels)
+                 if n_panels else ""))
     if total > F.MAX_INSTANCES:
         raise ValueError("{} instances would be placed - over the "
                          "{} sanity cap. Check the spacing.".format(
@@ -676,5 +733,18 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
         for d in e["stations"]:
             pnt, tang = F.point_at(e["poly"], d)
             put(pnt[0], pnt[1], tang, e["cfg"], False)
+    # panels: one per bay, centred, aligned to the line, width = bay
+    net_missed = []
+    for e in edges:
+        pnl_lbl = e["cfg"].get("panel") or ""
+        if not pnl_lbl:
+            continue
+        pnl_sym = _sym(pnl_lbl, F.PANEL_CATEGORIES, "panel")
+        if pnl_sym is None:
+            continue
+        place_panels(doc, pnl_sym, e["poly"], e["post_stations"],
+                     terrain_id, ri, ray_z, levels, records,
+                     net_missed)
+    missed[0] += len(net_missed)
 
     return records, notes, len(records), missed[0]
