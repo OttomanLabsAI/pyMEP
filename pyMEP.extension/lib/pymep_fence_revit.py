@@ -414,6 +414,22 @@ def set_coord_params(doc, inst, pt, east_name, north_name):
             continue
 
 
+def set_mark(inst, value):
+    """Write the Mark instance parameter - silently skipped when the
+    element has none or it is read-only."""
+    if inst is None or not value:
+        return
+    try:
+        par = inst.LookupParameter("Mark")
+        if par is None:
+            par = inst.get_Parameter(
+                BuiltInParameter.ALL_MODEL_MARK)
+        if par is not None and not par.IsReadOnly:
+            par.Set(u"{}".format(value))
+    except Exception:
+        pass
+
+
 def place_panels(doc, panel_symbol, poly, post_stations, terrain_id,
                  ri, ray_z, levels, records, missed,
                  width_param=None, skip=None):
@@ -469,7 +485,8 @@ def station_pick(dists, length, primary, secondary,
 
 def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
                     levels, extra_rot=0.0, panel_symbol=None,
-                    panel_width_param=None, coord_params=None):
+                    panel_width_param=None, coord_params=None,
+                    marks=None):
     """Place at every station, draped and rotated - the line's
     direction plus ``extra_rot`` (radians, the config's custom
     rotation). ``pick(d)`` returns (symbol, foundation_symbol) for
@@ -484,7 +501,8 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
     records, missed, failed = [], [], 0
     failed_reason = [None]
     activated = set()
-    for d in dists:
+    for d_i, d in enumerate(dists):
+        mark = marks[d_i] if marks and d_i < len(marks) else None
         symbol, foundation_symbol = pick(d)
         if symbol is None and foundation_symbol is not None:
             symbol, foundation_symbol = foundation_symbol, None
@@ -517,6 +535,7 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
         if coord_params and _is_foundation(inst):
             set_coord_params(doc, inst, hit, coord_params[0],
                              coord_params[1])
+        set_mark(inst, mark)
         rec = {"uid": inst.UniqueId, "station_ft": d, "angle": ang}
         if foundation_symbol is not None:
             try:
@@ -527,6 +546,7 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
                     set_coord_params(doc, f_inst, hit,
                                      coord_params[0],
                                      coord_params[1])
+                set_mark(f_inst, mark)
             except Exception as ex:
                 failed += 1
                 if failed_reason[0] is None:
@@ -761,7 +781,6 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
     # (ONE post next to the big one - nothing else touches)
     doubles = []            # (e_i, station, ni)
     dbl_at = {}             # (e_i, ni) -> the double's station
-    no_panel = {}           # e_i -> [(lo, hi)] corner->double spans
     for ni, nd in enumerate(nodes):
         if not nd["end_priority"]:
             continue
@@ -785,8 +804,6 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                     continue                        # passes through
                 doubles.append((e_i, dbl, ni))
                 dbl_at[(e_i, ni)] = dbl
-                no_panel.setdefault(e_i, []).append(
-                    (min(st, dbl), max(st, dbl)))
 
     # ---- in-between stations per edge segment ------------------------
     total = len(nodes) + len(doubles)
@@ -846,14 +863,16 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                                       _far_clear(n0, s0))
                 sts_all.extend(s1 - d for d in seg)
         e["stations"] = sorted(sts_all)
+        e["node_marks"] = merged
         e["post_stations"] = sorted(
             [st for st, _ni in merged] +
             [st for (ei2, st, _ni) in doubles if ei2 == e_i] +
             sts_all)
-        e["no_panel"] = no_panel.get(e_i) or []
+        # the corner-post-to-DOUBLE-post bay gets a (short) panel
+        # like any other bay - the fence is continuous through a
+        # style-to-style connection
         n_panels = len(F.panel_bays(e["post_stations"],
-                                    mm2ft(F.PANEL_MIN_MM),
-                                    skip=e["no_panel"])) \
+                                    mm2ft(F.PANEL_MIN_MM))) \
             if e["cfg"].get("panel") else 0
         total += len(e["stations"]) + n_panels
         note("line {} ('{}' -> {}): {} corner(s), {} in-between "
@@ -866,6 +885,31 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
         raise ValueError("{} instances would be placed - over the "
                          "{} sanity cap. Check the spacing.".format(
                              total, F.MAX_INSTANCES))
+
+    # ---- MARK numbering: clockwise from the top-priority line --------
+    net_marks = {}
+    if any(e["cfg"].get("mark") for e in edges):
+        m_edges = {}
+        for e_i, e in enumerate(edges):
+            posts = [(st, "node", ni)
+                     for st, ni in e.get("node_marks") or []]
+            posts += [(st, "double", (ei2, ni))
+                      for ei2, st, ni in doubles if ei2 == e_i]
+            posts += [(st, "post", (e_i, st))
+                      for st in e["stations"]]
+            m_edges[e_i] = {"poly": e["poly"],
+                            "posts": sorted(posts,
+                                            key=lambda p: p[0]),
+                            "group": e["name"]}
+        start_e = min(range(len(edges)),
+                      key=lambda i: (int(edges[i]["cfg"].get(
+                          "priority") or 99), i))
+        try:
+            net_marks = F.network_marks(m_edges, centers, start_e,
+                                        tol)
+        except Exception as ex:
+            note("! MARK numbering failed: {}".format(ex))
+            net_marks = {}
 
     # ---- place: corners FIRST, then doubles, then in-between ---------
     records = []
@@ -883,7 +927,7 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
         sym_cache[key] = sym
         return sym
 
-    def put(x, y, tang, cfg, use_ends):
+    def put(x, y, tang, cfg, use_ends, mark=None):
         if use_ends:
             post_lbl, fnd_lbl = F.end_families(cfg)
         else:
@@ -922,6 +966,8 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                   cfg.get("northing_param") or F.NORTHING_PARAM)
         if _is_foundation(inst):
             set_coord_params(doc, inst, hit, coords[0], coords[1])
+        if cfg.get("mark"):
+            set_mark(inst, mark)
         rec = {"uid": inst.UniqueId}
         if secondary is not None:
             try:
@@ -929,21 +975,25 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                 rec["foundation_uid"] = f_inst.UniqueId
                 set_coord_params(doc, f_inst, hit, coords[0],
                                  coords[1])
+                if cfg.get("mark"):
+                    set_mark(f_inst, mark)
             except Exception as ex:
                 note("! foundation placement failed: {}".format(ex))
         records.append(rec)
 
-    for nd in nodes:
+    for ni, nd in enumerate(nodes):
         put(nd["xy"][0], nd["xy"][1], nd["tangent"], nd["cfg"],
-            True)
-    for e_i, st, _ni in doubles:
+            True, net_marks.get(("node", ni)))
+    for e_i, st, ni in doubles:
         e = edges[e_i]
         pnt, tang = F.point_at(e["poly"], st)
-        put(pnt[0], pnt[1], tang, e["cfg"], True)
-    for e in edges:
+        put(pnt[0], pnt[1], tang, e["cfg"], True,
+            net_marks.get(("double", (e_i, ni))))
+    for e_i, e in enumerate(edges):
         for d in e["stations"]:
             pnt, tang = F.point_at(e["poly"], d)
-            put(pnt[0], pnt[1], tang, e["cfg"], False)
+            put(pnt[0], pnt[1], tang, e["cfg"], False,
+                net_marks.get(("post", (e_i, d))))
     # panels: one per bay, centred, aligned to the line, width = bay
     net_missed = []
     for e in edges:
@@ -956,8 +1006,7 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
         place_panels(doc, pnl_sym, e["poly"], e["post_stations"],
                      terrain_id, ri, ray_z, levels, records,
                      net_missed,
-                     e["cfg"].get("panel_width_param") or None,
-                     skip=e.get("no_panel"))
+                     e["cfg"].get("panel_width_param") or None)
     missed[0] += len(net_missed)
 
     return records, notes, len(records), missed[0]

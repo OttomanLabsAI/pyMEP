@@ -51,7 +51,8 @@ DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "easting_param": EASTING_PARAM,
                   "northing_param": NORTHING_PARAM,
                   "terrain_mode": TERRAIN_AUTO,
-                  "terrains": []}
+                  "terrains": [],
+                  "mark": False}
 
 
 def _terrain_mode(v):
@@ -253,7 +254,9 @@ def get_configs(settings):
                                   "terrain_mode": _terrain_mode(
                                       c.get("terrain_mode")),
                                   "terrains": _terrain_list(
-                                      c.get("terrains"))}
+                                      c.get("terrains")),
+                                  "mark": bool(
+                                      c.get("mark", False))}
             except Exception:
                 continue
     if not out:
@@ -267,7 +270,8 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   line_style="", priority=99, end_priority=False,
                   panel="", panel_width_param="",
                   easting_param="", northing_param="",
-                  terrain_mode=TERRAIN_AUTO, terrains=None):
+                  terrain_mode=TERRAIN_AUTO, terrains=None,
+                  mark=False):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
@@ -318,7 +322,8 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                       str(northing_param or "").strip() or
                       NORTHING_PARAM,
                   "terrain_mode": _terrain_mode(terrain_mode),
-                  "terrains": _terrain_list(terrains)}
+                  "terrains": _terrain_list(terrains),
+                  "mark": bool(mark)}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
 
@@ -388,7 +393,8 @@ def effective_config(settings, name, snapshot):
                     NORTHING_PARAM),
             "terrain_mode": _terrain_mode(
                 snapshot.get("terrain_mode")),
-            "terrains": _terrain_list(snapshot.get("terrains"))}
+            "terrains": _terrain_list(snapshot.get("terrains")),
+            "mark": bool(snapshot.get("mark", False))}
 
 
 def delete_config(settings, name):
@@ -708,6 +714,240 @@ def edge_stations(length, spacing, anchor=0.0, clear_end=None,
         out.append(d)
         d += spacing
     return out
+
+
+def _letters(i):
+    """0 -> A, 1 -> B, ... 25 -> Z, 26 -> AA."""
+    out = ""
+    i += 1
+    while i > 0:
+        i, r = divmod(i - 1, 26)
+        out = chr(65 + r) + out
+    return out
+
+
+def network_marks(edges, node_xy, start, tol=1e-6):
+    """MARK values for every post of a fence network.
+
+    ``edges``: {e: {"poly": [(x, y, z)...], "posts": [(station,
+    kind, key), ...], "group": <optional line style / config>}}
+    with kind "node" (corner, key = node index), "double" (key as
+    the caller wants it back) or "post" (key as the caller wants it
+    back); every line END must carry a node. A run only continues
+    onto its OWN line or its own group - a different group hangs
+    off it as a branch.
+    ``node_xy``: [(x, y)] per node index. ``start``: the edge id of
+    the HIGHEST-PRIORITY line - numbering begins at its station-0
+    end.
+
+    Returns {(kind, key): mark}. The MAIN CHAIN walks from the
+    start taking the most CLOCKWISE (rightmost) turn at every
+    corner and numbers '1', '2', ... in walk order; when the chain
+    closes a loop that runs counter-clockwise it is re-walked the
+    other way, so the numbers always run CLOCKWISE. Every line
+    hanging OFF a numbered corner is a BRANCH with its OWN system:
+    the corner's mark + a letter per branch (clockwise from north)
+    + its own running number - '7A1', '7A2'; a second branch at the
+    same corner '7B1'; sub-branches recurse ('7A2A1'). Disconnected
+    parts get a 'C2-' / 'C3-' prefix and the same treatment."""
+    import math as _math
+
+    # ---- segments: node-to-node stretches of each line ---------------
+    segs = []               # {"e", "s0", "s1", "n0", "n1", "mid"}
+    node_arms = {}          # ni -> [(seg_index, +1 | -1)]
+    for e in sorted(edges.keys()):
+        posts = sorted(edges[e]["posts"], key=lambda p: p[0])
+        node_pos = [(st, key) for st, kind, key in posts
+                    if kind == "node"]
+        for k in range(len(node_pos) - 1):
+            s0, n0 = node_pos[k]
+            s1, n1 = node_pos[k + 1]
+            mid = [(st, kind, key) for st, kind, key in posts
+                   if kind != "node" and s0 + tol < st < s1 - tol]
+            si = len(segs)
+            segs.append({"e": e, "s0": s0, "s1": s1,
+                         "n0": n0, "n1": n1, "mid": mid})
+            node_arms.setdefault(n0, []).append((si, 1))
+            node_arms.setdefault(n1, []).append((si, -1))
+
+    def _dir(si, direction, at):
+        """Unit direction of an arm: 'out' leaving its start node,
+        'in' arriving at its far node."""
+        sg = segs[si]
+        poly = edges[sg["e"]]["poly"]
+        if direction > 0:
+            t = point_at(poly, sg["s0" if at == "out" else "s1"])[1]
+            return t
+        t = point_at(poly, sg["s1" if at == "out" else "s0"])[1]
+        return (-t[0], -t[1])
+
+    visited = set()
+    marks = {}
+    groups = dict((e, edges[e].get("group")) for e in edges)
+
+    def _pick_next(node, d_in, cur_e):
+        """The arm a run CONTINUES onto: its own line first
+        (straight through a T), then its own group (line style) by
+        the most CLOCKWISE turn. A different group never continues
+        the run - it hangs off it as a BRANCH."""
+        cur_g = groups.get(cur_e)
+        best = None
+        for si, dirn in sorted(node_arms.get(node) or []):
+            if si in visited:
+                continue
+            e2 = segs[si]["e"]
+            if e2 == cur_e:
+                rank = 0
+            elif groups.get(e2) == cur_g:
+                rank = 1
+            else:
+                continue
+            do = _dir(si, dirn, "out")
+            turn = _math.atan2(d_in[0] * do[1] - d_in[1] * do[0],
+                               d_in[0] * do[0] + d_in[1] * do[1])
+            key = (rank, turn)
+            if best is None or key < best[0]:
+                best = (key, si, dirn)
+        return None if best is None else (best[1], best[2])
+
+    def _walk(arm, next_k, mark_fn):
+        """Traverse from ``arm``, numbering every unmarked post;
+        stops at a dead end, a style change or an already-numbered
+        corner. Returns (sequence, next_k, nodes seen)."""
+        seq, nodes_seen = [], []
+        while arm is not None:
+            si, dirn = arm
+            visited.add(si)
+            seq.append(arm)
+            sg = segs[si]
+            mid = sg["mid"] if dirn > 0 else \
+                list(reversed(sg["mid"]))
+            for _st, kind, key in mid:
+                if (kind, key) not in marks:
+                    marks[(kind, key)] = mark_fn(next_k)
+                    next_k += 1
+            far = sg["n1"] if dirn > 0 else sg["n0"]
+            if ("node", far) in marks:
+                nodes_seen.append(far)
+                break
+            marks[("node", far)] = mark_fn(next_k)
+            next_k += 1
+            nodes_seen.append(far)
+            arm = _pick_next(far, _dir(si, dirn, "in"), sg["e"])
+        return seq, next_k, nodes_seen
+
+    def _replay(seq, next_k, mark_fn):
+        """Re-number along a KNOWN arm sequence (the reversed
+        loop)."""
+        for si, dirn in seq:
+            visited.add(si)
+            sg = segs[si]
+            mid = sg["mid"] if dirn > 0 else \
+                list(reversed(sg["mid"]))
+            for _st, kind, key in mid:
+                if (kind, key) not in marks:
+                    marks[(kind, key)] = mark_fn(next_k)
+                    next_k += 1
+            far = sg["n1"] if dirn > 0 else sg["n0"]
+            if ("node", far) not in marks:
+                marks[("node", far)] = mark_fn(next_k)
+                next_k += 1
+        return next_k
+
+    def _chain(first_node, first_arm, mark_fn):
+        """The main run: number the start corner, walk rightmost;
+        a loop that came back COUNTER-clockwise is re-walked the
+        other way so the numbers run clockwise."""
+        marks[("node", first_node)] = mark_fn(1)
+        before = set(marks)
+        seq, _k, nodes_seen = _walk(first_arm, 2, mark_fn)
+        closed = nodes_seen and nodes_seen[-1] == first_node and \
+            len(seq) > 1
+        if not closed:
+            return
+        ring = [first_node] + nodes_seen[:-1]
+        area = 0.0
+        for i in range(len(ring)):
+            x0, y0 = node_xy[ring[i]]
+            x1, y1 = node_xy[ring[(i + 1) % len(ring)]]
+            area += x0 * y1 - x1 * y0
+        if area <= 0:
+            return                  # already clockwise
+        # counter-clockwise: wipe THIS walk's numbers and replay the
+        # same loop the other way around
+        for h in [h for h in marks if h not in before]:
+            del marks[h]
+        visited.difference_update(si for si, _d in seq)
+        rev = [(si, -dirn) for si, dirn in reversed(seq)]
+        _replay(rev, 2, mark_fn)
+
+    def _branches():
+        """Grow branches off every numbered corner until none are
+        left: per corner, arms sorted CLOCKWISE from north get a
+        letter each, and each walks with its own numbers."""
+        grown = True
+        while grown:
+            grown = False
+            for ni in sorted([n for n in node_arms
+                              if ("node", n) in marks],
+                             key=lambda n: (len(marks[("node", n)]),
+                                            marks[("node", n)])):
+                arms = [(si, d) for si, d in node_arms[ni]
+                        if si not in visited]
+                if not arms:
+                    continue
+                def _bearing(arm):
+                    dx, dy = _dir(arm[0], arm[1], "out")
+                    return (_math.atan2(dx, dy)) % (2 * _math.pi)
+                arms.sort(key=_bearing)
+                anchor = marks[("node", ni)]
+                b_used = 0
+                for arm in arms:
+                    if arm[0] in visited:
+                        continue    # eaten by an earlier branch
+                    pref = anchor + _letters(b_used)
+                    b_used += 1
+                    _walk(arm, 1,
+                          (lambda p: lambda k: p + str(k))(pref))
+                grown = True
+                break               # marked nodes changed - rescan
+        return
+
+    # ---- main chain from the start line's station-0 end --------------
+    comp = 1
+    if start in edges:
+        posts0 = sorted(edges[start]["posts"], key=lambda p: p[0])
+        n_first = [key for _st, kind, key in posts0
+                   if kind == "node"]
+        if n_first:
+            first_node = n_first[0]
+            first_arm = None
+            for si, dirn in sorted(node_arms.get(first_node) or []):
+                if segs[si]["e"] == start and dirn > 0 and \
+                        abs(segs[si]["s0"] -
+                            posts0[0][0]) <= tol:
+                    first_arm = (si, dirn)
+                    break
+            if first_arm is None:
+                arms0 = sorted(node_arms.get(first_node) or [])
+                first_arm = arms0[0] if arms0 else None
+            if first_arm is not None:
+                _chain(first_node, first_arm, lambda k: str(k))
+                _branches()
+
+    # ---- disconnected parts: their own C2- / C3- systems -------------
+    while True:
+        left = [si for si in range(len(segs)) if si not in visited]
+        if not left:
+            break
+        comp += 1
+        si = left[0]
+        pref = "C{}-".format(comp)
+        _chain(segs[si]["n0"], (si, 1),
+               (lambda p: lambda k: p + str(k))(pref))
+        _branches()
+
+    return marks
 
 
 def pair_stations(instances, dists, tol=1e-6):

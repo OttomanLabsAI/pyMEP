@@ -53,6 +53,8 @@ def _row_text(name, cfg, style_names=None):
             cfg["end_foundation"] or "none")
     if cfg.get("panel"):
         txt += u"  |  panel: {}".format(cfg["panel"])
+    if cfg.get("mark"):
+        txt += u"  |  MARK"
     if cfg.get("terrain_mode") == F.TERRAIN_PICK:
         txt += u"  |  topo: pick at run"
     elif cfg.get("terrain_mode") == F.TERRAIN_NAMED:
@@ -87,6 +89,7 @@ class ConfigEditWindow(forms.WPFWindow):
         self.TxtSpacing.Text = "{:g}".format(cfg["spacing_mm"])
         self.TxtRotation.Text = "{:g}".format(cfg["rotation_deg"])
         self.ChkEnds.IsChecked = bool(cfg["endpoints"])
+        self.ChkMark.IsChecked = bool(cfg.get("mark", False))
         self._fill_pick(self.CmbPost, post_labels, "")
         self._fill_pick(self.CmbFoundation, found_labels, "")
         self._select_pick(self.CmbPost, cfg["post"])
@@ -385,7 +388,8 @@ class ConfigEditWindow(forms.WPFWindow):
                        "northing_param":
                            (self.TxtNorthParam.Text or "").strip(),
                        "terrain_mode": terrain_mode,
-                       "terrains": terrains}
+                       "terrains": terrains,
+                       "mark": bool(self.ChkMark.IsChecked)}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -460,7 +464,8 @@ class ConfigsWindow(forms.WPFWindow):
                             prio, r["end_priority"], r["panel"],
                             r["panel_width_param"],
                             r["easting_param"], r["northing_param"],
-                            r["terrain_mode"], r["terrains"])
+                            r["terrain_mode"], r["terrains"],
+                            r["mark"])
         except ValueError as ex:
             self.StatusText.Text = str(ex)
             return
