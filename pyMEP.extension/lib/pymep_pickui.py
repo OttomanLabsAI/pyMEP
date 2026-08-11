@@ -75,6 +75,16 @@ class EnterFinishesPick(object):
         except Exception:
             return None
 
+    @staticmethod
+    def _same_hwnd(a, b):
+        """HWND equality across the signed/unsigned zoo: ctypes
+        hands back a SIGNED 32-bit int, IntPtr.ToInt64 an unsigned-
+        looking 64-bit one - compare the low 32 bits."""
+        try:
+            return (int(a) & 0xFFFFFFFF) == (int(b) & 0xFFFFFFFF)
+        except Exception:
+            return True             # cannot tell - do not block
+
     def _watch(self):
         import time
         try:
@@ -97,7 +107,8 @@ class EnterFinishesPick(object):
                 continue
             if hwnd:
                 try:
-                    if int(u32.GetForegroundWindow()) != hwnd:
+                    if not self._same_hwnd(
+                            u32.GetForegroundWindow(), hwnd):
                         continue
                 except Exception:
                     pass
@@ -117,7 +128,8 @@ class EnterFinishesPick(object):
             from System import IntPtr
             from System.Windows.Automation import (
                 AndCondition, AutomationElement, ControlType,
-                InvokePattern, PropertyCondition, TreeScope)
+                InvokePattern, PropertyCondition,
+                PropertyConditionFlags, TreeScope)
             root = None
             if hwnd:
                 try:
@@ -128,12 +140,18 @@ class EnterFinishesPick(object):
             if root is None:
                 root = AutomationElement.RootElement
             for caption in FINISH_CAPTIONS:
+                try:
+                    name_cond = PropertyCondition(
+                        AutomationElement.NameProperty, caption,
+                        PropertyConditionFlags.IgnoreCase)
+                except Exception:
+                    name_cond = PropertyCondition(
+                        AutomationElement.NameProperty, caption)
                 cond = AndCondition(
                     PropertyCondition(
                         AutomationElement.ControlTypeProperty,
                         ControlType.Button),
-                    PropertyCondition(
-                        AutomationElement.NameProperty, caption))
+                    name_cond)
                 btn = root.FindFirst(TreeScope.Descendants, cond)
                 if btn is None:
                     continue

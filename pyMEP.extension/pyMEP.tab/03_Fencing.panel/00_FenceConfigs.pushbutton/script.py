@@ -53,8 +53,8 @@ def _row_text(name, cfg, style_names=None):
             cfg["end_foundation"] or "none")
     if cfg.get("panel"):
         txt += u"  |  panel: {}".format(cfg["panel"])
-    if cfg.get("terrain_mode") == F.TERRAIN_AUTO:
-        txt += u"  |  topo: AUTO"
+    if cfg.get("terrain_mode") == F.TERRAIN_PICK:
+        txt += u"  |  topo: pick at run"
     elif cfg.get("terrain_mode") == F.TERRAIN_NAMED:
         txt += u"  |  topo: {}".format(
             u", ".join(cfg.get("terrains") or []) or "?")
@@ -112,19 +112,32 @@ class ConfigEditWindow(forms.WPFWindow):
         self._select_pick(self.CmbLineStyle, cfg["line_style"])
         self.ChkEndPriority.IsChecked = bool(cfg["end_priority"])
         # terrain: mode radios + the multi-select name list (stored
-        # names missing from this model stay listed so they survive)
+        # names missing from this model stay listed so they survive
+        # - shown RED)
         stored = list(cfg.get("terrains") or [])
+        self.model_terrains = set(terrain_labels)
         self.terrain_labels = list(terrain_labels) + \
             [n for n in stored if n not in terrain_labels]
         self._terr_sel = set(stored)
         self._terr_busy = False
-        mode = cfg.get("terrain_mode") or F.TERRAIN_PICK
-        self.RbTerrainAuto.IsChecked = (mode == F.TERRAIN_AUTO)
+        mode = cfg.get("terrain_mode") or F.TERRAIN_AUTO
+        self.RbTerrainPick.IsChecked = (mode == F.TERRAIN_PICK)
         self.RbTerrainNamed.IsChecked = (mode == F.TERRAIN_NAMED)
-        self.RbTerrainPick.IsChecked = mode not in (
-            F.TERRAIN_AUTO, F.TERRAIN_NAMED)
+        self.RbTerrainAuto.IsChecked = mode not in (
+            F.TERRAIN_PICK, F.TERRAIN_NAMED)
         self._fill_terrains("")
         self.on_terrain_mode(None, None)
+        # RED marks any pick that is NOT in this model any more
+        self.style_names = list(style_names)
+        for combo, labels in (
+                (self.CmbPost, self.post_labels),
+                (self.CmbEndPost, self.post_labels),
+                (self.CmbFoundation, self.found_labels),
+                (self.CmbEndFoundation, self.found_labels),
+                (self.CmbPanel, self.panel_labels),
+                (self.CmbLineStyle, self.style_names)):
+            combo.SelectionChanged += self._make_tint(combo, labels)
+            self._tint_known(combo, labels)
 
     # ---- family pickers (post + foundation share the behaviour) ------
     @staticmethod
@@ -155,6 +168,28 @@ class ConfigEditWindow(forms.WPFWindow):
     def _picked(combo):
         lbl = str(combo.SelectedItem or NONE_LABEL)
         return "" if lbl == NONE_LABEL else lbl
+
+    def _make_tint(self, combo, labels):
+        def _h(sender, args):
+            self._tint_known(combo, labels)
+        return _h
+
+    @staticmethod
+    def _tint_known(combo, labels):
+        """RED when the current pick is NOT in this model any more
+        (saved on another model, or renamed / deleted since) - the
+        value is kept, the colour says re-pick."""
+        try:
+            from System.Windows.Media import Brushes
+            v = combo.SelectedItem
+            bad = v is not None and str(v) != NONE_LABEL and \
+                str(v) not in labels
+            combo.Foreground = Brushes.Red if bad else Brushes.Black
+            combo.ToolTip = ("NOT in this model (renamed or "
+                             "deleted?) - re-pick"
+                             if bad else None)
+        except Exception:
+            pass
 
     def _apply_search(self, combo, labels, box, key):
         """Typing NARROWS the list, jumps the pick to the first match
@@ -232,18 +267,26 @@ class ConfigEditWindow(forms.WPFWindow):
     # ---- terrain (mode radios + multi-select name list) --------------
     def _fill_terrains(self, needle):
         """Rebuild the list to the filter, re-ticking the names in
-        the selection set."""
+        the selection set - names NOT in this model show RED."""
         self._terr_busy = True
         try:
+            from System.Windows.Controls import ListBoxItem
+            from System.Windows.Media import Brushes
             self.LstTerrains.Items.Clear()
             needle = (needle or "").strip().lower()
             for lbl in self.terrain_labels:
                 if needle and needle not in lbl.lower():
                     continue
-                self.LstTerrains.Items.Add(lbl)
-            for item in list(self.LstTerrains.Items):
-                if item in self._terr_sel:
-                    self.LstTerrains.SelectedItems.Add(item)
+                it = ListBoxItem()
+                it.Content = lbl
+                if lbl not in self.model_terrains:
+                    it.Foreground = Brushes.Red
+                    it.ToolTip = ("NOT in this model (renamed or "
+                                  "deleted?)")
+                self.LstTerrains.Items.Add(it)
+            for it in list(self.LstTerrains.Items):
+                if str(it.Content) in self._terr_sel:
+                    self.LstTerrains.SelectedItems.Add(it)
         finally:
             self._terr_busy = False
 
@@ -259,8 +302,10 @@ class ConfigEditWindow(forms.WPFWindow):
         if getattr(self, "_terr_busy", True):
             return
         try:
-            visible = set(self.LstTerrains.Items)
-            picked = set(self.LstTerrains.SelectedItems)
+            visible = set(str(it.Content)
+                          for it in self.LstTerrains.Items)
+            picked = set(str(it.Content)
+                         for it in self.LstTerrains.SelectedItems)
             self._terr_sel = (self._terr_sel - visible) | picked
             if picked and not bool(
                     self.RbTerrainNamed.IsChecked):
