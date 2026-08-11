@@ -401,6 +401,22 @@ class Intersections(unittest.TestCase):
         self.assertEqual(bays[2], (9.5, 5.0))
         self.assertEqual(F.panel_bays([3.0], 0.5), [])
 
+    def test_panel_bays_skip_corner_to_double(self):
+        # the corner-post-to-DOUBLE-post gap is foundation
+        # clearance, not a fence bay - a skip span drops its panel
+        # even when it is wider than min_len
+        sts = [0.0, 2.0, 12.0, 22.0, 27.0]
+        bays = F.panel_bays(sts, 0.5, skip=[(0.0, 2.0)])
+        self.assertEqual(bays, [(7.0, 10.0), (17.0, 10.0),
+                                (24.5, 5.0)])
+        # skip at the FAR end of a line works the same way
+        bays = F.panel_bays(sts, 0.5, skip=[(22.0, 27.0)])
+        self.assertEqual(bays, [(1.0, 2.0), (7.0, 10.0),
+                                (17.0, 10.0)])
+        # no skip spans: unchanged behaviour
+        self.assertEqual(F.panel_bays(sts, 0.5, skip=[]),
+                         F.panel_bays(sts, 0.5))
+
     def test_polys_touch(self):
         a = [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0)]
         crossing = [(5.0, -5.0, 0.0), (5.0, 5.0, 0.0)]

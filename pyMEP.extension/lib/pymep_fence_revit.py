@@ -253,10 +253,11 @@ def set_panel_width(inst, width_ft, param_name=None):
 
 def place_panels(doc, panel_symbol, poly, post_stations, terrain_id,
                  ri, ray_z, levels, records, missed,
-                 width_param=None):
+                 width_param=None, skip=None):
     """One panel per BAY between consecutive posts: placed at the
     bay's CENTRE, aligned to the line, draped, width driven to the
-    bay length. Appends to records / missed in place."""
+    bay length. ``skip`` spans (corner post -> its DOUBLE post) get
+    no panel. Appends to records / missed in place."""
     if panel_symbol is None or len(post_stations) < 2:
         return
     try:
@@ -266,7 +267,8 @@ def place_panels(doc, panel_symbol, poly, post_stations, terrain_id,
     except Exception:
         pass
     for mid, width in F.panel_bays(sorted(post_stations),
-                                   mm2ft(F.PANEL_MIN_MM)):
+                                   mm2ft(F.PANEL_MIN_MM),
+                                   skip=skip):
         p, tang = F.point_at(poly, mid)
         hit = topmost_hit(doc, ri, XYZ(p[0], p[1], ray_z), terrain_id)
         if hit is None:
@@ -574,6 +576,7 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
     # (ONE post next to the big one - nothing else touches)
     doubles = []            # (e_i, station, ni)
     dbl_at = {}             # (e_i, ni) -> the double's station
+    no_panel = {}           # e_i -> [(lo, hi)] corner->double spans
     for ni, nd in enumerate(nodes):
         if not nd["end_priority"]:
             continue
@@ -597,6 +600,8 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
                     continue                        # passes through
                 doubles.append((e_i, dbl, ni))
                 dbl_at[(e_i, ni)] = dbl
+                no_panel.setdefault(e_i, []).append(
+                    (min(st, dbl), max(st, dbl)))
 
     # ---- in-between stations per edge segment ------------------------
     total = len(nodes) + len(doubles)
@@ -660,8 +665,10 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
             [st for st, _ni in merged] +
             [st for (ei2, st, _ni) in doubles if ei2 == e_i] +
             sts_all)
+        e["no_panel"] = no_panel.get(e_i) or []
         n_panels = len(F.panel_bays(e["post_stations"],
-                                    mm2ft(F.PANEL_MIN_MM))) \
+                                    mm2ft(F.PANEL_MIN_MM),
+                                    skip=e["no_panel"])) \
             if e["cfg"].get("panel") else 0
         total += len(e["stations"]) + n_panels
         note("line {} ('{}' -> {}): {} corner(s), {} in-between "
@@ -758,7 +765,8 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
         place_panels(doc, pnl_sym, e["poly"], e["post_stations"],
                      terrain_id, ri, ray_z, levels, records,
                      net_missed,
-                     e["cfg"].get("panel_width_param") or None)
+                     e["cfg"].get("panel_width_param") or None,
+                     skip=e.get("no_panel"))
     missed[0] += len(net_missed)
 
     return records, notes, len(records), missed[0]

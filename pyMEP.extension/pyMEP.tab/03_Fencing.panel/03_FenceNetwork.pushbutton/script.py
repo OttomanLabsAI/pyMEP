@@ -6,8 +6,9 @@ spacing with the leftover shortening the last bay.
 
 Draw the layout as model lines using the styles bound in Fence
 Configs (each config: line style, spacing, priority, families).
-Pick the lines one by one (ESC finishes; a pre-selection is used
-as-is), pick the TERRAIN, confirm the mapping - then:
+Pick the lines - click them or drag a selection box, FINISH ends
+(a pre-selection is used as-is) - pick the TERRAIN, confirm the
+mapping - then:
 
   - corners come FIRST, and EVERY intersection of the lines is a
     corner: shared endpoints, mid-line crossings, T-junctions. The
@@ -84,21 +85,22 @@ class TerrainFilter(ISelectionFilter):
 
 
 def get_lines():
-    """Pre-selected model lines, or pick ONE BY ONE - a single ESC
-    (or right-click) continues with what was picked."""
+    """Pre-selected model lines, or a normal multi-select: click
+    lines AND/OR drag a selection box (the filter lets only curves
+    in) - hit FINISH on the options bar; ESC cancels."""
     picked = [el for el in revit.get_selection().elements
               if isinstance(el, CurveElement)]
     if picked:
         return picked
+    try:
+        refs = uidoc.Selection.PickObjects(
+            ObjectType.Element, LineFilter(),
+            "Pick the fence LINES - click them or drag a selection "
+            "box, then hit FINISH")
+    except Exception:
+        return []
     got, seen = [], set()
-    while True:
-        try:
-            r = uidoc.Selection.PickObject(
-                ObjectType.Element, LineFilter(),
-                "Pick the fence LINES one by one ({} picked) - "
-                "press ESC to continue".format(len(got)))
-        except Exception:
-            break
+    for r in refs:
         el = doc.GetElement(r.ElementId)
         if isinstance(el, CurveElement) and \
                 FR.id_value(el.Id) not in seen:
@@ -155,6 +157,22 @@ def main():
             lines_txt.append(u"'{}' x{} -> NO CONFIG - will be "
                              u"skipped".format(st or "?", styles[st]))
         log("- " + lines_txt[-1])
+    # a skipped style next to a config bound to a style NO picked
+    # line carries is almost always a RENAMED line style
+    hint = None
+    if any(st not in bound for st in styles):
+        idle = [(n, cfgs[n]["line_style"]) for n in sorted(cfgs)
+                if cfgs[n].get("line_style") and
+                cfgs[n]["line_style"] not in styles]
+        if idle:
+            hint = (u"{} - if a line style was RENAMED in the "
+                    u"model, open Fence Configs, Edit the "
+                    u"configuration and re-pick its line "
+                    u"style.").format(
+                u"; ".join(u"config '{}' is bound to '{}', which "
+                           u"NO picked line uses".format(n, s)
+                           for n, s in idle))
+            log("! " + hint)
     order = [n for n in F.priority_order(cfgs)
              if cfgs[n].get("line_style")]
     prio_txt = " > ".join(
@@ -163,12 +181,15 @@ def main():
         for n in order)
     log("Priority (top wins corners): **{}**".format(prio_txt))
     if not forms.alert(
-            "Model the fence network?\n\n{}\n\nPriority (first "
-            "wins corners): {}\n\nEvery intersection of the lines "
-            "is a corner - the winner's END post stands there; "
-            "END-PRIORITY configs make other terminating lines set "
-            "their own end post right next to it (touching "
-            "circles).".format("\n".join(lines_txt), prio_txt),
+            u"Model the fence network?\n\n{}{}\n\nPriority (first "
+            u"wins corners): {}\n\nEvery intersection of the lines "
+            u"is a corner - the winner's END post stands there; "
+            u"END-PRIORITY configs make other terminating lines set "
+            u"their own end post right next to it (touching "
+            u"circles).".format(
+                u"\n".join(lines_txt),
+                u"\n\n! {}".format(hint) if hint else u"",
+                prio_txt),
             yes=True, no=True):
         log("Cancelled - nothing modelled.")
         log.close()
