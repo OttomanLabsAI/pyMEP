@@ -567,6 +567,26 @@ class Intersections(unittest.TestCase):
         s = {F.SETTINGS_MARK: True, F.SETTINGS_MARK_PREFIX: " FF "}
         self.assertEqual(F.mark_settings(s), (True, "FF"))
 
+    def test_toc_settings_and_eval(self):
+        self.assertEqual(F.toc_settings({}), (False, "TOC", ""))
+        s = {F.SETTINGS_TOC: True, F.SETTINGS_TOC_PARAM: " Top ",
+             F.SETTINGS_TOC_FORMULA: "z + 50"}
+        self.assertEqual(F.toc_settings(s), (True, "Top", "z + 50"))
+        # empty equation = the ground level itself
+        self.assertEqual(F.eval_toc("", 855.5), 855.5)
+        self.assertEqual(F.eval_toc("z + 50", 855.5), 905.5)
+        self.assertEqual(F.eval_toc("max(z, 900)", 855.5), 900.0)
+        self.assertEqual(F.eval_toc("round(z / 10) * 10", 856.0),
+                         860.0)
+        # e / n (metres) available too
+        self.assertEqual(F.eval_toc("z + e + n", 100.0, 2.0, 3.0),
+                         105.0)
+        # a typo raises with the reason; builtins stay locked out
+        self.assertRaises(ValueError, F.eval_toc, "z +", 100.0)
+        self.assertRaises(ValueError, F.eval_toc, "q * 2", 100.0)
+        self.assertRaises(ValueError, F.eval_toc,
+                          "__import__('os')", 100.0)
+
     def test_network_marks_two_branches_lettered(self):
         # two spurs at the same corner get A and B (clockwise from
         # north), each with its own count

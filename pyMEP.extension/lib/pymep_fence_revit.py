@@ -414,6 +414,43 @@ def set_coord_params(doc, inst, pt, east_name, north_name):
             continue
 
 
+def set_toc(doc, inst, pt, param_name, formula):
+    """TOC: evaluate the equation at the placement point and write
+    the result into the named instance parameter. Variables come
+    from the SURVEY-basis point: z = ground level (mm), e / n =
+    easting / northing (metres). A Length parameter gets the value
+    as millimetres (converted to internal), a Text parameter the
+    number to 1 decimal. Silently skipped when the instance has no
+    such parameter."""
+    if inst is None or not param_name:
+        return
+    try:
+        tf = doc.ActiveProjectLocation.GetTotalTransform().Inverse
+        sp = tf.OfPoint(pt)
+    except Exception:
+        sp = pt
+    try:
+        z_mm = UnitUtils.ConvertFromInternalUnits(
+            sp.Z, UnitTypeId.Millimeters)
+        e_m = UnitUtils.ConvertFromInternalUnits(
+            sp.X, UnitTypeId.Meters)
+        n_m = UnitUtils.ConvertFromInternalUnits(
+            sp.Y, UnitTypeId.Meters)
+        val = F.eval_toc(formula, z_mm, e_m, n_m)
+    except Exception:
+        return
+    try:
+        par = inst.LookupParameter(param_name)
+        if par is None or par.IsReadOnly:
+            return
+        if par.StorageType == StorageType.Double:
+            par.Set(mm2ft(val))
+        elif par.StorageType == StorageType.String:
+            par.Set("{:.1f}".format(val))
+    except Exception:
+        pass
+
+
 def set_mark(inst, value):
     """Write the Mark instance parameter - silently skipped when the
     element has none or it is read-only."""
@@ -486,7 +523,7 @@ def station_pick(dists, length, primary, secondary,
 def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
                     levels, extra_rot=0.0, panel_symbol=None,
                     panel_width_param=None, coord_params=None,
-                    marks=None):
+                    marks=None, toc=None):
     """Place at every station, draped and rotated - the line's
     direction plus ``extra_rot`` (radians, the config's custom
     rotation). ``pick(d)`` returns (symbol, foundation_symbol) for
@@ -532,9 +569,12 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
             if failed_reason[0] is None:
                 failed_reason[0] = "{}".format(ex)
             continue
-        if coord_params and _is_foundation(inst):
-            set_coord_params(doc, inst, hit, coord_params[0],
-                             coord_params[1])
+        if _is_foundation(inst):
+            if coord_params:
+                set_coord_params(doc, inst, hit, coord_params[0],
+                                 coord_params[1])
+            if toc:
+                set_toc(doc, inst, hit, toc[0], toc[1])
         set_mark(inst, mark)
         rec = {"uid": inst.UniqueId, "station_ft": d, "angle": ang}
         if foundation_symbol is not None:
@@ -546,6 +586,8 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
                     set_coord_params(doc, f_inst, hit,
                                      coord_params[0],
                                      coord_params[1])
+                if toc:
+                    set_toc(doc, f_inst, hit, toc[0], toc[1])
                 set_mark(f_inst, mark)
             except Exception as ex:
                 failed += 1
@@ -566,7 +608,7 @@ def _move_one(doc, el, hit, rot_delta):
 
 
 def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
-                   extra_rot=0.0, coord_params=None):
+                   extra_rot=0.0, coord_params=None, toc=None):
     """MOVE each stored instance (and its foundation, when the record
     has one that still exists) to its new station: pairs =
     [(instance_dict, element, new_station)]. The rotation applied is
@@ -588,9 +630,12 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
             old_ang = float(inst_d.get("angle") or 0.0)
             new_ang = math.atan2(tang[1], tang[0]) + extra_rot
             _move_one(doc, el, hit, new_ang - old_ang)
-            if coord_params and _is_foundation(el):
-                set_coord_params(doc, el, hit, coord_params[0],
-                                 coord_params[1])
+            if _is_foundation(el):
+                if coord_params:
+                    set_coord_params(doc, el, hit, coord_params[0],
+                                     coord_params[1])
+                if toc:
+                    set_toc(doc, el, hit, toc[0], toc[1])
             rec = {"uid": inst_d.get("uid"), "station_ft": d,
                    "angle": new_ang}
             f_uid = inst_d.get("foundation_uid")
@@ -604,6 +649,9 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
                             set_coord_params(doc, f_el, hit,
                                              coord_params[0],
                                              coord_params[1])
+                        if toc:
+                            set_toc(doc, f_el, hit, toc[0],
+                                    toc[1])
                 except Exception:
                     failed += 1
             records.append(rec)
@@ -643,7 +691,7 @@ def symbol_diameter_ft(symbol):
 
 
 def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
-                  mark_opts=None):
+                  mark_opts=None, toc_opts=None):
     """Model a fence NETWORK inside the caller's open Transaction.
     ``terrain`` is one element or a list of them - stations drape
     onto whichever of the terrain surfaces the ray actually hits.
@@ -669,7 +717,9 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
     (before anything is placed) on the sanity cap or when nothing is
     mappable. ``mark_opts`` = (enabled, prefix) from
     F.mark_settings: when enabled EVERY post + foundation gets a
-    Mark, numbered clockwise from the top-priority line."""
+    Mark, numbered clockwise from the top-priority line.
+    ``toc_opts`` = (param name, equation) from F.toc_settings:
+    every foundation gets the evaluated TOC written."""
     import pymep_fence as F
 
     notes = []
@@ -970,6 +1020,8 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
                   cfg.get("northing_param") or F.NORTHING_PARAM)
         if _is_foundation(inst):
             set_coord_params(doc, inst, hit, coords[0], coords[1])
+            if toc_opts:
+                set_toc(doc, inst, hit, toc_opts[0], toc_opts[1])
         if mark_on:
             set_mark(inst, mark)
         rec = {"uid": inst.UniqueId}
@@ -979,6 +1031,9 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
                 rec["foundation_uid"] = f_inst.UniqueId
                 set_coord_params(doc, f_inst, hit, coords[0],
                                  coords[1])
+                if toc_opts:
+                    set_toc(doc, f_inst, hit, toc_opts[0],
+                            toc_opts[1])
                 if mark_on:
                     set_mark(f_inst, mark)
             except Exception as ex:

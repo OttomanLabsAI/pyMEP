@@ -206,6 +206,14 @@ def main():
     settings[F.SETTINGS_JUSTIFY] = opt["justify"]
     settings[F.SETTINGS_LAST] = opt["config"]
     mark_on, mark_prefix = F.mark_settings(settings)
+    toc_on, toc_param, toc_eq = F.toc_settings(settings)
+    toc = (toc_param, toc_eq) if toc_on else None
+    if toc_on:
+        try:
+            F.eval_toc(toc_eq, 1000.0, 100.0, 200.0)
+        except ValueError as ex:
+            log("! {} - TOC skipped".format(ex))
+            toc = None
     try:
         save_settings(settings)
     except Exception:
@@ -353,7 +361,8 @@ def main():
                           opt["northing_param"]),
             marks=[mark_prefix + str(i + 1)
                    for i in range(len(dists))]
-            if mark_on else None)
+            if mark_on else None,
+            toc=toc)
         t.Commit()
     except Exception:
         try:

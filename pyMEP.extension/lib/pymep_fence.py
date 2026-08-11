@@ -28,6 +28,11 @@ SETTINGS_JUSTIFY = "fence_justify"   # start | centre | end
 SETTINGS_FAMILY = "fence_family"     # last family label
 SETTINGS_MARK = "fence_mark"         # MARK numbering on/off (global)
 SETTINGS_MARK_PREFIX = "fence_mark_prefix"
+SETTINGS_TOC = "fence_toc"           # TOC population on/off (global)
+SETTINGS_TOC_PARAM = "fence_toc_param"
+SETTINGS_TOC_FORMULA = "fence_toc_formula"
+
+TOC_PARAM = "TOC"                    # default parameter name
 
 DEFAULT_NAME = "Default"
 
@@ -78,6 +83,42 @@ def mark_settings(settings):
     number (FF -> FF1, FF2, corners FF7A1...)."""
     return (bool(settings.get(SETTINGS_MARK, False)),
             str(settings.get(SETTINGS_MARK_PREFIX) or "").strip())
+
+
+def toc_settings(settings):
+    """(enabled, parameter name, equation) for TOC population -
+    GLOBAL, set on the Fence Configurations window. The equation is
+    evaluated per foundation with eval_toc()."""
+    return (bool(settings.get(SETTINGS_TOC, False)),
+            str(settings.get(SETTINGS_TOC_PARAM) or
+                TOC_PARAM).strip() or TOC_PARAM,
+            str(settings.get(SETTINGS_TOC_FORMULA) or "").strip())
+
+
+def eval_toc(formula, z_mm, e_m=0.0, n_m=0.0):
+    """Evaluate the TOC equation at one foundation.
+
+    Variables: ``z`` = the draped GROUND level at the post
+    (millimetres, survey basis), ``e`` / ``n`` = the survey
+    EASTING / NORTHING (metres) - plus abs, min, max, round and the
+    math functions (sqrt, floor, ceil, sin, cos, tan, atan, atan2,
+    log, exp, pow, pi). An empty equation returns ``z`` untouched.
+    Returns the value in MILLIMETRES; raises ValueError with the
+    reason when the equation cannot be evaluated."""
+    if not str(formula or "").strip():
+        return float(z_mm)
+    import math as _math
+    ns = {"z": float(z_mm), "e": float(e_m), "n": float(n_m),
+          "abs": abs, "min": min, "max": max, "round": round}
+    for nm in ("sqrt", "floor", "ceil", "sin", "cos", "tan",
+               "atan", "atan2", "log", "exp", "pow", "pi", "fabs"):
+        ns[nm] = getattr(_math, nm)
+    try:
+        v = eval(compile(str(formula), "<toc>", "eval"),
+                 {"__builtins__": {}}, ns)
+        return float(v)
+    except Exception as ex:
+        raise ValueError("TOC equation failed: {}".format(ex))
 
 # the categories a POST may come from / the FOUNDATION must come from
 POST_CATEGORIES = ["OST_GenericModel", "OST_Columns",
