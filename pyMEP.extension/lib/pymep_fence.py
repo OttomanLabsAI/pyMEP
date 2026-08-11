@@ -34,9 +34,9 @@ DEFAULT_NAME = "Default"
 EASTING_PARAM = "EASTINGS"
 NORTHING_PARAM = "NORTHINGS"
 
-# where the terrain comes from: picked when the button runs (the
-# default), the named element(s) stored in the config, or AUTO -
-# every topo whose footprint the lines touch
+# where the terrain comes from: AUTO (the default) - every topo
+# whose footprint the lines touch - the named element(s) stored in
+# the config, or picked when the button runs
 TERRAIN_PICK = "pick"
 TERRAIN_NAMED = "named"
 TERRAIN_AUTO = "auto"
@@ -50,13 +50,13 @@ DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "panel_width_param": "",
                   "easting_param": EASTING_PARAM,
                   "northing_param": NORTHING_PARAM,
-                  "terrain_mode": TERRAIN_PICK,
+                  "terrain_mode": TERRAIN_AUTO,
                   "terrains": []}
 
 
 def _terrain_mode(v):
     v = str(v or "").strip().lower()
-    return v if v in (TERRAIN_NAMED, TERRAIN_AUTO) else TERRAIN_PICK
+    return v if v in (TERRAIN_NAMED, TERRAIN_PICK) else TERRAIN_AUTO
 
 
 def _terrain_list(v):
@@ -267,7 +267,7 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   line_style="", priority=99, end_priority=False,
                   panel="", panel_width_param="",
                   easting_param="", northing_param="",
-                  terrain_mode=TERRAIN_PICK, terrains=None):
+                  terrain_mode=TERRAIN_AUTO, terrains=None):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top

@@ -134,7 +134,7 @@ class ConfigStore(unittest.TestCase):
                           "panel": "", "panel_width_param": "",
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
-                          "terrain_mode": "pick",
+                          "terrain_mode": "auto",
                           "terrains": []})
 
     def test_upsert_validates(self):
@@ -179,7 +179,7 @@ class ConfigStore(unittest.TestCase):
                           "panel_width_param": "",
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
-                          "terrain_mode": "pick",
+                          "terrain_mode": "auto",
                           "terrains": []})
 
 
@@ -192,7 +192,7 @@ class EffectiveConfig(unittest.TestCase):
             "panel_width_param": "",
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
-                          "terrain_mode": "pick",
+                          "terrain_mode": "auto",
                           "terrains": []}
 
     def test_current_config_wins(self):
@@ -213,7 +213,7 @@ class EffectiveConfig(unittest.TestCase):
                                "panel_width_param": "",
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
-                          "terrain_mode": "pick",
+                          "terrain_mode": "auto",
                           "terrains": []})
 
     def test_missing_config_falls_back_to_snapshot(self):
@@ -236,7 +236,7 @@ class EffectiveConfig(unittest.TestCase):
                                "panel_width_param": "",
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
-                          "terrain_mode": "pick",
+                          "terrain_mode": "auto",
                           "terrains": []})
 
     def test_snapshot_family_becomes_the_post(self):
@@ -464,11 +464,16 @@ class Intersections(unittest.TestCase):
         cfg = F.get_configs(s)["x"]
         self.assertEqual(cfg["terrain_mode"], F.TERRAIN_NAMED)
         self.assertEqual(cfg["terrains"], ["Topo A", "Topo B"])
+        # AUTO is the default: junk normalises to it, an explicit
+        # 'pick' is honoured
         F.upsert_config(s, "x", 1000, True, terrain_mode="bogus",
                         terrains="not-a-list")
         cfg = F.get_configs(s)["x"]
-        self.assertEqual(cfg["terrain_mode"], F.TERRAIN_PICK)
+        self.assertEqual(cfg["terrain_mode"], F.TERRAIN_AUTO)
         self.assertEqual(cfg["terrains"], [])
+        F.upsert_config(s, "x", 1000, True, terrain_mode="pick")
+        self.assertEqual(F.get_configs(s)["x"]["terrain_mode"],
+                         F.TERRAIN_PICK)
 
     def test_polys_touch(self):
         a = [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0)]

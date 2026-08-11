@@ -168,36 +168,6 @@
                 </StackPanel>
             </GroupBox>
 
-            <GroupBox Header="Terrain">
-                <StackPanel>
-                    <RadioButton x:Name="RbTerrainPick"
-                                 GroupName="TerrainMode"
-                                 IsChecked="True"
-                                 Content="pick the terrain when the button runs"/>
-                    <RadioButton x:Name="RbTerrainAuto"
-                                 GroupName="TerrainMode"
-                                 Margin="0,6,0,0"
-                                 Content="AUTO - use the topo(s) the lines sit over"/>
-                    <RadioButton x:Name="RbTerrainNamed"
-                                 GroupName="TerrainMode"
-                                 Margin="0,6,0,0"
-                                 Content="always these terrain element(s):"
-                                 Checked="on_terrain_mode"
-                                 Unchecked="on_terrain_mode"/>
-                    <StackPanel x:Name="PnlTerrains"
-                                Margin="18,6,0,0">
-                        <TextBox x:Name="TxtTerrainSearch"
-                                 TextChanged="on_terrain_search"/>
-                        <ListBox x:Name="LstTerrains" Height="96"
-                                 Margin="0,6,0,0"
-                                 SelectionMode="Multiple"
-                                 SelectionChanged="on_terrain_pick"/>
-                    </StackPanel>
-                    <TextBlock Style="{StaticResource Hint}"
-                               Text="Where the fence drapes to. AUTO finds every toposolid / topography whose footprint the lines touch. The named list (toposolids, topographies, floors, roofs - type above to filter, click to tick several) matches elements by NAME, so it survives between models. When AUTO finds nothing or a named terrain is missing, the button falls back to asking for a pick. Fence Network takes the terrain from the highest-priority configuration among the picked lines."/>
-                </StackPanel>
-            </GroupBox>
-
             <GroupBox Header="Fence panel family">
                 <StackPanel>
                     <TextBox x:Name="TxtPanelSearch"
@@ -217,6 +187,36 @@
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
                                Text="Generic Models and Structural Framing, point-based (type above to filter). '(none)' places no panels. One panel per BAY between consecutive posts: placed at the bay's CENTRE, aligned to the line, draped like the posts. The SPACING PARAMETER names the family parameter that receives the bay length (the spacing; shorter on the last bay) - leave it empty to try Width / Panel Width / Length automatically. Bays under 100 mm (touching double posts) get none."/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Terrain">
+                <StackPanel>
+                    <RadioButton x:Name="RbTerrainAuto"
+                                 GroupName="TerrainMode"
+                                 IsChecked="True"
+                                 Content="AUTO - use the topo(s) the lines sit over (default)"/>
+                    <RadioButton x:Name="RbTerrainPick"
+                                 GroupName="TerrainMode"
+                                 Margin="0,6,0,0"
+                                 Content="pick the terrain when the button runs"/>
+                    <RadioButton x:Name="RbTerrainNamed"
+                                 GroupName="TerrainMode"
+                                 Margin="0,6,0,0"
+                                 Content="always these terrain element(s):"
+                                 Checked="on_terrain_mode"
+                                 Unchecked="on_terrain_mode"/>
+                    <StackPanel x:Name="PnlTerrains"
+                                Margin="18,6,0,0">
+                        <TextBox x:Name="TxtTerrainSearch"
+                                 TextChanged="on_terrain_search"/>
+                        <ListBox x:Name="LstTerrains" Height="96"
+                                 Margin="0,6,0,0"
+                                 SelectionMode="Multiple"
+                                 SelectionChanged="on_terrain_pick"/>
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Where the fence drapes to. AUTO (the default) finds every toposolid / topography whose footprint the lines touch. The named list (toposolids, topographies, floors, roofs - type above to filter, click to tick several) matches elements by NAME, so it survives between models. When AUTO finds nothing or a named terrain is missing, the button falls back to asking for a pick. Fence Network takes the terrain from the highest-priority configuration among the picked lines."/>
                 </StackPanel>
             </GroupBox>
 
