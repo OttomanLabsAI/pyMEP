@@ -551,10 +551,18 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None):
         per = node_pins.get(ni) or {}
         incident = [(edges[e_i]["name"], edges[e_i]["cfg"])
                     for e_i in sorted(per.keys())]
-        first_e = sorted(per.keys())[0]
-        first_st = sorted(per[first_e])[0]
-        tangent = F.point_at(edges[first_e]["poly"], first_st)[1]
         win_name, win = F.pick_priority(incident)
+        # the corner post ALIGNS to the PRIORITY line: the winning
+        # config's own edge at this node sets the tangent
+        pick_e = None
+        for e_i in sorted(per.keys()):
+            if edges[e_i]["name"] == win_name:
+                pick_e = e_i
+                break
+        if pick_e is None:
+            pick_e = sorted(per.keys())[0]
+        st = sorted(per[pick_e])[0]
+        tangent = F.point_at(edges[pick_e]["poly"], st)[1]
         nodes.append({"xy": centers[ni], "cfg": win,
                       "name": win_name, "tangent": tangent,
                       "r": _fnd_radius(win, True),
