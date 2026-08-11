@@ -19,7 +19,9 @@ NOW:
     posts is dropped.
 
 Fence NETWORK records are re-solved from scratch - current lines,
-styles, priorities and touching-circle packing - and rebuilt.
+styles, priorities - and rebuilt; NEWLY drawn lines (with a bound
+line style) that TOUCH a network JOIN it, their intersections
+becoming corners.
 
 The dialog lists each fence with what WILL happen before you commit.
 IronPython 2.7 / Revit 2022-2026.
@@ -43,7 +45,8 @@ from pymep_log import Logger
 import pymep_fence as F
 import pymep_fence_revit as FR
 
-from Autodesk.Revit.DB import Transaction, UnitTypeId, UnitUtils
+from Autodesk.Revit.DB import (CurveElement, FilteredElementCollector,
+                               Transaction, UnitTypeId, UnitUtils)
 
 doc = revit.doc
 output = script.get_output()
@@ -153,6 +156,35 @@ def _families_changed(rec, eff):
             F.end_families(_rec_cfg(rec)) != F.end_families(eff))
 
 
+# ---- NEW lines: styled lines no record owns yet - a network they
+# TOUCH adopts them on update (the intersection becomes a corner)
+_bound_styles = set(c.get("line_style")
+                    for c in F.get_configs(settings).values()
+                    if c.get("line_style"))
+_recorded_uids = set()
+for _r0 in data["fences"]:
+    if _r0.get("kind") == "network":
+        for _l in _r0.get("lines") or []:
+            _recorded_uids.add(_l.get("uid"))
+    else:
+        _recorded_uids.add(_r0.get("line_uid"))
+_free_lines = []
+if _bound_styles:
+    for _el in FilteredElementCollector(doc).OfClass(CurveElement):
+        try:
+            if FR.line_style_name(_el) not in _bound_styles:
+                continue
+            if _el.UniqueId in _recorded_uids:
+                continue
+            _pl = FR.tessellate(_el)
+            if _pl and F.poly_length(_pl) > 1e-9:
+                _free_lines.append((_el, _pl))
+        except Exception:
+            continue
+_claimed = set()
+_touch_tol = FR.mm2ft(FR.NODE_TOL_MM)
+
+
 # ---- resolve every record against the model + the CURRENT config ----
 rows = []   # dicts: rec, line_el, terrain, survivors, eff, plan text
 for rec in data["fences"]:
@@ -174,6 +206,30 @@ for rec in data["fences"]:
         notes = []
         if gone_lines:
             notes.append("{} line(s) deleted".format(gone_lines))
+        # adopt free styled lines that TOUCH this network (chains of
+        # new lines join transitively)
+        adopted = 0
+        if net_lines:
+            member_polys = [pl for pl in
+                            (FR.tessellate(el) for el in net_lines)
+                            if pl]
+            changed = True
+            while changed:
+                changed = False
+                for _el, _pl in _free_lines:
+                    if FR.id_value(_el.Id) in _claimed:
+                        continue
+                    for _mp in member_polys:
+                        if F.polys_touch(_pl, _mp, _touch_tol):
+                            net_lines.append(_el)
+                            member_polys.append(_pl)
+                            _claimed.add(FR.id_value(_el.Id))
+                            adopted += 1
+                            changed = True
+                            break
+        if adopted:
+            notes.append("{} NEW line(s) touching the network will "
+                         "JOIN it".format(adopted))
         if terrain is None:
             plan = ("record will be DROPPED (terrain gone, no "
                     "posts left)" if not survivors else

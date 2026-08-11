@@ -495,6 +495,22 @@ def project_to_poly(poly, x, y):
     return best
 
 
+def polys_touch(pa, pb, tol):
+    """True when two polylines MEET in plan: they cross, or either
+    one's endpoint lies within ``tol`` of the other - the test that
+    lets a newly drawn line JOIN an existing fence network."""
+    if poly_intersections(pa, pb):
+        return True
+    for one, other in ((pa, pb), (pb, pa)):
+        if len(one) < 1 or len(other) < 2:
+            continue
+        for pt in (one[0], one[-1]):
+            pr = project_to_poly(other, pt[0], pt[1])
+            if pr is not None and pr[1] <= tol:
+                return True
+    return False
+
+
 def renumber_priorities(settings, ordered_names):
     """Rewrite every config's priority from its LIST position - the
     TOP one (index 0) becomes 1 and wins corner posts in Fence
