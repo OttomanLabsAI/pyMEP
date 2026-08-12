@@ -16,6 +16,7 @@ from Autodesk.Revit.DB import (
     BuiltInCategory,
     BuiltInParameter,
     ElementTransformUtils,
+    FamilyInstance,
     FamilySymbol,
     FilteredElementCollector,
     FindReferenceTarget,
@@ -24,6 +25,7 @@ from Autodesk.Revit.DB import (
     ReferenceIntersector,
     RevitLinkInstance,
     StorageType,
+    Transaction,
     UnitTypeId,
     UnitUtils,
     View3D,
@@ -119,6 +121,74 @@ def all_symbols(doc, categories=None):
             continue
     out.sort(key=lambda t: t[0].lower())
     return out
+
+
+def _fam_type_label(el):
+    try:
+        return u"{} : {}".format(element_name(el.Family),
+                                 element_name(el))
+    except Exception:
+        return element_name(el)
+
+
+def _family_type_param_id(doc, symbol, param_name):
+    """The FamilyType parameter's id - read off an EXISTING instance
+    of the family when one stands in the model, else off a TEMPORARY
+    instance placed and rolled straight back."""
+    fam_id = id_value(symbol.Family.Id)
+    for inst in FilteredElementCollector(doc).OfClass(
+            FamilyInstance):
+        try:
+            if id_value(inst.Symbol.Family.Id) != fam_id:
+                continue
+            par = inst.LookupParameter(param_name)
+            return par.Id if par is not None else None
+        except Exception:
+            continue
+    # no instance yet: probe with a rolled-back placement
+    t = Transaction(doc, "pyMEP column size probe")
+    pid = None
+    try:
+        t.Start()
+        if not symbol.IsActive:
+            symbol.Activate()
+            doc.Regenerate()
+        lvls = sorted_levels(doc)
+        inst = doc.Create.NewFamilyInstance(
+            XYZ(0, 0, 0), symbol,
+            lvls[0] if lvls else None,
+            _structural_type(symbol))
+        par = inst.LookupParameter(param_name)
+        pid = par.Id if par is not None else None
+    except Exception:
+        pid = None
+    finally:
+        try:
+            t.RollBack()
+        except Exception:
+            pass
+    return pid
+
+
+def family_type_options(doc, symbol, param_name):
+    """The VALID values of the family's FamilyType parameter (the
+    post's COLUMN SIZE options) - pulled from the FAMILY itself, so
+    the dropdown shows exactly what the family offers. [] when the
+    family has no such parameter."""
+    if symbol is None:
+        return []
+    try:
+        pid = _family_type_param_id(doc, symbol, param_name)
+        if pid is None:
+            return []
+        labels = []
+        for eid in symbol.Family.GetFamilyTypeParameterValues(pid):
+            el = doc.GetElement(eid)
+            if el is not None:
+                labels.append(_fam_type_label(el))
+        return sorted(set(labels), key=lambda x: x.lower())
+    except Exception:
+        return []
 
 
 def line_style_name(el):
@@ -511,23 +581,31 @@ def _set_type_param(doc, inst, name, label, problems=None):
                           "'{}' is not a type parameter".format(
                               name))
             return
-        sym = None
+        # the family's own options first (nested types), then any
+        # loose symbol carrying the label
+        try:
+            for eid in inst.Symbol.Family \
+                    .GetFamilyTypeParameterValues(par.Id):
+                el = doc.GetElement(eid)
+                if el is not None and (
+                        _fam_type_label(el) == label or
+                        element_name(el) == label):
+                    par.Set(eid)
+                    return
+        except Exception:
+            pass
         for fs in FilteredElementCollector(doc).OfClass(
                 FamilySymbol):
             try:
-                full = u"{} : {}".format(
-                    element_name(fs.Family), element_name(fs))
-                if full == label or element_name(fs) == label:
-                    sym = fs
-                    break
+                if _fam_type_label(fs) == label or \
+                        element_name(fs) == label:
+                    par.Set(fs.Id)
+                    return
             except Exception:
                 continue
-        if sym is None:
-            _note_problem(problems,
-                          "column size '{}' is not in the "
-                          "model".format(label))
-            return
-        par.Set(sym.Id)
+        _note_problem(problems,
+                      "column size '{}' is not among the family's "
+                      "options".format(label))
     except Exception:
         pass
 

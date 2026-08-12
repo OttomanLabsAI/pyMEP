@@ -134,7 +134,7 @@
                                  Grid.Row="1" Grid.Column="1"/>
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Written onto every placed post: Column size drives the post's 'Column Size' type parameter (searchable - the nested column types in this model), the two lengths its 'Foundation Depth' and 'Height'. Empty = leave the family value alone; the length boxes take equations too (z = ground level, mm)."/>
+                               Text="Written onto every placed post: Column size drives the post's 'Column Size' type parameter - the dropdown pulls the OPTIONS FROM THE PICKED FAMILY itself, so it lists exactly what the family offers. The two lengths land in 'Foundation Depth' and 'Height'. Empty = leave the family value alone; the length boxes take equations too (z = ground level, mm)."/>
                     <CheckBox x:Name="ChkSameEnds" Margin="0,10,0,0"
                               IsChecked="True"
                               Content="END posts: keep the same as the in-between"
