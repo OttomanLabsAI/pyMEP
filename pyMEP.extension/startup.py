@@ -25,7 +25,7 @@ TAB_TITLE = "pyMEP"
 # versioned Setup panel ("pyMEP v1.16.0") matches on plain "pyMEP".
 PANEL_ORDER = ["pyMEP", "Civil 3D Conversion", "Electrical", "Drainage",
                "Pipe Networks", "Networks", "Topography", "Fencing",
-               "Chamber Drawing Setup", "Parameters",
+               "Path", "Chamber Drawing Setup", "Parameters",
                "Project Data Transfer", "Annotate"]
 
 # Stacked buttons shown with no label (their tooltips still carry the
