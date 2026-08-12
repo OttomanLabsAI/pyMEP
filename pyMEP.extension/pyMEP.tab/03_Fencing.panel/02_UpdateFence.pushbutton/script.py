@@ -23,8 +23,8 @@ styles, priorities - and rebuilt; NEWLY drawn lines (with a bound
 line style) that TOUCH a network JOIN it, their intersections
 becoming corners.
 
-The dialog lists each fence with what WILL happen before you commit.
-IronPython 2.7 / Revit 2022-2026.
+No dialog - every recorded fence updates in ONE go; the report
+lists what happened per fence. IronPython 2.7 / Revit 2022-2026.
 """
 
 __title__  = "Update\nFence"
@@ -51,10 +51,6 @@ from Autodesk.Revit.DB import (CurveElement, FilteredElementCollector,
 doc = revit.doc
 output = script.get_output()
 log = Logger(output, "UpdateFence")
-
-XAML_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
-    "pymep_update_fence.xaml")
 
 log("### Update Fence")
 
@@ -377,84 +373,12 @@ for _g in _groups:
 log("**{}** fence(s) recorded.".format(len(rows)))
 
 
-# -------------------------------------------------------------------- dialog
-class UpdateWindow(forms.WPFWindow):
-    """One checkbox row per fence: the fence, then what WILL happen -
-    ticked rows are updated."""
-
-    def __init__(self, rows):
-        forms.WPFWindow.__init__(self, XAML_PATH)
-        self.result = None
-        self._boxes = []
-        self.TxtInfo.Text = ("{} fence(s) recorded - untick what "
-                             "should stay as it is.".format(len(rows)))
-        from System.Windows import TextWrapping, Thickness
-        from System.Windows.Controls import CheckBox, StackPanel, \
-            TextBlock
-        from System.Windows.Media import Brushes
-        for i, row in enumerate(rows):
-            body = StackPanel()
-            head = TextBlock()
-            head.Text = F.fence_label(row["rec"])
-            head.FontWeight = self._bold()
-            head.TextWrapping = TextWrapping.Wrap
-            body.Children.Add(head)
-            sub = TextBlock()
-            sub.Text = row["plan"]
-            sub.TextWrapping = TextWrapping.Wrap
-            sub.FontSize = 11.0
-            try:
-                sub.Foreground = (Brushes.Firebrick
-                                  if row["plan"].startswith("SKIP")
-                                  or "DROPPED" in row["plan"]
-                                  else Brushes.Gray)
-            except Exception:
-                pass
-            body.Children.Add(sub)
-            cb = CheckBox()
-            cb.Content = body
-            cb.IsChecked = True
-            cb.Margin = Thickness(0, 6, 0, 6)
-            cb.Tag = i
-            self.LstFences.Children.Add(cb)
-            self._boxes.append(cb)
-
-    @staticmethod
-    def _bold():
-        from System.Windows import FontWeights
-        return FontWeights.SemiBold
-
-    def _set_all(self, value):
-        for cb in self._boxes:
-            cb.IsChecked = value
-
-    def on_all(self, sender, args):
-        self._set_all(True)
-
-    def on_none(self, sender, args):
-        self._set_all(False)
-
-    def on_go(self, sender, args):
-        self.result = [int(cb.Tag) for cb in self._boxes
-                       if cb.IsChecked]
-        self.Close()
-
-    def on_cancel(self, sender, args):
-        self.result = None
-        self.Close()
-
-
-win = UpdateWindow(rows)
-win.ShowDialog()
-if win.result is None:
-    log("Cancelled - nothing changed.")
-    log.close()
-    script.exit()
-picked = [rows[i] for i in win.result]
-if not picked:
-    log("Nothing ticked - nothing changed.")
-    log.close()
-    script.exit()
+# no confirmation dialog - EVERY recorded fence updates; the log
+# above already says what will happen per fence
+for _row in rows:
+    log("- {}: {}".format(F.fence_label(_row["rec"]),
+                          _row["plan"]))
+picked = rows
 
 view3d = FR.find_view3d(doc)
 if view3d is None:
