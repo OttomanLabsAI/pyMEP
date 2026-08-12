@@ -34,6 +34,18 @@ SETTINGS_TOC_FORMULA = "fence_toc_formula"
 
 TOC_PARAM = "TOC"                    # default parameter name
 
+# the structured DIMENSION fields a config writes onto what it
+# places: posts get a nested COLUMN SIZE type + two lengths,
+# foundations three lengths; the end_* variants apply at endpoint
+# stations when the matching 'keep the same' tick is OFF
+COL_SIZE_PARAM = "Column Size"
+DIM_KEYS = ("post_col_size", "post_fnd_depth", "post_height",
+            "end_post_col_size", "end_post_fnd_depth",
+            "end_post_height",
+            "fnd_embedment", "fnd_diameter", "fnd_depth",
+            "end_fnd_embedment", "end_fnd_diameter",
+            "end_fnd_depth")
+
 DEFAULT_NAME = "Default"
 
 # foundations get the placement point's survey coordinates written
@@ -59,7 +71,10 @@ DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "northing_param": NORTHING_PARAM,
                   "terrain_mode": TERRAIN_AUTO,
                   "terrains": [],
-                  "post_params": ""}
+                  "same_end_posts": True,
+                  "same_end_foundations": True}
+for _k in DIM_KEYS:
+    DEFAULT_CONFIG[_k] = ""
 
 
 def _terrain_mode(v):
@@ -388,9 +403,16 @@ def get_configs(settings):
                                       c.get("terrain_mode")),
                                   "terrains": _terrain_list(
                                       c.get("terrains")),
-                                  "post_params":
-                                      str(c.get("post_params")
-                                          or "")}
+                                  "same_end_posts": bool(
+                                      c.get("same_end_posts",
+                                            c.get("same_ends",
+                                                  True))),
+                                  "same_end_foundations": bool(
+                                      c.get("same_end_foundations",
+                                            c.get("same_ends",
+                                                  True)))}
+                for k in DIM_KEYS:
+                    out[str(name)][k] = str(c.get(k) or "")
             except Exception:
                 continue
     if not out:
@@ -405,7 +427,8 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   panel="", panel_width_param="",
                   easting_param="", northing_param="",
                   terrain_mode=TERRAIN_AUTO, terrains=None,
-                  post_params=""):
+                  same_end_posts=None, same_end_foundations=None,
+                  dims=None):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
@@ -457,20 +480,33 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                       NORTHING_PARAM,
                   "terrain_mode": _terrain_mode(terrain_mode),
                   "terrains": _terrain_list(terrains),
-                  "post_params": str(post_params or "")}
+                  "same_end_posts": bool(
+                      same_ends if same_end_posts is None
+                      else same_end_posts),
+                  "same_end_foundations": bool(
+                      same_ends if same_end_foundations is None
+                      else same_end_foundations)}
+    dims = dims or {}
+    for k in DIM_KEYS:
+        cfgs[name][k] = str(dims.get(k) or "").strip()
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
 
 
 def end_families(cfg):
-    """(post, foundation) labels for the line's ENDPOINT stations -
-    the in-between pair when 'keep them the same' is on, the
-    dedicated end pair when it is off."""
-    if cfg.get("same_ends", True):
-        return (str(cfg.get("post") or ""),
-                str(cfg.get("foundation") or ""))
-    return (str(cfg.get("end_post") or ""),
-            str(cfg.get("end_foundation") or ""))
+    """(post, foundation) labels for the line's ENDPOINT stations.
+    The POST and the FOUNDATION each have their OWN 'keep the same'
+    tick (same_end_posts / same_end_foundations - the legacy
+    same_ends stands in for either when missing), so the ends can
+    mix a different foundation under the same post and vice
+    versa."""
+    legacy = cfg.get("same_ends", True)
+    same_p = cfg.get("same_end_posts", legacy)
+    same_f = cfg.get("same_end_foundations", legacy)
+    return (str((cfg.get("post") if same_p
+                 else cfg.get("end_post")) or ""),
+            str((cfg.get("foundation") if same_f
+                 else cfg.get("end_foundation")) or ""))
 
 
 def places_something(cfg):
@@ -504,7 +540,7 @@ def effective_config(settings, name, snapshot):
         rot = float(snapshot.get("rotation_deg") or 0.0)
     except Exception:
         rot = 0.0
-    return {"spacing_mm": float(snapshot.get("spacing_mm") or 0.0),
+    out2 = {"spacing_mm": float(snapshot.get("spacing_mm") or 0.0),
             "endpoints": bool(snapshot.get("endpoints", True)),
             "rotation_deg": rot,
             "post": snap_post,
@@ -528,7 +564,15 @@ def effective_config(settings, name, snapshot):
             "terrain_mode": _terrain_mode(
                 snapshot.get("terrain_mode")),
             "terrains": _terrain_list(snapshot.get("terrains")),
-            "post_params": str(snapshot.get("post_params") or "")}
+            "same_end_posts": bool(
+                snapshot.get("same_end_posts",
+                             snapshot.get("same_ends", True))),
+            "same_end_foundations": bool(
+                snapshot.get("same_end_foundations",
+                             snapshot.get("same_ends", True)))}
+    for k in DIM_KEYS:
+        out2[k] = str(snapshot.get(k) or "")
+    return out2
 
 
 def delete_config(settings, name):
