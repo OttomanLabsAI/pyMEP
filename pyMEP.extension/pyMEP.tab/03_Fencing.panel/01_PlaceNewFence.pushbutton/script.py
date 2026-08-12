@@ -143,6 +143,7 @@ class FenceWindow(forms.WPFWindow):
             "northing_param": cfg["northing_param"],
             "terrain_mode": cfg["terrain_mode"],
             "terrains": cfg["terrains"],
+            "post_params": cfg["post_params"],
             "justify": self.justify(),
             "config": str(self.CmbConfig.SelectedItem or ""),
         }
@@ -209,6 +210,11 @@ def main():
     toc_on, toc_param, toc_eq = F.toc_settings(settings)
     toc = (toc_param, toc_eq) if toc_on else None
     toc_probs = []
+    try:
+        assigns = F.parse_assignments(opt["post_params"])
+    except ValueError as ex:
+        log("! post parameters skipped: {}".format(ex))
+        assigns = None
     try:
         save_settings(settings)
     except Exception:
@@ -357,7 +363,7 @@ def main():
             marks=[mark_prefix + str(i + 1)
                    for i in range(len(dists))]
             if mark_on else None,
-            toc=toc, toc_problems=toc_probs)
+            toc=toc, toc_problems=toc_probs, assigns=assigns)
         t.Commit()
     except Exception:
         try:
@@ -406,6 +412,7 @@ def main():
                 "panel_width_param": opt["panel_width_param"],
                 "easting_param": opt["easting_param"],
                 "northing_param": opt["northing_param"],
+                "post_params": opt["post_params"],
                 "mark": mark_on,
                 "mark_prefix": mark_prefix,
                 "justify": opt["justify"],

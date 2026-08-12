@@ -99,6 +99,7 @@ class ConfigEditWindow(forms.WPFWindow):
         self._fill_pick(self.CmbPanel, panel_labels, "")
         self._select_pick(self.CmbPanel, cfg["panel"])
         self.TxtPanelParam.Text = cfg["panel_width_param"]
+        self.TxtPostParams.Text = cfg.get("post_params") or ""
         self.TxtEastParam.Text = cfg.get("easting_param") or \
             F.EASTING_PARAM
         self.TxtNorthParam.Text = cfg.get("northing_param") or \
@@ -367,6 +368,13 @@ class ConfigEditWindow(forms.WPFWindow):
                                     "element - or choose another "
                                     "terrain option.")
             return
+        post_params = (self.TxtPostParams.Text or "").strip()
+        try:
+            F.parse_assignments(post_params)
+        except ValueError as ex:
+            self.StatusText.Text = "Populate parameters: {}".format(
+                ex)
+            return
         self.result = {"name": name, "spacing": spacing,
                        "endpoints": bool(self.ChkEnds.IsChecked),
                        "rotation": rotation, "post": post,
@@ -385,7 +393,8 @@ class ConfigEditWindow(forms.WPFWindow):
                        "northing_param":
                            (self.TxtNorthParam.Text or "").strip(),
                        "terrain_mode": terrain_mode,
-                       "terrains": terrains}
+                       "terrains": terrains,
+                       "post_params": post_params}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -551,7 +560,8 @@ class ConfigsWindow(forms.WPFWindow):
                             prio, r["end_priority"], r["panel"],
                             r["panel_width_param"],
                             r["easting_param"], r["northing_param"],
-                            r["terrain_mode"], r["terrains"])
+                            r["terrain_mode"], r["terrains"],
+                            r["post_params"])
         except ValueError as ex:
             self.StatusText.Text = str(ex)
             return

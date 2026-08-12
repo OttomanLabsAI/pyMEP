@@ -58,7 +58,8 @@ DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "easting_param": EASTING_PARAM,
                   "northing_param": NORTHING_PARAM,
                   "terrain_mode": TERRAIN_AUTO,
-                  "terrains": []}
+                  "terrains": [],
+                  "post_params": ""}
 
 
 def _terrain_mode(v):
@@ -111,9 +112,17 @@ def eval_toc(formula, z_mm, e_m=0.0, n_m=0.0, params=None):
     log, exp, pow, pi). An empty equation returns ``z`` untouched.
     Returns the value in MILLIMETRES; raises ValueError with the
     reason when the equation cannot be evaluated."""
+    return float(_fence_expr(formula, z_mm, e_m, n_m, params,
+                             float(z_mm)))
+
+
+def _fence_expr(formula, z_mm, e_m, n_m, params, empty):
+    """The shared equation core behind eval_toc / eval_assign -
+    substitutes [bracketed] and bare parameter names, then
+    evaluates. Returns the raw result (number or text)."""
     f = str(formula or "").strip()
     if not f:
-        return float(z_mm)
+        return empty
     import math as _math
     import re as _re
     ns = {"z": float(z_mm), "e": float(e_m), "n": float(n_m),
@@ -134,8 +143,8 @@ def eval_toc(formula, z_mm, e_m=0.0, n_m=0.0, params=None):
         name = mo.group(1).strip()
         if not params or name not in params:
             raise ValueError(
-                "TOC equation: parameter '{}' is not on the "
-                "foundation".format(name))
+                "equation: parameter '{}' is not on the "
+                "instance".format(name))
         return _hold(params[name])
 
     expr = _re.sub(r"\[([^\]]+)\]", _brk, f)
@@ -145,15 +154,54 @@ def eval_toc(formula, z_mm, e_m=0.0, n_m=0.0, params=None):
             if _re.search(pat, expr):
                 expr = _re.sub(pat, _hold(params[name]), expr)
     try:
-        v = eval(compile(expr, "<toc>", "eval"),
-                 {"__builtins__": {}}, ns)
-        return float(v)
+        return eval(compile(expr, "<fence-eq>", "eval"),
+                    {"__builtins__": {}}, ns)
     except Exception as ex:
         raise ValueError(
-            "TOC equation failed: {} - words the equation cannot "
+            "equation failed: {} - words the equation cannot "
             "resolve are treated as PARAMETER names; check the "
-            "spelling against the foundation's parameters".format(
-                ex))
+            "spelling against the instance's parameters".format(ex))
+
+
+try:
+    _STR_TYPES = basestring          # IronPython / CPython 2
+except NameError:
+    _STR_TYPES = str
+
+
+def eval_assign(expr, z_mm, e_m=0.0, n_m=0.0, params=None):
+    """One 'Parameter = equation' right-hand side: the same
+    machinery as eval_toc, but TEXT results are allowed - quote
+    them ('SHS 40x40' or "SHS 40x40"). Numbers are millimetres."""
+    v = _fence_expr(expr, z_mm, e_m, n_m, params, None)
+    if v is None:
+        raise ValueError("equation is empty")
+    if isinstance(v, _STR_TYPES):
+        return v
+    return float(v)
+
+
+def parse_assignments(text):
+    """[(parameter, equation)] from 'Parameter = equation' LINES
+    (blank lines and #comments skipped). Raises ValueError naming
+    the bad line."""
+    out = []
+    for ln in str(text or "").splitlines():
+        ln = ln.strip()
+        if not ln or ln.startswith("#"):
+            continue
+        if "=" not in ln:
+            raise ValueError(
+                "'{}' - each line is: Parameter = equation".format(
+                    ln))
+        nm, expr = ln.split("=", 1)
+        nm, expr = nm.strip(), expr.strip()
+        if not nm or not expr:
+            raise ValueError(
+                "'{}' - each line is: Parameter = equation".format(
+                    ln))
+        out.append((nm, expr))
+    return out
 
 # the categories a POST may come from / the FOUNDATION must come from
 POST_CATEGORIES = ["OST_GenericModel", "OST_Columns",
@@ -339,7 +387,10 @@ def get_configs(settings):
                                   "terrain_mode": _terrain_mode(
                                       c.get("terrain_mode")),
                                   "terrains": _terrain_list(
-                                      c.get("terrains"))}
+                                      c.get("terrains")),
+                                  "post_params":
+                                      str(c.get("post_params")
+                                          or "")}
             except Exception:
                 continue
     if not out:
@@ -353,7 +404,8 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   line_style="", priority=99, end_priority=False,
                   panel="", panel_width_param="",
                   easting_param="", northing_param="",
-                  terrain_mode=TERRAIN_AUTO, terrains=None):
+                  terrain_mode=TERRAIN_AUTO, terrains=None,
+                  post_params=""):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
@@ -404,7 +456,8 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                       str(northing_param or "").strip() or
                       NORTHING_PARAM,
                   "terrain_mode": _terrain_mode(terrain_mode),
-                  "terrains": _terrain_list(terrains)}
+                  "terrains": _terrain_list(terrains),
+                  "post_params": str(post_params or "")}
     settings[SETTINGS_CONFIGS] = cfgs
     return cfgs
 
@@ -474,7 +527,8 @@ def effective_config(settings, name, snapshot):
                     NORTHING_PARAM),
             "terrain_mode": _terrain_mode(
                 snapshot.get("terrain_mode")),
-            "terrains": _terrain_list(snapshot.get("terrains"))}
+            "terrains": _terrain_list(snapshot.get("terrains")),
+            "post_params": str(snapshot.get("post_params") or "")}
 
 
 def delete_config(settings, name):
