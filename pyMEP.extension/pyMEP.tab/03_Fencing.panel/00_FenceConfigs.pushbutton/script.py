@@ -77,14 +77,17 @@ class ConfigEditWindow(forms.WPFWindow):
     on cancel - the caller persists."""
 
     def __init__(self, title, name, cfg, post_labels, found_labels,
-                 style_names, panel_labels, terrain_labels,
-                 colsize_labels):
+                 style_names, panel_labels, terrain_labels):
         forms.WPFWindow.__init__(self, XAML_EDIT)
         self.result = None
         self.post_labels = post_labels
         self.found_labels = found_labels
         self.panel_labels = panel_labels
-        self.colsize_labels = colsize_labels
+        # column size options come from the SELECTED post family -
+        # mutable lists so the search + red-tint closures follow
+        self.colsize_labels = []
+        self.end_colsize_labels = []
+        self._colsize_cache = {}
         self._last = {}     # last real pick per combo, survives filters
         self.Title = title
         self.TxtTitle.Text = title
@@ -101,11 +104,14 @@ class ConfigEditWindow(forms.WPFWindow):
         self._select_pick(self.CmbEndPost, cfg["end_post"])
         self._select_pick(self.CmbEndFoundation,
                           cfg["end_foundation"])
-        self._fill_pick(self.CmbColSize, colsize_labels, "")
-        self._fill_pick(self.CmbEndColSize, colsize_labels, "")
-        self._select_pick(self.CmbColSize, cfg["post_col_size"])
-        self._select_pick(self.CmbEndColSize,
-                          cfg["end_post_col_size"])
+        self._refresh_colsize(self.CmbPost, self.CmbColSize,
+                              self.colsize_labels,
+                              cfg["post_col_size"])
+        self._refresh_colsize(self.CmbEndPost, self.CmbEndColSize,
+                              self.end_colsize_labels,
+                              cfg["end_post_col_size"])
+        self.CmbPost.SelectionChanged += self._on_post_changed
+        self.CmbEndPost.SelectionChanged += self._on_end_post_changed
         self.TxtPostFndDepth.Text = cfg["post_fnd_depth"]
         self.TxtPostHeight.Text = cfg["post_height"]
         self.TxtEndPostFndDepth.Text = cfg["end_post_fnd_depth"]
@@ -159,7 +165,7 @@ class ConfigEditWindow(forms.WPFWindow):
                 (self.CmbEndFoundation, self.found_labels),
                 (self.CmbPanel, self.panel_labels),
                 (self.CmbColSize, self.colsize_labels),
-                (self.CmbEndColSize, self.colsize_labels),
+                (self.CmbEndColSize, self.end_colsize_labels),
                 (self.CmbLineStyle, self.style_names)):
             combo.SelectionChanged += self._make_tint(combo, labels)
             self._tint_known(combo, labels)
@@ -217,10 +223,11 @@ class ConfigEditWindow(forms.WPFWindow):
             pass
 
     def _apply_search(self, combo, labels, box, key):
-        """Typing NARROWS the list, jumps the pick to the first match
-        (so the combo visibly changes) and drops the list open;
-        clearing the box restores the full list and the last real
-        pick."""
+        """Typing NARROWS the list and jumps the pick to the first
+        match (so the combo visibly changes); clearing the box
+        restores the full list and the last real pick. The dropdown
+        is NOT opened - that would steal the keyboard from the
+        search box mid-word."""
         needle = (box.Text or "").strip()
         current = self._picked(combo)
         if current:
@@ -241,7 +248,9 @@ class ConfigEditWindow(forms.WPFWindow):
             want = 1 if (needle and combo.Items.Count > 1) else 0
         combo.SelectedIndex = want
         try:
-            combo.IsDropDownOpen = bool(needle)
+            if not box.IsKeyboardFocusWithin:
+                box.Focus()
+                box.CaretIndex = len(box.Text or "")
         except Exception:
             pass
 
@@ -281,6 +290,38 @@ class ConfigEditWindow(forms.WPFWindow):
         except Exception:
             pass
 
+    def _refresh_colsize(self, post_combo, cs_combo, labels_list,
+                         keep=None):
+        """Re-pull the COLUMN SIZE options from the family picked in
+        ``post_combo`` - the dropdown shows exactly what the family
+        offers."""
+        try:
+            if keep is None:
+                keep = self._picked(cs_combo)
+            lbl = self._picked(post_combo)
+            if lbl in self._colsize_cache:
+                opts = self._colsize_cache[lbl]
+            else:
+                sym = FR.symbol_by_label(doc, lbl,
+                                         F.POST_CATEGORIES) \
+                    if lbl else None
+                opts = FR.family_type_options(doc, sym,
+                                              F.COL_SIZE_PARAM)
+                self._colsize_cache[lbl] = opts
+            labels_list[:] = opts
+            self._fill_pick(cs_combo, labels_list, "")
+            self._select_pick(cs_combo, keep)
+        except Exception:
+            pass
+
+    def _on_post_changed(self, sender, args):
+        self._refresh_colsize(self.CmbPost, self.CmbColSize,
+                              self.colsize_labels)
+
+    def _on_end_post_changed(self, sender, args):
+        self._refresh_colsize(self.CmbEndPost, self.CmbEndColSize,
+                              self.end_colsize_labels)
+
     def on_colsize_search(self, sender, args):
         try:
             self._apply_search(self.CmbColSize, self.colsize_labels,
@@ -291,7 +332,7 @@ class ConfigEditWindow(forms.WPFWindow):
     def on_end_colsize_search(self, sender, args):
         try:
             self._apply_search(self.CmbEndColSize,
-                               self.colsize_labels,
+                               self.end_colsize_labels,
                                self.TxtEndColSizeSearch,
                                "end_colsize")
         except Exception:
@@ -496,8 +537,7 @@ class ConfigsWindow(forms.WPFWindow):
     """The list window: rows + Add new / Edit / Remove."""
 
     def __init__(self, settings, post_labels, found_labels,
-                 style_names, panel_labels, terrain_labels,
-                 colsize_labels):
+                 style_names, panel_labels, terrain_labels):
         forms.WPFWindow.__init__(self, XAML_LIST)
         self.settings = settings
         self.post_labels = post_labels
@@ -505,7 +545,6 @@ class ConfigsWindow(forms.WPFWindow):
         self.style_names = style_names
         self.panel_labels = panel_labels
         self.terrain_labels = terrain_labels
-        self.colsize_labels = colsize_labels
         self._names = []
         self._mark_busy = False
         self._fill(settings.get(F.SETTINGS_LAST))
@@ -632,8 +671,7 @@ class ConfigsWindow(forms.WPFWindow):
         win = ConfigEditWindow(title, name, cfg, self.post_labels,
                                self.found_labels, self.style_names,
                                self.panel_labels,
-                               self.terrain_labels,
-                               self.colsize_labels)
+                               self.terrain_labels)
         win.ShowDialog()
         r = win.result
         if r is None:
@@ -734,9 +772,7 @@ panel_labels = [lbl for lbl, _fs
                 in FR.placeable_symbols(doc, F.PANEL_CATEGORIES)]
 terrain_labels = sorted(set(
     FR.element_name(el) for el in FR.terrain_elements(doc)))
-colsize_labels = [lbl for lbl, _fs in FR.all_symbols(
-    doc, ["OST_StructuralColumns", "OST_StructuralFraming"])]
 ConfigsWindow(load_settings(), post_labels, found_labels,
-              style_names, panel_labels, terrain_labels,
-              colsize_labels).ShowDialog()
+              style_names, panel_labels,
+              terrain_labels).ShowDialog()
 script.exit()
