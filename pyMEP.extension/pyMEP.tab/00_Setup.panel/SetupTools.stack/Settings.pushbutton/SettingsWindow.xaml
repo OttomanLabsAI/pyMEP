@@ -300,6 +300,7 @@
                                 <CheckBox x:Name="ChkPanNetworks" Content="Networks"              Margin="0,6,0,0" IsChecked="True"/>
                                 <CheckBox x:Name="ChkPanTopo"     Content="Topography"            Margin="0,6,0,0" IsChecked="True"/>
                                 <CheckBox x:Name="ChkPanFencing"  Content="Fencing"               Margin="0,6,0,0" IsChecked="True"/>
+                                <CheckBox x:Name="ChkPanPath"     Content="Path"                  Margin="0,6,0,0" IsChecked="True"/>
                                 <CheckBox x:Name="ChkPanChamber"  Content="Chamber Drawing Setup" Margin="0,6,0,0" IsChecked="True"/>
                                 <CheckBox x:Name="ChkPanParams"   Content="Parameters"            Margin="0,6,0,0" IsChecked="True"/>
                                 <CheckBox x:Name="ChkPanProjData" Content="Project Data Transfer" Margin="0,6,0,0" IsChecked="True"/>

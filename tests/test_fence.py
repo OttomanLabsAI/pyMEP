@@ -944,3 +944,33 @@ class PairStations(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class PathKerb(unittest.TestCase):
+    def setUp(self):
+        import pymep_path
+        self.P = pymep_path
+
+    def test_slope_angle_deg(self):
+        P = self.P
+        self.assertEqual(P.slope_angle_deg(0.0, 10.0), 0.0)
+        self.assertAlmostEqual(P.slope_angle_deg(1.0, 1.0), 45.0)
+        self.assertAlmostEqual(P.slope_angle_deg(-1.0, 1.0), -45.0)
+        # capped at +/-90, vertical faces included
+        self.assertEqual(P.slope_angle_deg(5.0, 0.0), 90.0)
+        self.assertEqual(P.slope_angle_deg(-5.0, 0.0), -90.0)
+        self.assertEqual(P.slope_angle_deg(0.0, 0.0), 0.0)
+        self.assertTrue(-90.0 <= P.slope_angle_deg(1e9, 1.0) <= 90.0)
+
+    def test_kerb_settings_defaults(self):
+        P = self.P
+        fam, ln, ang, lnp = P.kerb_settings({})
+        self.assertEqual((fam, ang, lnp), ("", "Angle", ""))
+        self.assertEqual(ln, 915.0)
+        s = {P.SETTINGS_KERB_FAMILY: "Kerb : HB2",
+             P.SETTINGS_KERB_LENGTH: "450",
+             P.SETTINGS_KERB_ANGLE_PARAM: " Slope ",
+             P.SETTINGS_KERB_LENGTH_PARAM: "Length"}
+        fam, ln, ang, lnp = P.kerb_settings(s)
+        self.assertEqual((fam, ln, ang, lnp),
+                         ("Kerb : HB2", 450.0, "Slope", "Length"))

@@ -438,6 +438,46 @@ def _place_one(doc, symbol, hit, lvl, ang):
     return inst
 
 
+# public face of the drape-and-rotate placement (the Path panel's
+# kerbs use it too)
+def place_one(doc, symbol, hit, lvl, ang):
+    return _place_one(doc, symbol, hit, lvl, ang)
+
+
+def set_angle_param(inst, name, angle_deg):
+    """Write a slope ANGLE into the named parameter: an Angle-typed
+    parameter gets RADIANS (Revit internal), a plain number gets
+    the degrees, a text parameter the degrees to 2 decimals.
+    Returns True when written."""
+    if inst is None or not name:
+        return False
+    try:
+        par = inst.LookupParameter(name)
+        if par is None or par.IsReadOnly:
+            return False
+        if par.StorageType == StorageType.Double:
+            is_angle = False
+            try:
+                from Autodesk.Revit.DB import SpecTypeId
+                is_angle = par.Definition.GetDataType().Equals(
+                    SpecTypeId.Angle)
+            except Exception:
+                try:
+                    is_angle = "Angle" in str(
+                        par.Definition.ParameterType)
+                except Exception:
+                    pass
+            par.Set(math.radians(angle_deg) if is_angle
+                    else float(angle_deg))
+            return True
+        if par.StorageType == StorageType.String:
+            par.Set(u"{:.2f}".format(angle_deg))
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def set_panel_width(inst, width_ft, param_name=None):
     """Drive the panel family's width to the bay: the config's own
     spacing parameter NAME first, then the usual suspects; False
