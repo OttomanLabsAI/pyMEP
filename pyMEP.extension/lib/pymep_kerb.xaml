@@ -81,16 +81,20 @@
                         <TextBlock Grid.Row="1" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
                                    Text="Angle parameter"/>
-                        <TextBox x:Name="TxtAngleParam" Grid.Row="1"
-                                 Grid.Column="1"/>
+                        <ComboBox x:Name="CmbAngleParam" Grid.Row="1"
+                                  Grid.Column="1" Grid.ColumnSpan="2"
+                                  IsEditable="True" Height="24"
+                                  Margin="0,3,0,0"/>
                         <TextBlock Grid.Row="2" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
                                    Text="Length parameter"/>
-                        <TextBox x:Name="TxtLenParam" Grid.Row="2"
-                                 Grid.Column="1"/>
+                        <ComboBox x:Name="CmbLenParam" Grid.Row="2"
+                                  Grid.Column="1" Grid.ColumnSpan="2"
+                                  IsEditable="True" Height="24"
+                                  Margin="0,3,0,0"/>
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Units lay END-TO-END from the line's start; the leftover shortens the LAST unit. Each unit sits at its bay's centre, rotated to the line (a curve gets the curve's tangent there). The terrain's slope ALONG the line is written to the ANGLE parameter (-90..+90 deg, positive climbs; Angle-typed parameters get it as an angle, numbers as degrees). The LENGTH parameter (optional) receives each unit's length - the last one comes up short."/>
+                               Text="Units lay END-TO-END from the line's start; the leftover shortens the LAST unit. Each unit sits at its bay's centre, rotated to the line (a curve gets the curve's tangent there). The dropdowns list the PICKED FAMILY's own parameters (typing a name works too). The terrain's slope ALONG the line is written to the ANGLE parameter (-90..+90 deg, positive climbs; Angle-typed parameters get it as an angle, numbers as degrees). The LENGTH parameter (optional - leave empty for none) receives each unit's length; the last one comes up short."/>
                 </StackPanel>
             </GroupBox>
 
