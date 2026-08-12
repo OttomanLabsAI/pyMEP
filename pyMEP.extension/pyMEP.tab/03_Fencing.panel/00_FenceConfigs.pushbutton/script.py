@@ -757,6 +757,52 @@ class ConfigsWindow(forms.WPFWindow):
         except Exception as ex:
             self.StatusText.Text = str(ex)
 
+    def on_export(self, sender, args):
+        """Every fence configuration + the global MARK / TOC
+        settings into a JSON file."""
+        try:
+            path = forms.save_file(file_ext="json",
+                                   default_name="pyMEP_fence_settings")
+            if not path:
+                return
+            import io as _io
+            import pymep_json
+            data = F.export_settings(self.settings)
+            with _io.open(path, "w", encoding="utf-8") as f:
+                f.write(u"{}".format(
+                    pymep_json.dumps(data, indent=2,
+                                     sort_keys=True)))
+            self.StatusText.Text = ""
+            self.TxtInfo.Text = "Exported {} configuration(s) to " \
+                "{}".format(len(F.get_configs(self.settings)), path)
+        except Exception as ex:
+            self.StatusText.Text = "Export failed: {}".format(ex)
+
+    def on_import(self, sender, args):
+        """Merge a settings export: configurations by NAME (the
+        file wins), the global toggles taken over."""
+        try:
+            path = forms.pick_file(file_ext="json")
+            if not path:
+                return
+            import io as _io
+            import json as _json
+            with _io.open(path, "r", encoding="utf-8") as f:
+                data = _json.loads(f.read())
+            added, updated, others = F.merge_settings(
+                self.settings, data)
+            self._persist()
+            self._fill(self._selected_name())
+            self.StatusText.Text = ""
+            self.TxtInfo.Text = ("Imported: {} new configuration(s)"
+                                 ", {} updated, {} setting(s) taken "
+                                 "over.".format(added, updated,
+                                                others))
+        except ValueError as ex:
+            self.StatusText.Text = "Import failed: {}".format(ex)
+        except Exception as ex:
+            self.StatusText.Text = "Import failed: {}".format(ex)
+
     def on_close(self, sender, args):
         self.Close()
 

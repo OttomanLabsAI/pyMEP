@@ -685,6 +685,34 @@ class Intersections(unittest.TestCase):
         self.assertRaises(ValueError, F.eval_toc,
                           "__import__('os')", 100.0)
 
+    def test_export_and_merge_settings(self):
+        src = {}
+        F.upsert_config(src, "Impact 3.0m", 2750, True)
+        src[F.SETTINGS_MARK] = True
+        src[F.SETTINGS_MARK_PREFIX] = "FF"
+        src["unrelated"] = "stays home"
+        data = F.export_settings(src)
+        self.assertIn(F.SETTINGS_CONFIGS, data)
+        self.assertNotIn("unrelated", data)
+        self.assertEqual(data[F.SETTINGS_MARK_PREFIX], "FF")
+        # merge into a profile that already has a config of the
+        # SAME name (file wins) and one of its own (kept)
+        dst = {}
+        F.upsert_config(dst, "Impact 3.0m", 9999, False)
+        F.upsert_config(dst, "Mine", 1500, True)
+        added, updated, others = F.merge_settings(dst, data)
+        self.assertEqual(updated, 2)    # Impact + auto-seeded Default
+        self.assertEqual(added, 0)
+        cfgs = F.get_configs(dst)
+        self.assertEqual(cfgs["Impact 3.0m"]["spacing_mm"], 2750.0)
+        self.assertIn("Mine", cfgs)
+        self.assertEqual(dst[F.SETTINGS_MARK], True)
+        self.assertEqual(dst[F.SETTINGS_MARK_PREFIX], "FF")
+        # not an export -> refused
+        self.assertRaises(ValueError, F.merge_settings, {},
+                          {"random": 1})
+        self.assertRaises(ValueError, F.merge_settings, {}, "no")
+
     def test_end_families_split_flags(self):
         # the ends can mix: same post on a DIFFERENT foundation,
         # and vice versa - each behind its own tick

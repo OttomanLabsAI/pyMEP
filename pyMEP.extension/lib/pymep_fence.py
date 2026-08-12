@@ -93,6 +93,49 @@ def _terrain_list(v):
     return out
 
 
+def export_settings(settings):
+    """The fence-scoped SLICE of the pyMEP settings - the
+    configurations plus every global fence toggle (MARK, TOC,
+    justification, last picks) - everything an Import on another
+    machine or profile needs."""
+    out = {}
+    for k, v in settings.items():
+        if str(k).startswith("fence"):
+            out[k] = v
+    out["_pymep"] = "fence settings export"
+    return out
+
+
+def merge_settings(settings, data):
+    """Merge an exported slice back in: configurations merge BY
+    NAME (the file's version wins), every other fence key replaces
+    the stored one. Returns (added, updated, other_keys) for the
+    report. Raises ValueError when the file is not a settings
+    export."""
+    if not isinstance(data, dict) or not any(
+            str(k).startswith("fence") for k in data):
+        raise ValueError("this is not a pyMEP fence settings "
+                         "export")
+    added = updated = others = 0
+    incoming = data.get(SETTINGS_CONFIGS)
+    if isinstance(incoming, dict):
+        cur = settings.get(SETTINGS_CONFIGS)
+        cur = dict(cur) if isinstance(cur, dict) else {}
+        for nm, c in incoming.items():
+            if nm in cur:
+                updated += 1
+            else:
+                added += 1
+            cur[nm] = c
+        settings[SETTINGS_CONFIGS] = cur
+    for k, v in data.items():
+        if k == SETTINGS_CONFIGS or not str(k).startswith("fence"):
+            continue
+        settings[k] = v
+        others += 1
+    return added, updated, others
+
+
 def mark_settings(settings):
     """(enabled, prefix) for MARK numbering - GLOBAL, ticked on the
     Fence Configurations window; the prefix lands in front of every
