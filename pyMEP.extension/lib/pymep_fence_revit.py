@@ -1086,8 +1086,17 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
                          "configuration - bind line styles in "
                          "Fence Configs")
 
-    # foundation radii from the families' Diameter parameter
+    # foundation radii: the CONFIG's own Diameter field first (the
+    # dims write the diameter onto the INSTANCE, so the family type
+    # often carries none), then the family type's Diameter parameter
     def _fnd_radius(cfg, use_ends):
+        try:
+            v = float(str(fnd_dims_of(cfg, use_ends).get("diameter")
+                          or "").strip())
+            if v > 0:
+                return mm2ft(v) / 2.0
+        except Exception:
+            pass
         lbl = F.end_families(cfg)[1] if use_ends \
             else (cfg.get("foundation") or "")
         if not lbl:
@@ -1254,12 +1263,21 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
                                     mm2ft(F.PANEL_MIN_MM))) \
             if e["cfg"].get("panel") else 0
         total += len(e["stations"]) + n_panels
+        bays = [e["post_stations"][k + 1] - e["post_stations"][k]
+                for k in range(len(e["post_stations"]) - 1)]
+        bay_txt = ""
+        if bays:
+            bay_txt = ", bays {:.0f}-{:.0f} mm".format(
+                UnitUtils.ConvertFromInternalUnits(
+                    min(bays), UnitTypeId.Millimeters),
+                UnitUtils.ConvertFromInternalUnits(
+                    max(bays), UnitTypeId.Millimeters))
         note("line {} ('{}' -> {}): {} corner(s), {} in-between "
-             "post(s){}".format(
+             "post(s){}{}".format(
                  id_value(e["el"].Id), e["style"], e["name"],
                  len(merged), len(e["stations"]),
                  ", {} panel(s)".format(n_panels)
-                 if n_panels else ""))
+                 if n_panels else "", bay_txt))
     if total > F.MAX_INSTANCES:
         raise ValueError("{} instances would be placed - over the "
                          "{} sanity cap. Check the spacing.".format(
