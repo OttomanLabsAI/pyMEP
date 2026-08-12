@@ -387,6 +387,34 @@ class NetworkMaths(unittest.TestCase):
         sts = F.edge_stations(20.0, 5.0, 0.0, None)
         self.assertEqual(sts, [5.0, 10.0, 15.0])
 
+    def test_edge_stations_bay_never_exceeds_spacing(self):
+        # 10 at spacing 3: full spacings + ONE short extra - the
+        # old clear-one-spacing fallback made the last bay 4 here
+        sts = F.edge_stations(10.0, 3.0, 0.0, None)
+        self.assertEqual(sts, [3.0, 6.0, 9.0])
+        marks = [0.0] + sts + [10.0]
+        self.assertTrue(all(
+            marks[i + 1] - marks[i] <= 3.0 + 1e-9
+            for i in range(len(marks) - 1)))
+
+    def test_edge_stations_clash_shifts_not_widens(self):
+        # extra bay (1.0) INSIDE the clearance (1.5): the last post
+        # shifts back to the clearance, the bay before it shortens -
+        # nothing exceeds the spacing
+        sts = F.edge_stations(10.0, 3.0, 0.0, 1.5)
+        self.assertEqual(sts, [3.0, 6.0, 8.5])
+        marks = [0.0] + sts + [10.0]
+        self.assertTrue(all(
+            marks[i + 1] - marks[i] <= 3.0 + 1e-9
+            for i in range(len(marks) - 1)))
+
+    def test_edge_stations_no_room_drops_the_post(self):
+        # clearance bigger than the spacing: the shifted post would
+        # land before its neighbour - dropped, the final gap is the
+        # geometry's to keep
+        sts = F.edge_stations(9.0, 3.0, 0.0, 6.5)
+        self.assertEqual(sts, [3.0])
+
     def test_edge_stations_too_short(self):
         self.assertEqual(F.edge_stations(4.0, 5.0, 0.0, 2.5), [])
         self.assertEqual(F.edge_stations(20.0, 0.0, 0.0, 2.5), [])
