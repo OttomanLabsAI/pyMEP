@@ -297,17 +297,27 @@ class ConfigEditWindow(forms.WPFWindow):
         except Exception:
             pass
 
+    @staticmethod
+    def _show(panel, on):
+        """HIDE what is not needed (collapsed, not greyed)."""
+        try:
+            from System.Windows import Visibility
+            panel.Visibility = Visibility.Visible if on \
+                else Visibility.Collapsed
+        except Exception:
+            panel.IsEnabled = on
+
     def on_same_ends(self, sender, args):
         try:
-            self.PnlEndPost.IsEnabled = not bool(
-                self.ChkSameEnds.IsChecked)
+            self._show(self.PnlEndPost,
+                       not bool(self.ChkSameEnds.IsChecked))
         except Exception:
             pass
 
     def on_same_fnds(self, sender, args):
         try:
-            self.PnlEndFound.IsEnabled = not bool(
-                self.ChkSameFnds.IsChecked)
+            self._show(self.PnlEndFound,
+                       not bool(self.ChkSameFnds.IsChecked))
         except Exception:
             pass
 
@@ -362,8 +372,8 @@ class ConfigEditWindow(forms.WPFWindow):
 
     def on_terrain_mode(self, sender, args):
         try:
-            self.PnlTerrains.IsEnabled = bool(
-                self.RbTerrainNamed.IsChecked)
+            self._show(self.PnlTerrains,
+                       bool(self.RbTerrainNamed.IsChecked))
         except Exception:
             pass
 

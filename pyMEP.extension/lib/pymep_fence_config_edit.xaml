@@ -114,23 +114,24 @@
                     <ComboBox x:Name="CmbColSize" Margin="0,6,0,0"/>
                     <Grid Margin="0,8,0,0">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="150"/>
-                            <ColumnDefinition Width="120"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="160"/>
+                            <ColumnDefinition Width="130"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0"
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
                                    Text="Foundation depth (mm)"/>
                         <TextBox x:Name="TxtPostFndDepth"
-                                 Grid.Column="1"/>
-                        <TextBlock Grid.Column="2"
+                                 Grid.Row="0" Grid.Column="1"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
-                                   Margin="16,6,10,0"
                                    Text="Height (mm)"/>
                         <TextBox x:Name="TxtPostHeight"
-                                 Grid.Column="3"/>
+                                 Grid.Row="1" Grid.Column="1"/>
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
                                Text="Written onto every placed post: Column size drives the post's 'Column Size' type parameter (searchable - the nested column types in this model), the two lengths its 'Foundation Depth' and 'Height'. Empty = leave the family value alone; the length boxes take equations too (z = ground level, mm)."/>
@@ -155,23 +156,24 @@
                                   Margin="0,6,0,0"/>
                         <Grid Margin="0,8,0,0">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="150"/>
-                                <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="130"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0"
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0"
                                        Style="{StaticResource FieldLabel}"
                                        Text="Foundation depth (mm)"/>
                             <TextBox x:Name="TxtEndPostFndDepth"
-                                     Grid.Column="1"/>
-                            <TextBlock Grid.Column="2"
+                                     Grid.Row="0" Grid.Column="1"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0"
                                        Style="{StaticResource FieldLabel}"
-                                       Margin="16,6,10,0"
                                        Text="Height (mm)"/>
                             <TextBox x:Name="TxtEndPostHeight"
-                                     Grid.Column="3"/>
+                                     Grid.Row="1" Grid.Column="1"/>
                         </Grid>
                         <TextBlock Style="{StaticResource Hint}"
                                    Text="Untick above and the line's ENDPOINT stations get their own post family, column size and lengths (gate / corner posts)."/>
@@ -188,31 +190,30 @@
                                Text="Structural Foundation families only (type above to filter). '(none)' places posts only. Lands at the SAME draped point and rotation as the post."/>
                     <Grid Margin="0,8,0,0">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="100"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="100"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="160"/>
+                            <ColumnDefinition Width="130"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0"
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
                                    Text="Embedment (mm)"/>
                         <TextBox x:Name="TxtFndEmbed"
-                                 Grid.Column="1"/>
-                        <TextBlock Grid.Column="2"
+                                 Grid.Row="0" Grid.Column="1"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
-                                   Margin="14,6,10,0"
                                    Text="Diameter (mm)"/>
                         <TextBox x:Name="TxtFndDia"
-                                 Grid.Column="3"/>
-                        <TextBlock Grid.Column="4"
+                                 Grid.Row="1" Grid.Column="1"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
-                                   Margin="14,6,10,0"
                                    Text="Depth (mm)"/>
                         <TextBox x:Name="TxtFndDepth"
-                                 Grid.Column="5"/>
+                                 Grid.Row="2" Grid.Column="1"/>
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
                                Text="Written onto every placed foundation's 'Embedment' / 'Diameter' / 'Depth'. Empty = leave the family value alone; equations allowed (z = ground level, mm). Diameter also drives the touching corner circles in Fence Network."/>
@@ -230,31 +231,30 @@
                                   Margin="0,6,0,0"/>
                         <Grid Margin="0,8,0,0">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="100"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="100"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="100"/>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="130"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0"
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0"
                                        Style="{StaticResource FieldLabel}"
                                        Text="Embedment (mm)"/>
                             <TextBox x:Name="TxtEndFndEmbed"
-                                     Grid.Column="1"/>
-                            <TextBlock Grid.Column="2"
+                                     Grid.Row="0" Grid.Column="1"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0"
                                        Style="{StaticResource FieldLabel}"
-                                       Margin="14,6,10,0"
                                        Text="Diameter (mm)"/>
                             <TextBox x:Name="TxtEndFndDia"
-                                     Grid.Column="3"/>
-                            <TextBlock Grid.Column="4"
+                                     Grid.Row="1" Grid.Column="1"/>
+                            <TextBlock Grid.Row="2" Grid.Column="0"
                                        Style="{StaticResource FieldLabel}"
-                                       Margin="14,6,10,0"
                                        Text="Depth (mm)"/>
                             <TextBox x:Name="TxtEndFndDepth"
-                                     Grid.Column="5"/>
+                                     Grid.Row="2" Grid.Column="1"/>
                         </Grid>
                         <TextBlock Style="{StaticResource Hint}"
                                    Text="Untick above and the ENDPOINT stations get their own foundation family and dimensions - the same post can stand on a different end foundation, and vice versa. In Fence Network the END foundation's 'Diameter' parameter sets the corner circle (touching double posts); no Diameter = normal spacing, first post skipped."/>
