@@ -874,23 +874,40 @@ def edge_stations(length, spacing, anchor=0.0, clear_end=None,
     """In-between post centers for one stretch, measured from its
     start.
 
-    The first post sits a FULL SPACING from the ``anchor`` - the
-    corner itself (0) or the corner's DOUBLE post when one was
-    placed on this line - and every next post is ``spacing`` on.
-    The run stops clear of the far corner (``clear_end`` when the
-    circles are known, one spacing when not): the leftover simply
-    SHORTENS the last bay - posts never double up."""
+    The stretch from the ``anchor`` - the corner itself (0) or the
+    corner's DOUBLE post on this line - to the far corner SPLITS
+    into full spacings plus ONE shorter EXTRA bay at the far end: a
+    bay NEVER exceeds the spacing. When the extra would put the
+    last post inside the far corner's foundation clearance
+    (``clear_end``), that post SHIFTS back to sit exactly at the
+    clearance and the bay before it shortens instead - still never
+    above the spacing. Only a clearance bigger than the spacing
+    itself leaves the final gap to the geometry."""
     if not spacing or spacing <= tol or length is None or \
             length <= tol:
         return []
-    first = (anchor or 0.0) + spacing
-    limit = length - (clear_end if clear_end is not None
-                      else spacing)
-    out = []
-    d = first
-    while d <= limit + tol:
-        out.append(d)
-        d += spacing
+    a = anchor or 0.0
+    run = length - a
+    if run <= tol:
+        return []
+    n = int((run + tol) / spacing)
+    extra = run - n * spacing
+    if extra <= tol:
+        # the split lands ON the far corner - its own post stands
+        # there already
+        n -= 1
+        extra = spacing
+    out = [a + k * spacing for k in range(1, n + 1)]
+    c = clear_end or 0.0
+    if out and extra + tol < c:
+        # the last post would CLASH with the corner foundation:
+        # shift it back to the clearance (drop it when no room)
+        moved = length - c
+        prev = out[-2] if len(out) > 1 else a
+        if moved > prev + tol:
+            out[-1] = moved
+        else:
+            out.pop()
     return out
 
 

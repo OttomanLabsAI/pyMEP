@@ -1209,9 +1209,10 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
                 continue
 
             # the spacing counts from the near boundary's DOUBLE post
-            # when one sits on this line; the far end stops clear of
-            # the far double / corner circle - the leftover only
-            # SHORTENS the last bay
+            # when one sits on this line; the run SPLITS into full
+            # spacings + one shorter EXTRA bay - a bay NEVER exceeds
+            # the spacing, and the far corner's foundation clearance
+            # only SHIFTS the last post, it never widens a bay
             def _anchor(ni2, boundary):
                 st2 = dbl_at.get((e_i, ni2))
                 return abs(st2 - boundary) if st2 is not None else 0.0
@@ -1221,7 +1222,7 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
                 if st2 is not None:
                     gap = (r_end_own + r_edge) \
                         if (r_end_own is not None and
-                            r_edge is not None) else spacing_ft
+                            r_edge is not None) else 0.0
                     return abs(st2 - boundary) + gap
                 rn = nodes[ni2]["r"]
                 if rn is not None and r_edge is not None:
