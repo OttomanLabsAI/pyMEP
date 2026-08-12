@@ -118,11 +118,27 @@
         </StackPanel>
 
         <Border Grid.Row="2" Background="#F4F4F4" Padding="14,10">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button x:Name="BtnClose" Content="Close"
-                        Style="{StaticResource DialogButton}" IsCancel="True"
-                        Click="on_close"/>
-            </StackPanel>
+            <Grid>
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Left">
+                    <Button x:Name="BtnExport"
+                            Content="Export settings"
+                            Style="{StaticResource DialogButton}"
+                            Margin="0,0,0,0" Click="on_export"
+                            ToolTip="Save every fence configuration + the global MARK / TOC settings to a JSON file - import it on another machine or profile."/>
+                    <Button x:Name="BtnImport"
+                            Content="Import settings"
+                            Style="{StaticResource DialogButton}"
+                            Click="on_import"
+                            ToolTip="Merge a settings export into this profile: configurations merge by NAME (the file wins), the global toggles are taken over."/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button x:Name="BtnClose" Content="Close"
+                            Style="{StaticResource DialogButton}" IsCancel="True"
+                            Click="on_close"/>
+                </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </Window>
