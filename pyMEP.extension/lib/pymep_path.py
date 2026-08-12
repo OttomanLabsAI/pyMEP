@@ -16,6 +16,7 @@ SETTINGS_KERB_FAMILY = "path_kerb_family"
 SETTINGS_KERB_LENGTH = "path_kerb_length_mm"
 SETTINGS_KERB_ANGLE_PARAM = "path_kerb_angle_param"
 SETTINGS_KERB_LENGTH_PARAM = "path_kerb_length_param"
+SETTINGS_KERB_SLOPE_FIT = "path_kerb_slope_fit"
 
 KERB_ANGLE_PARAM = "Angle"           # default parameter name
 
@@ -29,7 +30,7 @@ KERB_MIN_MM = 50.0
 
 def kerb_settings(settings):
     """(family label, piece length mm, angle parameter, length
-    parameter) - the Kerb dialog's remembered values."""
+    parameter, slope fit) - the Kerb dialog's remembered values."""
     try:
         ln = float(settings.get(SETTINGS_KERB_LENGTH) or 915.0)
     except Exception:
@@ -39,7 +40,23 @@ def kerb_settings(settings):
             str(settings.get(SETTINGS_KERB_ANGLE_PARAM) or
                 KERB_ANGLE_PARAM).strip() or KERB_ANGLE_PARAM,
             str(settings.get(SETTINGS_KERB_LENGTH_PARAM)
-                or "").strip())
+                or "").strip(),
+            bool(settings.get(SETTINGS_KERB_SLOPE_FIT, False)))
+
+
+def slope_fit_advance(unit, dz):
+    """SLOPE FIT: the PLAN advance of one unit lying ON the slope.
+    The unit is the HYPOTENUSE, its rise over the step is ``dz`` -
+    the horizontal leg is sqrt(unit^2 - dz^2) (Pythagoras), so the
+    next unit starts exactly where this one ends and they TOUCH. A
+    rise steeper than the unit itself caps the advance at a tenth
+    of the unit, so the walk always moves forward."""
+    import math
+    d = unit * unit - dz * dz
+    floor2 = (0.1 * unit) ** 2
+    if d <= floor2:
+        return 0.1 * unit
+    return math.sqrt(d)
 
 
 def slope_angle_deg(dz, run):

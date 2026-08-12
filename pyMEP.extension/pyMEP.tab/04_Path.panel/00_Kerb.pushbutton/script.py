@@ -63,7 +63,7 @@ class KerbWindow(forms.WPFWindow):
         self.result = None
         self.labels = labels
         self._last = {}
-        fam, ln, ang, lnp = P.kerb_settings(settings)
+        fam, ln, ang, lnp, sfit = P.kerb_settings(settings)
         self._param_cache = {}
         self._fill(self.CmbKerb, labels, "")
         self._select(self.CmbKerb, fam)
@@ -71,6 +71,7 @@ class KerbWindow(forms.WPFWindow):
         self._fill_params()
         self.CmbAngleParam.Text = ang
         self.CmbLenParam.Text = lnp
+        self.ChkSlopeFit.IsChecked = bool(sfit)
         self.CmbKerb.SelectionChanged += self._on_family_changed
         self.TxtInfo.Text = "{} placeable famil{} found.".format(
             len(labels), "y" if len(labels) == 1 else "ies")
@@ -172,6 +173,7 @@ class KerbWindow(forms.WPFWindow):
             "length_mm": ln,
             "angle_param": (self.CmbAngleParam.Text or "").strip(),
             "length_param": (self.CmbLenParam.Text or "").strip(),
+            "slope_fit": bool(self.ChkSlopeFit.IsChecked),
         }
         self.Close()
 
@@ -234,6 +236,7 @@ def main():
     settings[P.SETTINGS_KERB_LENGTH] = opt["length_mm"]
     settings[P.SETTINGS_KERB_ANGLE_PARAM] = opt["angle_param"]
     settings[P.SETTINGS_KERB_LENGTH_PARAM] = opt["length_param"]
+    settings[P.SETTINGS_KERB_SLOPE_FIT] = opt["slope_fit"]
     try:
         save_settings(settings)
     except Exception:
@@ -270,24 +273,7 @@ def main():
         ", CLOSED loop" if closed else ""))
 
     unit_ft = FR.mm2ft(opt["length_mm"])
-    marks = F.stations(length, unit_ft, F.JUSTIFY_START, True,
-                       closed)
-    pieces = F.panel_bays(marks, FR.mm2ft(P.KERB_MIN_MM))
-    if closed and marks:
-        # the seam bay (last mark back to the start) closes the loop
-        pieces = F.panel_bays(marks + [length],
-                              FR.mm2ft(P.KERB_MIN_MM))
-    if not pieces:
-        log.close()
-        forms.alert("No kerb units fit - the line is shorter than "
-                    "the unit length.", exitscript=True)
-    if len(pieces) > F.MAX_INSTANCES:
-        log.close()
-        forms.alert("{} units would be placed - over the {} sanity "
-                    "cap. Check the unit length.".format(
-                        len(pieces), F.MAX_INSTANCES),
-                    exitscript=True)
-    log("**{}** unit(s) along the line.".format(len(pieces)))
+    min_ft = FR.mm2ft(P.KERB_MIN_MM)
 
     view3d = FR.find_view3d(doc)
     if view3d is None:
@@ -299,6 +285,81 @@ def main():
     terrain_id = FR.id_value(terrain.Id)
     levels = FR.sorted_levels(doc)
 
+    def _z_at(st):
+        pt = F.point_at(poly, st)[0]
+        h = FR.topmost_hit(doc, ri, XYZ(pt[0], pt[1], ray_z),
+                           terrain_id)
+        return h.Z if h is not None else None
+
+    # entries = (centre station, length for the LENGTH param, angle)
+    entries = []
+    if opt["slope_fit"]:
+        # PYTHAGORAS WALK: each unit is the hypotenuse lying on the
+        # ground - its PLAN advance is sqrt(unit^2 - rise^2), so the
+        # next unit starts exactly where this one ends and they
+        # TOUCH on any slope
+        s_pos = 0.0
+        while len(entries) <= F.MAX_INSTANCES:
+            rem = length - s_pos
+            if rem <= min_ft:
+                break
+            z0 = _z_at(s_pos)
+            adv = min(unit_ft, rem)
+            dz = 0.0
+            for _i in range(3):     # settle the fit
+                z1 = _z_at(min(s_pos + adv, length))
+                dz = (z1 - z0) if (z0 is not None and
+                                   z1 is not None) else 0.0
+                adv2 = P.slope_fit_advance(unit_ft, dz)
+                if abs(adv2 - adv) <= FR.mm2ft(1.0):
+                    adv = adv2
+                    break
+                adv = adv2
+            if adv + 1e-9 >= rem:
+                # the CUT closing piece spans what is left
+                z1 = _z_at(length)
+                dzr = (z1 - z0) if (z0 is not None and
+                                    z1 is not None) else 0.0
+                entries.append((s_pos + rem / 2.0,
+                                (rem * rem + dzr * dzr) ** 0.5,
+                                P.slope_angle_deg(dzr, rem)))
+                break
+            entries.append((s_pos + adv / 2.0, unit_ft,
+                            P.slope_angle_deg(dz, adv)))
+            s_pos += adv
+    else:
+        # flat PLAN spacing (the original behaviour)
+        marks = F.stations(length, unit_ft, F.JUSTIFY_START, True,
+                           closed)
+        if closed and marks:
+            marks = marks + [length]
+        for mid, width in F.panel_bays(marks, min_ft):
+            d = min(width / 2.0, FR.mm2ft(500.0))
+            pb = F.point_at(poly, mid - d)[0]
+            pf = F.point_at(poly, mid + d)[0]
+            zb, zf = _z_at(mid - d), _z_at(mid + d)
+            ang_deg = 0.0
+            if zb is not None and zf is not None:
+                run = ((pf[0] - pb[0]) ** 2 +
+                       (pf[1] - pb[1]) ** 2) ** 0.5
+                ang_deg = P.slope_angle_deg(zf - zb, run)
+            entries.append((mid, width, ang_deg))
+
+    if not entries:
+        log.close()
+        forms.alert("No kerb units fit - the line is shorter than "
+                    "the unit length.", exitscript=True)
+    if len(entries) > F.MAX_INSTANCES:
+        log.close()
+        forms.alert("{} units would be placed - over the {} sanity "
+                    "cap. Check the unit length.".format(
+                        len(entries), F.MAX_INSTANCES),
+                    exitscript=True)
+    log("**{}** unit(s) along the line{}.".format(
+        len(entries),
+        " (slope fit: units touch on the slope)"
+        if opt["slope_fit"] else ""))
+
     placed, missed, no_angle = 0, 0, 0
     t = Transaction(doc, "Kerb")
     t.Start()
@@ -309,27 +370,13 @@ def main():
                 doc.Regenerate()
         except Exception:
             pass
-        for mid, width in pieces:
+        for mid, width, ang_deg in entries:
             p, tang = F.point_at(poly, mid)
             hit = FR.topmost_hit(doc, ri, XYZ(p[0], p[1], ray_z),
                                  terrain_id)
             if hit is None:
                 missed += 1
                 continue
-            # the slope ALONG the line: sample the terrain a little
-            # back and a little forward of the centre
-            d = min(width / 2.0, FR.mm2ft(500.0))
-            pb = F.point_at(poly, mid - d)[0]
-            pf = F.point_at(poly, mid + d)[0]
-            hb = FR.topmost_hit(doc, ri, XYZ(pb[0], pb[1], ray_z),
-                                terrain_id)
-            hf = FR.topmost_hit(doc, ri, XYZ(pf[0], pf[1], ray_z),
-                                terrain_id)
-            ang_deg = 0.0
-            if hb is not None and hf is not None:
-                run = ((pf[0] - pb[0]) ** 2 +
-                       (pf[1] - pb[1]) ** 2) ** 0.5
-                ang_deg = P.slope_angle_deg(hf.Z - hb.Z, run)
             lvl = FR.level_for(levels, hit.Z)
             rot = math.atan2(tang[1], tang[0])
             try:

@@ -964,13 +964,28 @@ class PathKerb(unittest.TestCase):
 
     def test_kerb_settings_defaults(self):
         P = self.P
-        fam, ln, ang, lnp = P.kerb_settings({})
-        self.assertEqual((fam, ang, lnp), ("", "Angle", ""))
+        fam, ln, ang, lnp, sfit = P.kerb_settings({})
+        self.assertEqual((fam, ang, lnp, sfit),
+                         ("", "Angle", "", False))
         self.assertEqual(ln, 915.0)
         s = {P.SETTINGS_KERB_FAMILY: "Kerb : HB2",
              P.SETTINGS_KERB_LENGTH: "450",
              P.SETTINGS_KERB_ANGLE_PARAM: " Slope ",
-             P.SETTINGS_KERB_LENGTH_PARAM: "Length"}
-        fam, ln, ang, lnp = P.kerb_settings(s)
-        self.assertEqual((fam, ln, ang, lnp),
-                         ("Kerb : HB2", 450.0, "Slope", "Length"))
+             P.SETTINGS_KERB_LENGTH_PARAM: "Length",
+             P.SETTINGS_KERB_SLOPE_FIT: True}
+        fam, ln, ang, lnp, sfit = P.kerb_settings(s)
+        self.assertEqual((fam, ln, ang, lnp, sfit),
+                         ("Kerb : HB2", 450.0, "Slope", "Length",
+                          True))
+
+    def test_slope_fit_advance(self):
+        P = self.P
+        # the 3-4-5 triangle: a 5-long unit rising 3 advances 4 in
+        # plan - the next unit starts where this one ends
+        self.assertAlmostEqual(P.slope_fit_advance(5.0, 3.0), 4.0)
+        self.assertAlmostEqual(P.slope_fit_advance(5.0, -3.0), 4.0)
+        # flat ground: full unit length
+        self.assertEqual(P.slope_fit_advance(5.0, 0.0), 5.0)
+        # steeper than the unit itself: capped so the walk advances
+        self.assertAlmostEqual(P.slope_fit_advance(5.0, 5.0), 0.5)
+        self.assertAlmostEqual(P.slope_fit_advance(5.0, 99.0), 0.5)
