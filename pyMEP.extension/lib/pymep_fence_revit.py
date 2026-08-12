@@ -455,6 +455,68 @@ def _toc_params(doc, inst):
     return out
 
 
+def _survey_zen(doc, pt):
+    """(z_mm, e_m, n_m) of a placement point in the SURVEY basis."""
+    try:
+        tf = doc.ActiveProjectLocation.GetTotalTransform().Inverse
+        sp = tf.OfPoint(pt)
+    except Exception:
+        sp = pt
+    return (UnitUtils.ConvertFromInternalUnits(
+                sp.Z, UnitTypeId.Millimeters),
+            UnitUtils.ConvertFromInternalUnits(
+                sp.X, UnitTypeId.Meters),
+            UnitUtils.ConvertFromInternalUnits(
+                sp.Y, UnitTypeId.Meters))
+
+
+def _note_problem(problems, msg):
+    if problems is not None and msg not in problems and             len(problems) < 5:
+        problems.append(msg)
+
+
+def set_assignments(doc, inst, pt, assigns, problems=None):
+    """Write the config's 'Parameter = equation' lines onto a POST:
+    each right-hand side may use the post's OWN parameters by name,
+    z / e / n from the survey-basis point, and quoted TEXT. Numbers
+    land as millimetres on Length parameters, whole numbers on
+    Integer ones, '{:g}' text on Text ones; quoted text needs a
+    Text parameter. Problems are collected, placement never
+    fails."""
+    if inst is None or not assigns:
+        return
+    z_mm, e_m, n_m = _survey_zen(doc, pt)
+    pvals = _toc_params(doc, inst)
+    for name, expr in assigns:
+        try:
+            val = F.eval_assign(expr, z_mm, e_m, n_m, pvals)
+        except ValueError as ex:
+            _note_problem(problems, "'{}': {}".format(name, ex))
+            continue
+        try:
+            par = inst.LookupParameter(name)
+            if par is None or par.IsReadOnly:
+                _note_problem(problems,
+                              "parameter '{}' is missing or "
+                              "read-only on the post".format(name))
+                continue
+            if isinstance(val, str) or                     type(val).__name__ == "unicode":
+                if par.StorageType == StorageType.String:
+                    par.Set(u"{}".format(val))
+                else:
+                    _note_problem(problems,
+                                  "'{}' gets TEXT but is not a "
+                                  "text parameter".format(name))
+            elif par.StorageType == StorageType.Double:
+                par.Set(mm2ft(val))
+            elif par.StorageType == StorageType.Integer:
+                par.Set(int(round(val)))
+            elif par.StorageType == StorageType.String:
+                par.Set(u"{:g}".format(val))
+        except Exception:
+            continue
+
+
 def set_toc(doc, inst, pt, param_name, formula, problems=None):
     """TOC: evaluate the equation at the placement point and write
     the result into the named instance parameter. The equation may
@@ -467,17 +529,7 @@ def set_toc(doc, inst, pt, param_name, formula, problems=None):
     if inst is None or not param_name:
         return
     try:
-        tf = doc.ActiveProjectLocation.GetTotalTransform().Inverse
-        sp = tf.OfPoint(pt)
-    except Exception:
-        sp = pt
-    try:
-        z_mm = UnitUtils.ConvertFromInternalUnits(
-            sp.Z, UnitTypeId.Millimeters)
-        e_m = UnitUtils.ConvertFromInternalUnits(
-            sp.X, UnitTypeId.Meters)
-        n_m = UnitUtils.ConvertFromInternalUnits(
-            sp.Y, UnitTypeId.Meters)
+        z_mm, e_m, n_m = _survey_zen(doc, pt)
         val = F.eval_toc(formula, z_mm, e_m, n_m,
                          _toc_params(doc, inst))
     except Exception as ex:
@@ -572,7 +624,8 @@ def station_pick(dists, length, primary, secondary,
 def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
                     levels, extra_rot=0.0, panel_symbol=None,
                     panel_width_param=None, coord_params=None,
-                    marks=None, toc=None, toc_problems=None):
+                    marks=None, toc=None, toc_problems=None,
+                    assigns=None):
     """Place at every station, draped and rotated - the line's
     direction plus ``extra_rot`` (radians, the config's custom
     rotation). ``pick(d)`` returns (symbol, foundation_symbol) for
@@ -625,6 +678,8 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
             if toc:
                 set_toc(doc, inst, hit, toc[0], toc[1],
                         toc_problems)
+        elif assigns:
+            set_assignments(doc, inst, hit, assigns, toc_problems)
         set_mark(inst, mark)
         rec = {"uid": inst.UniqueId, "station_ft": d, "angle": ang}
         if foundation_symbol is not None:
@@ -660,7 +715,7 @@ def _move_one(doc, el, hit, rot_delta):
 
 def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
                    extra_rot=0.0, coord_params=None, toc=None,
-                   toc_problems=None):
+                   toc_problems=None, assigns=None):
     """MOVE each stored instance (and its foundation, when the record
     has one that still exists) to its new station: pairs =
     [(instance_dict, element, new_station)]. The rotation applied is
@@ -689,6 +744,9 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
                 if toc:
                     set_toc(doc, el, hit, toc[0], toc[1],
                             toc_problems)
+            elif assigns:
+                set_assignments(doc, el, hit, assigns,
+                                toc_problems)
             rec = {"uid": inst_d.get("uid"), "station_ft": d,
                    "angle": new_ang}
             f_uid = inst_d.get("foundation_uid")
@@ -1022,6 +1080,18 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
     records = []
     missed = [0]
     toc_problems = []
+    assign_cache = {}
+
+    def _assigns_for(cfg):
+        key = cfg.get("post_params") or ""
+        if key not in assign_cache:
+            try:
+                assign_cache[key] = F.parse_assignments(key)
+            except ValueError as ex:
+                note("! post parameters: {}".format(ex))
+                assign_cache[key] = []
+        return assign_cache[key]
+
     sym_cache = {}
 
     def _sym(label, cats, what):
@@ -1077,6 +1147,10 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
             if toc_opts:
                 set_toc(doc, inst, hit, toc_opts[0], toc_opts[1],
                         toc_problems)
+        else:
+            a = _assigns_for(cfg)
+            if a:
+                set_assignments(doc, inst, hit, a, toc_problems)
         if mark_on:
             set_mark(inst, mark)
         rec = {"uid": inst.UniqueId}

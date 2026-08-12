@@ -587,6 +587,11 @@ try:
                                          F.MAX_INSTANCES)))
             continue
 
+        try:
+            _assigns = F.parse_assignments(eff["post_params"])
+        except ValueError as _aex:
+            log("! post parameters skipped: {}".format(_aex))
+            _assigns = None
         ray_z = FR.ray_start_z(terrains + [line_el])
         terrain_id = set(FR.id_value(t.Id) for t in terrains)
         extra_rot = math.radians(eff["rotation_deg"])
@@ -611,7 +616,8 @@ try:
                 doc, triples, poly, terrain_id, ri, ray_z, extra_rot,
                 coord_params=(eff["easting_param"],
                               eff["northing_param"]),
-                toc=_toc, toc_problems=_toc_probs)
+                toc=_toc, toc_problems=_toc_probs,
+                assigns=_assigns)
             action = "moved"
             note = "{} post(s) re-draped".format(
                 len(records) - len(missed) - failed)
@@ -688,7 +694,8 @@ try:
                 marks=[_mark_prefix + str(i + 1)
                        for i in range(len(dists))]
                 if _mark_on else None,
-                toc=_toc, toc_problems=_toc_probs)
+                toc=_toc, toc_problems=_toc_probs,
+                assigns=_assigns)
             action = "rebuilt"
             note = "{} -> {} post(s)".format(len(survivors),
                                              len(records))
@@ -717,6 +724,7 @@ try:
         rec["panel_width_param"] = eff["panel_width_param"]
         rec["easting_param"] = eff["easting_param"]
         rec["northing_param"] = eff["northing_param"]
+        rec["post_params"] = eff["post_params"]
         rec["mark"] = _mark_on
         rec["mark_prefix"] = _mark_prefix
         rec["updated"] = datetime.datetime.now().strftime(

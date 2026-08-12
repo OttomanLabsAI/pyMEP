@@ -135,7 +135,8 @@ class ConfigStore(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": []})
+                          "terrains": [],
+                          "post_params": ""})
 
     def test_upsert_validates(self):
         self.assertRaises(ValueError, F.upsert_config, {}, "  ",
@@ -180,7 +181,8 @@ class ConfigStore(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": []})
+                          "terrains": [],
+                          "post_params": ""})
 
 
 class EffectiveConfig(unittest.TestCase):
@@ -193,7 +195,8 @@ class EffectiveConfig(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": []}
+                          "terrains": [],
+                          "post_params": ""}
 
     def test_current_config_wins(self):
         s = {}
@@ -214,7 +217,8 @@ class EffectiveConfig(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": []})
+                          "terrains": [],
+                          "post_params": ""})
 
     def test_missing_config_falls_back_to_snapshot(self):
         eff = F.effective_config({}, "Deleted", self.SNAP)
@@ -237,7 +241,8 @@ class EffectiveConfig(unittest.TestCase):
                           "easting_param": "EASTINGS",
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
-                          "terrains": []})
+                          "terrains": [],
+                          "post_params": ""})
 
     def test_snapshot_family_becomes_the_post(self):
         # records from before posts joined configs carry 'family'
@@ -586,6 +591,28 @@ class Intersections(unittest.TestCase):
         self.assertRaises(ValueError, F.eval_toc, "q * 2", 100.0)
         self.assertRaises(ValueError, F.eval_toc,
                           "__import__('os')", 100.0)
+
+    def test_parse_assignments_and_eval_assign(self):
+        # 'Parameter = equation' lines: blanks and #comments skip
+        a = F.parse_assignments(
+            "Foundation Depth = 750\n\n# a comment\n"
+            "Height = 3200\nLabel = 'SHS 40x40'")
+        self.assertEqual(a, [("Foundation Depth", "750"),
+                             ("Height", "3200"),
+                             ("Label", "'SHS 40x40'")])
+        self.assertEqual(F.parse_assignments(""), [])
+        self.assertRaises(ValueError, F.parse_assignments,
+                          "no equals sign here")
+        self.assertRaises(ValueError, F.parse_assignments, "= 5")
+        # numbers evaluate like TOC, TEXT comes through quoted
+        self.assertEqual(F.eval_assign("750", 0.0), 750.0)
+        self.assertEqual(F.eval_assign("z + 10", 100.0), 110.0)
+        self.assertEqual(F.eval_assign("'SHS 40x40'", 0.0),
+                         "SHS 40x40")
+        p = {"Height": 3200.0}
+        self.assertEqual(F.eval_assign("Height / 2", 0.0, params=p),
+                         1600.0)
+        self.assertRaises(ValueError, F.eval_assign, "", 0.0)
 
     def test_eval_toc_parameter_names(self):
         # the equation may use the foundation's OWN parameters by
