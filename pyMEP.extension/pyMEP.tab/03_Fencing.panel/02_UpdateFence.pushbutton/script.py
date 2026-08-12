@@ -170,6 +170,11 @@ def _rec_cfg(rec):
     return {"post": _rec_post(rec),
             "foundation": str(rec.get("foundation") or ""),
             "same_ends": bool(rec.get("same_ends", True)),
+            "same_end_posts": rec.get(
+                "same_end_posts", rec.get("same_ends", True)),
+            "same_end_foundations": rec.get(
+                "same_end_foundations",
+                rec.get("same_ends", True)),
             "end_post": str(rec.get("end_post") or ""),
             "end_foundation": str(rec.get("end_foundation") or "")}
 
@@ -587,11 +592,6 @@ try:
                                          F.MAX_INSTANCES)))
             continue
 
-        try:
-            _assigns = F.parse_assignments(eff["post_params"])
-        except ValueError as _aex:
-            log("! post parameters skipped: {}".format(_aex))
-            _assigns = None
         ray_z = FR.ray_start_z(terrains + [line_el])
         terrain_id = set(FR.id_value(t.Id) for t in terrains)
         extra_rot = math.radians(eff["rotation_deg"])
@@ -616,8 +616,7 @@ try:
                 doc, triples, poly, terrain_id, ri, ray_z, extra_rot,
                 coord_params=(eff["easting_param"],
                               eff["northing_param"]),
-                toc=_toc, toc_problems=_toc_probs,
-                assigns=_assigns)
+                toc=_toc, toc_problems=_toc_probs, cfg=eff)
             action = "moved"
             note = "{} post(s) re-draped".format(
                 len(records) - len(missed) - failed)
@@ -649,14 +648,19 @@ try:
             foundation_symbol = _resolve(eff["foundation"],
                                          F.FOUNDATION_CATEGORIES,
                                          "foundation")
-            if eff["same_ends"]:
+            if eff["same_end_posts"] and \
+                    eff["same_end_foundations"]:
                 end_post_symbol = post_symbol
                 end_found_symbol = foundation_symbol
             else:
-                end_post_symbol = _resolve(eff["end_post"],
+                end_post_symbol = post_symbol \
+                    if eff["same_end_posts"] \
+                    else _resolve(eff["end_post"],
                                            F.POST_CATEGORIES,
                                            "end post")
-                end_found_symbol = _resolve(eff["end_foundation"],
+                end_found_symbol = foundation_symbol \
+                    if eff["same_end_foundations"] \
+                    else _resolve(eff["end_foundation"],
                                             F.FOUNDATION_CATEGORIES,
                                             "end foundation")
             if bad:
@@ -684,7 +688,9 @@ try:
                             fid, eff["panel"]))
             pick = FR.station_pick(dists, length, primary,
                                    secondary, end_primary,
-                                   end_secondary, eff["same_ends"])
+                                   end_secondary,
+                                   eff["same_end_posts"],
+                                   eff["same_end_foundations"])
             records, missed, failed, why = FR.place_instances(
                 doc, pick, poly, dists, terrain_id, ri, ray_z,
                 levels, extra_rot, panel_symbol=panel_symbol,
@@ -694,8 +700,7 @@ try:
                 marks=[_mark_prefix + str(i + 1)
                        for i in range(len(dists))]
                 if _mark_on else None,
-                toc=_toc, toc_problems=_toc_probs,
-                assigns=_assigns)
+                toc=_toc, toc_problems=_toc_probs, cfg=eff)
             action = "rebuilt"
             note = "{} -> {} post(s)".format(len(survivors),
                                              len(records))
@@ -717,14 +722,18 @@ try:
         rec["post"] = eff["post"]
         rec["family"] = eff["post"]
         rec["foundation"] = eff["foundation"]
-        rec["same_ends"] = eff["same_ends"]
+        rec["same_ends"] = eff["same_end_posts"] and \
+            eff["same_end_foundations"]
+        rec["same_end_posts"] = eff["same_end_posts"]
+        rec["same_end_foundations"] = eff["same_end_foundations"]
         rec["end_post"] = eff["end_post"]
         rec["end_foundation"] = eff["end_foundation"]
         rec["panel"] = eff["panel"]
         rec["panel_width_param"] = eff["panel_width_param"]
         rec["easting_param"] = eff["easting_param"]
         rec["northing_param"] = eff["northing_param"]
-        rec["post_params"] = eff["post_params"]
+        for _k in F.DIM_KEYS:
+            rec[_k] = eff[_k]
         rec["mark"] = _mark_on
         rec["mark_prefix"] = _mark_prefix
         rec["updated"] = datetime.datetime.now().strftime(

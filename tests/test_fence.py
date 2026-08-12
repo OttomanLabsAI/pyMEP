@@ -136,7 +136,20 @@ class ConfigStore(unittest.TestCase):
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
                           "terrains": [],
-                          "post_params": ""})
+                          "same_end_posts": True,
+                          "same_end_foundations": True,
+                          "post_col_size": "",
+                          "post_fnd_depth": "",
+                          "post_height": "",
+                          "end_post_col_size": "",
+                          "end_post_fnd_depth": "",
+                          "end_post_height": "",
+                          "fnd_embedment": "",
+                          "fnd_diameter": "",
+                          "fnd_depth": "",
+                          "end_fnd_embedment": "",
+                          "end_fnd_diameter": "",
+                          "end_fnd_depth": ""})
 
     def test_upsert_validates(self):
         self.assertRaises(ValueError, F.upsert_config, {}, "  ",
@@ -182,7 +195,20 @@ class ConfigStore(unittest.TestCase):
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
                           "terrains": [],
-                          "post_params": ""})
+                          "same_end_posts": True,
+                          "same_end_foundations": True,
+                          "post_col_size": "",
+                          "post_fnd_depth": "",
+                          "post_height": "",
+                          "end_post_col_size": "",
+                          "end_post_fnd_depth": "",
+                          "end_post_height": "",
+                          "fnd_embedment": "",
+                          "fnd_diameter": "",
+                          "fnd_depth": "",
+                          "end_fnd_embedment": "",
+                          "end_fnd_diameter": "",
+                          "end_fnd_depth": ""})
 
 
 class EffectiveConfig(unittest.TestCase):
@@ -196,7 +222,20 @@ class EffectiveConfig(unittest.TestCase):
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
                           "terrains": [],
-                          "post_params": ""}
+                          "same_end_posts": True,
+                          "same_end_foundations": True,
+                          "post_col_size": "",
+                          "post_fnd_depth": "",
+                          "post_height": "",
+                          "end_post_col_size": "",
+                          "end_post_fnd_depth": "",
+                          "end_post_height": "",
+                          "fnd_embedment": "",
+                          "fnd_diameter": "",
+                          "fnd_depth": "",
+                          "end_fnd_embedment": "",
+                          "end_fnd_diameter": "",
+                          "end_fnd_depth": ""}
 
     def test_current_config_wins(self):
         s = {}
@@ -218,7 +257,20 @@ class EffectiveConfig(unittest.TestCase):
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
                           "terrains": [],
-                          "post_params": ""})
+                          "same_end_posts": True,
+                          "same_end_foundations": True,
+                          "post_col_size": "",
+                          "post_fnd_depth": "",
+                          "post_height": "",
+                          "end_post_col_size": "",
+                          "end_post_fnd_depth": "",
+                          "end_post_height": "",
+                          "fnd_embedment": "",
+                          "fnd_diameter": "",
+                          "fnd_depth": "",
+                          "end_fnd_embedment": "",
+                          "end_fnd_diameter": "",
+                          "end_fnd_depth": ""})
 
     def test_missing_config_falls_back_to_snapshot(self):
         eff = F.effective_config({}, "Deleted", self.SNAP)
@@ -242,7 +294,20 @@ class EffectiveConfig(unittest.TestCase):
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
                           "terrains": [],
-                          "post_params": ""})
+                          "same_end_posts": True,
+                          "same_end_foundations": True,
+                          "post_col_size": "",
+                          "post_fnd_depth": "",
+                          "post_height": "",
+                          "end_post_col_size": "",
+                          "end_post_fnd_depth": "",
+                          "end_post_height": "",
+                          "fnd_embedment": "",
+                          "fnd_diameter": "",
+                          "fnd_depth": "",
+                          "end_fnd_embedment": "",
+                          "end_fnd_diameter": "",
+                          "end_fnd_depth": ""})
 
     def test_snapshot_family_becomes_the_post(self):
         # records from before posts joined configs carry 'family'
@@ -591,6 +656,27 @@ class Intersections(unittest.TestCase):
         self.assertRaises(ValueError, F.eval_toc, "q * 2", 100.0)
         self.assertRaises(ValueError, F.eval_toc,
                           "__import__('os')", 100.0)
+
+    def test_end_families_split_flags(self):
+        # the ends can mix: same post on a DIFFERENT foundation,
+        # and vice versa - each behind its own tick
+        cfg = {"post": "P", "foundation": "F",
+               "end_post": "EP", "end_foundation": "EF",
+               "same_end_posts": True,
+               "same_end_foundations": False}
+        self.assertEqual(F.end_families(cfg), ("P", "EF"))
+        cfg["same_end_posts"] = False
+        cfg["same_end_foundations"] = True
+        self.assertEqual(F.end_families(cfg), ("EP", "F"))
+        # legacy records only carry same_ends - it stands in for both
+        self.assertEqual(F.end_families(
+            {"post": "P", "foundation": "F", "end_post": "EP",
+             "end_foundation": "EF", "same_ends": False}),
+            ("EP", "EF"))
+        self.assertEqual(F.end_families(
+            {"post": "P", "foundation": "F", "end_post": "EP",
+             "end_foundation": "EF", "same_ends": True}),
+            ("P", "F"))
 
     def test_parse_assignments_and_eval_assign(self):
         # 'Parameter = equation' lines: blanks and #comments skip

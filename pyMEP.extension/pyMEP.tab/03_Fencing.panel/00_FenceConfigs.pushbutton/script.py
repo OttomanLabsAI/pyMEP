@@ -47,9 +47,12 @@ def _row_text(name, cfg, style_names=None):
                cfg["rotation_deg"],
                cfg["post"] or "none",
                cfg["foundation"] or "none"))
-    if not cfg.get("same_ends", True):
-        txt += u"  |  END post: {} / fnd: {}".format(
-            cfg["end_post"] or "none",
+    if not cfg.get("same_end_posts", cfg.get("same_ends", True)):
+        txt += u"  |  END post: {}".format(
+            cfg["end_post"] or "none")
+    if not cfg.get("same_end_foundations",
+                   cfg.get("same_ends", True)):
+        txt += u"  |  END fnd: {}".format(
             cfg["end_foundation"] or "none")
     if cfg.get("panel"):
         txt += u"  |  panel: {}".format(cfg["panel"])
@@ -74,12 +77,14 @@ class ConfigEditWindow(forms.WPFWindow):
     on cancel - the caller persists."""
 
     def __init__(self, title, name, cfg, post_labels, found_labels,
-                 style_names, panel_labels, terrain_labels):
+                 style_names, panel_labels, terrain_labels,
+                 colsize_labels):
         forms.WPFWindow.__init__(self, XAML_EDIT)
         self.result = None
         self.post_labels = post_labels
         self.found_labels = found_labels
         self.panel_labels = panel_labels
+        self.colsize_labels = colsize_labels
         self._last = {}     # last real pick per combo, survives filters
         self.Title = title
         self.TxtTitle.Text = title
@@ -96,16 +101,33 @@ class ConfigEditWindow(forms.WPFWindow):
         self._select_pick(self.CmbEndPost, cfg["end_post"])
         self._select_pick(self.CmbEndFoundation,
                           cfg["end_foundation"])
+        self._fill_pick(self.CmbColSize, colsize_labels, "")
+        self._fill_pick(self.CmbEndColSize, colsize_labels, "")
+        self._select_pick(self.CmbColSize, cfg["post_col_size"])
+        self._select_pick(self.CmbEndColSize,
+                          cfg["end_post_col_size"])
+        self.TxtPostFndDepth.Text = cfg["post_fnd_depth"]
+        self.TxtPostHeight.Text = cfg["post_height"]
+        self.TxtEndPostFndDepth.Text = cfg["end_post_fnd_depth"]
+        self.TxtEndPostHeight.Text = cfg["end_post_height"]
+        self.TxtFndEmbed.Text = cfg["fnd_embedment"]
+        self.TxtFndDia.Text = cfg["fnd_diameter"]
+        self.TxtFndDepth.Text = cfg["fnd_depth"]
+        self.TxtEndFndEmbed.Text = cfg["end_fnd_embedment"]
+        self.TxtEndFndDia.Text = cfg["end_fnd_diameter"]
+        self.TxtEndFndDepth.Text = cfg["end_fnd_depth"]
         self._fill_pick(self.CmbPanel, panel_labels, "")
         self._select_pick(self.CmbPanel, cfg["panel"])
         self.TxtPanelParam.Text = cfg["panel_width_param"]
-        self.TxtPostParams.Text = cfg.get("post_params") or ""
         self.TxtEastParam.Text = cfg.get("easting_param") or \
             F.EASTING_PARAM
         self.TxtNorthParam.Text = cfg.get("northing_param") or \
             F.NORTHING_PARAM
-        self.ChkSameEnds.IsChecked = bool(cfg["same_ends"])
+        self.ChkSameEnds.IsChecked = bool(cfg["same_end_posts"])
+        self.ChkSameFnds.IsChecked = bool(
+            cfg["same_end_foundations"])
         self.on_same_ends(None, None)
+        self.on_same_fnds(None, None)
         self.CmbLineStyle.Items.Clear()
         self.CmbLineStyle.Items.Add(NONE_LABEL)
         for nm2 in style_names:
@@ -136,6 +158,8 @@ class ConfigEditWindow(forms.WPFWindow):
                 (self.CmbFoundation, self.found_labels),
                 (self.CmbEndFoundation, self.found_labels),
                 (self.CmbPanel, self.panel_labels),
+                (self.CmbColSize, self.colsize_labels),
+                (self.CmbEndColSize, self.colsize_labels),
                 (self.CmbLineStyle, self.style_names)):
             combo.SelectionChanged += self._make_tint(combo, labels)
             self._tint_known(combo, labels)
@@ -257,11 +281,33 @@ class ConfigEditWindow(forms.WPFWindow):
         except Exception:
             pass
 
+    def on_colsize_search(self, sender, args):
+        try:
+            self._apply_search(self.CmbColSize, self.colsize_labels,
+                               self.TxtColSizeSearch, "colsize")
+        except Exception:
+            pass
+
+    def on_end_colsize_search(self, sender, args):
+        try:
+            self._apply_search(self.CmbEndColSize,
+                               self.colsize_labels,
+                               self.TxtEndColSizeSearch,
+                               "end_colsize")
+        except Exception:
+            pass
+
     def on_same_ends(self, sender, args):
         try:
-            on = not bool(self.ChkSameEnds.IsChecked)
-            self.PnlEndPost.IsEnabled = on
-            self.PnlEndFound.IsEnabled = on
+            self.PnlEndPost.IsEnabled = not bool(
+                self.ChkSameEnds.IsChecked)
+        except Exception:
+            pass
+
+    def on_same_fnds(self, sender, args):
+        try:
+            self.PnlEndFound.IsEnabled = not bool(
+                self.ChkSameFnds.IsChecked)
         except Exception:
             pass
 
@@ -343,12 +389,16 @@ class ConfigEditWindow(forms.WPFWindow):
             return
         post = self._picked(self.CmbPost)
         foundation = self._picked(self.CmbFoundation)
-        same_ends = bool(self.ChkSameEnds.IsChecked)
+        same_posts = bool(self.ChkSameEnds.IsChecked)
+        same_fnds = bool(self.ChkSameFnds.IsChecked)
+        same_ends = same_posts and same_fnds
         end_post = self._picked(self.CmbEndPost)
         end_foundation = self._picked(self.CmbEndFoundation)
         probe = {"post": post, "foundation": foundation,
                  "endpoints": bool(self.ChkEnds.IsChecked),
-                 "same_ends": same_ends, "end_post": end_post,
+                 "same_end_posts": same_posts,
+                 "same_end_foundations": same_fnds,
+                 "end_post": end_post,
                  "end_foundation": end_foundation}
         if not F.places_something(probe):
             self.StatusText.Text = ("This configuration would place "
@@ -368,18 +418,15 @@ class ConfigEditWindow(forms.WPFWindow):
                                     "element - or choose another "
                                     "terrain option.")
             return
-        post_params = (self.TxtPostParams.Text or "").strip()
-        try:
-            F.parse_assignments(post_params)
-        except ValueError as ex:
-            self.StatusText.Text = "Populate parameters: {}".format(
-                ex)
-            return
+
         self.result = {"name": name, "spacing": spacing,
                        "endpoints": bool(self.ChkEnds.IsChecked),
                        "rotation": rotation, "post": post,
                        "foundation": foundation,
-                       "same_ends": same_ends, "end_post": end_post,
+                       "same_ends": same_ends,
+                       "same_end_posts": same_posts,
+                       "same_end_foundations": same_fnds,
+                       "end_post": end_post,
                        "end_foundation": end_foundation,
                        "line_style":
                            self._picked(self.CmbLineStyle),
@@ -394,7 +441,40 @@ class ConfigEditWindow(forms.WPFWindow):
                            (self.TxtNorthParam.Text or "").strip(),
                        "terrain_mode": terrain_mode,
                        "terrains": terrains,
-                       "post_params": post_params}
+                       "dims": {
+                           "post_col_size":
+                               self._picked(self.CmbColSize),
+                           "post_fnd_depth":
+                               (self.TxtPostFndDepth.Text
+                                or "").strip(),
+                           "post_height":
+                               (self.TxtPostHeight.Text
+                                or "").strip(),
+                           "end_post_col_size":
+                               self._picked(self.CmbEndColSize),
+                           "end_post_fnd_depth":
+                               (self.TxtEndPostFndDepth.Text
+                                or "").strip(),
+                           "end_post_height":
+                               (self.TxtEndPostHeight.Text
+                                or "").strip(),
+                           "fnd_embedment":
+                               (self.TxtFndEmbed.Text
+                                or "").strip(),
+                           "fnd_diameter":
+                               (self.TxtFndDia.Text or "").strip(),
+                           "fnd_depth":
+                               (self.TxtFndDepth.Text
+                                or "").strip(),
+                           "end_fnd_embedment":
+                               (self.TxtEndFndEmbed.Text
+                                or "").strip(),
+                           "end_fnd_diameter":
+                               (self.TxtEndFndDia.Text
+                                or "").strip(),
+                           "end_fnd_depth":
+                               (self.TxtEndFndDepth.Text
+                                or "").strip()}}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -406,7 +486,8 @@ class ConfigsWindow(forms.WPFWindow):
     """The list window: rows + Add new / Edit / Remove."""
 
     def __init__(self, settings, post_labels, found_labels,
-                 style_names, panel_labels, terrain_labels):
+                 style_names, panel_labels, terrain_labels,
+                 colsize_labels):
         forms.WPFWindow.__init__(self, XAML_LIST)
         self.settings = settings
         self.post_labels = post_labels
@@ -414,6 +495,7 @@ class ConfigsWindow(forms.WPFWindow):
         self.style_names = style_names
         self.panel_labels = panel_labels
         self.terrain_labels = terrain_labels
+        self.colsize_labels = colsize_labels
         self._names = []
         self._mark_busy = False
         self._fill(settings.get(F.SETTINGS_LAST))
@@ -540,7 +622,8 @@ class ConfigsWindow(forms.WPFWindow):
         win = ConfigEditWindow(title, name, cfg, self.post_labels,
                                self.found_labels, self.style_names,
                                self.panel_labels,
-                               self.terrain_labels)
+                               self.terrain_labels,
+                               self.colsize_labels)
         win.ShowDialog()
         r = win.result
         if r is None:
@@ -561,7 +644,8 @@ class ConfigsWindow(forms.WPFWindow):
                             r["panel_width_param"],
                             r["easting_param"], r["northing_param"],
                             r["terrain_mode"], r["terrains"],
-                            r["post_params"])
+                            r["same_end_posts"],
+                            r["same_end_foundations"], r["dims"])
         except ValueError as ex:
             self.StatusText.Text = str(ex)
             return
@@ -640,6 +724,9 @@ panel_labels = [lbl for lbl, _fs
                 in FR.placeable_symbols(doc, F.PANEL_CATEGORIES)]
 terrain_labels = sorted(set(
     FR.element_name(el) for el in FR.terrain_elements(doc)))
+colsize_labels = [lbl for lbl, _fs in FR.all_symbols(
+    doc, ["OST_StructuralColumns", "OST_StructuralFraming"])]
 ConfigsWindow(load_settings(), post_labels, found_labels,
-              style_names, panel_labels, terrain_labels).ShowDialog()
+              style_names, panel_labels, terrain_labels,
+              colsize_labels).ShowDialog()
 script.exit()

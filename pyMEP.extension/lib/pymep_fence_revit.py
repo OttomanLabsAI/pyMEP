@@ -101,6 +101,26 @@ def symbol_by_label(doc, label, categories=None):
     return None
 
 
+def all_symbols(doc, categories=None):
+    """[(label, symbol)] like placeable_symbols but WITHOUT the
+    placement-type filter - the nested / shared types a COLUMN SIZE
+    family-type parameter points at show up here."""
+    want = _cat_ids(categories)
+    out = []
+    for fs in FilteredElementCollector(doc).OfClass(FamilySymbol):
+        try:
+            if want:
+                cat = fs.Category
+                if cat is None or id_value(cat.Id) not in want:
+                    continue
+            out.append((u"{} : {}".format(
+                element_name(fs.Family), element_name(fs)), fs))
+        except Exception:
+            continue
+    out.sort(key=lambda t: t[0].lower())
+    return out
+
+
 def line_style_name(el):
     """The CurveElement's line style name ('' when unreadable)."""
     try:
@@ -475,6 +495,94 @@ def _note_problem(problems, msg):
         problems.append(msg)
 
 
+def _set_type_param(doc, inst, name, label, problems=None):
+    """A FAMILY TYPE parameter (the post's COLUMN SIZE): set it to
+    the type picked in the config, matched by 'Family : Type' or
+    the plain type name."""
+    try:
+        par = inst.LookupParameter(name)
+        if par is None or par.IsReadOnly:
+            _note_problem(problems,
+                          "parameter '{}' is missing or read-only "
+                          "on the post".format(name))
+            return
+        if par.StorageType != StorageType.ElementId:
+            _note_problem(problems,
+                          "'{}' is not a type parameter".format(
+                              name))
+            return
+        sym = None
+        for fs in FilteredElementCollector(doc).OfClass(
+                FamilySymbol):
+            try:
+                full = u"{} : {}".format(
+                    element_name(fs.Family), element_name(fs))
+                if full == label or element_name(fs) == label:
+                    sym = fs
+                    break
+            except Exception:
+                continue
+        if sym is None:
+            _note_problem(problems,
+                          "column size '{}' is not in the "
+                          "model".format(label))
+            return
+        par.Set(sym.Id)
+    except Exception:
+        pass
+
+
+def post_dims_of(cfg, use_ends):
+    """The post dimension fields for a station: the end_* set when
+    the station is an END and the posts' own 'keep the same' tick
+    is OFF."""
+    legacy = cfg.get("same_ends", True)
+    ends = use_ends and not cfg.get("same_end_posts", legacy)
+    pre = "end_post_" if ends else "post_"
+    return {"col_size": str(cfg.get(pre + "col_size") or ""),
+            "fnd_depth": str(cfg.get(pre + "fnd_depth") or ""),
+            "height": str(cfg.get(pre + "height") or "")}
+
+
+def fnd_dims_of(cfg, use_ends):
+    legacy = cfg.get("same_ends", True)
+    ends = use_ends and not cfg.get("same_end_foundations", legacy)
+    pre = "end_fnd_" if ends else "fnd_"
+    return {"embedment": str(cfg.get(pre + "embedment") or ""),
+            "diameter": str(cfg.get(pre + "diameter") or ""),
+            "depth": str(cfg.get(pre + "depth") or "")}
+
+
+def apply_post_dims(doc, inst, pt, dims, problems=None):
+    """Write the config's POST dimensions: Column Size (family
+    type), Foundation Depth, Height. Empty fields leave the
+    parameter alone; number fields take equations too."""
+    if inst is None or not dims:
+        return
+    set_assignments(doc, inst, pt,
+                    [(nm, v) for nm, v in
+                     (("Foundation Depth", dims.get("fnd_depth")),
+                      ("Height", dims.get("height")))
+                     if (v or "").strip()], problems)
+    label = (dims.get("col_size") or "").strip()
+    if label:
+        _set_type_param(doc, inst, F.COL_SIZE_PARAM, label,
+                        problems)
+
+
+def apply_fnd_dims(doc, inst, pt, dims, problems=None):
+    """Write the config's FOUNDATION dimensions: Embedment,
+    Diameter, Depth - empty fields leave the parameter alone."""
+    if inst is None or not dims:
+        return
+    set_assignments(doc, inst, pt,
+                    [(nm, v) for nm, v in
+                     (("Embedment", dims.get("embedment")),
+                      ("Diameter", dims.get("diameter")),
+                      ("Depth", dims.get("depth")))
+                     if (v or "").strip()], problems)
+
+
 def set_assignments(doc, inst, pt, assigns, problems=None):
     """Write the config's 'Parameter = equation' lines onto a POST:
     each right-hand side may use the post's OWN parameters by name,
@@ -604,19 +712,21 @@ def place_panels(doc, panel_symbol, poly, post_stations, terrain_id,
 
 def station_pick(dists, length, primary, secondary,
                  end_primary=None, end_secondary=None,
-                 same_ends=True, tol=1e-6):
+                 same_posts=True, same_fnds=True, tol=1e-6):
     """The per-station family chooser for place_instances: endpoint
-    stations (0 / length) get the END pair when ``same_ends`` is
-    off, everything else the in-between pair. Either slot may be
-    None ('none' in the config)."""
-    if same_ends:
+    stations (0 / length) swap in the END post and/or the END
+    foundation - each behind its OWN 'keep the same' tick, so the
+    ends can mix a different foundation under the same post and
+    vice versa. Either slot may be None ('none' in the config)."""
+    if same_posts and same_fnds:
         return lambda d: (primary, secondary)
     ends = set(d for d in dists
                if d <= tol or d >= length - tol)
 
     def pick(d):
         if d in ends:
-            return end_primary, end_secondary
+            return (primary if same_posts else end_primary,
+                    secondary if same_fnds else end_secondary)
         return primary, secondary
     return pick
 
@@ -625,7 +735,7 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
                     levels, extra_rot=0.0, panel_symbol=None,
                     panel_width_param=None, coord_params=None,
                     marks=None, toc=None, toc_problems=None,
-                    assigns=None):
+                    cfg=None):
     """Place at every station, draped and rotated - the line's
     direction plus ``extra_rot`` (radians, the config's custom
     rotation). ``pick(d)`` returns (symbol, foundation_symbol) for
@@ -640,6 +750,9 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
     records, missed, failed = [], [], 0
     failed_reason = [None]
     activated = set()
+    length = F.poly_length(poly)
+    end_sts = set(d for d in dists
+                  if d <= 1e-6 or d >= length - 1e-6)
     for d_i, d in enumerate(dists):
         mark = marks[d_i] if marks and d_i < len(marks) else None
         symbol, foundation_symbol = pick(d)
@@ -671,6 +784,7 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
             if failed_reason[0] is None:
                 failed_reason[0] = "{}".format(ex)
             continue
+        use_ends = d in end_sts
         if _is_foundation(inst):
             if coord_params:
                 set_coord_params(doc, inst, hit, coord_params[0],
@@ -678,8 +792,14 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
             if toc:
                 set_toc(doc, inst, hit, toc[0], toc[1],
                         toc_problems)
-        elif assigns:
-            set_assignments(doc, inst, hit, assigns, toc_problems)
+            if cfg is not None:
+                apply_fnd_dims(doc, inst, hit,
+                               fnd_dims_of(cfg, use_ends),
+                               toc_problems)
+        elif cfg is not None:
+            apply_post_dims(doc, inst, hit,
+                            post_dims_of(cfg, use_ends),
+                            toc_problems)
         set_mark(inst, mark)
         rec = {"uid": inst.UniqueId, "station_ft": d, "angle": ang}
         if foundation_symbol is not None:
@@ -694,6 +814,10 @@ def place_instances(doc, pick, poly, dists, terrain_id, ri, ray_z,
                 if toc:
                     set_toc(doc, f_inst, hit, toc[0], toc[1],
                             toc_problems)
+                if cfg is not None:
+                    apply_fnd_dims(doc, f_inst, hit,
+                                   fnd_dims_of(cfg, use_ends),
+                                   toc_problems)
                 set_mark(f_inst, mark)
             except Exception as ex:
                 failed += 1
@@ -715,7 +839,7 @@ def _move_one(doc, el, hit, rot_delta):
 
 def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
                    extra_rot=0.0, coord_params=None, toc=None,
-                   toc_problems=None, assigns=None):
+                   toc_problems=None, cfg=None):
     """MOVE each stored instance (and its foundation, when the record
     has one that still exists) to its new station: pairs =
     [(instance_dict, element, new_station)]. The rotation applied is
@@ -726,6 +850,7 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
     refreshed. Returns (records, missed, failed) like
     place_instances."""
     records, missed, failed = [], [], 0
+    length = F.poly_length(poly)
     for inst_d, el, d in pairs:
         p, tang = F.point_at(poly, d)
         hit = topmost_hit(doc, ri, XYZ(p[0], p[1], ray_z), terrain_id)
@@ -737,6 +862,7 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
             old_ang = float(inst_d.get("angle") or 0.0)
             new_ang = math.atan2(tang[1], tang[0]) + extra_rot
             _move_one(doc, el, hit, new_ang - old_ang)
+            use_ends = d <= 1e-6 or d >= length - 1e-6
             if _is_foundation(el):
                 if coord_params:
                     set_coord_params(doc, el, hit, coord_params[0],
@@ -744,8 +870,13 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
                 if toc:
                     set_toc(doc, el, hit, toc[0], toc[1],
                             toc_problems)
-            elif assigns:
-                set_assignments(doc, el, hit, assigns,
+                if cfg is not None:
+                    apply_fnd_dims(doc, el, hit,
+                                   fnd_dims_of(cfg, use_ends),
+                                   toc_problems)
+            elif cfg is not None:
+                apply_post_dims(doc, el, hit,
+                                post_dims_of(cfg, use_ends),
                                 toc_problems)
             rec = {"uid": inst_d.get("uid"), "station_ft": d,
                    "angle": new_ang}
@@ -763,6 +894,11 @@ def move_instances(doc, pairs, poly, terrain_id, ri, ray_z,
                         if toc:
                             set_toc(doc, f_el, hit, toc[0],
                                     toc[1], toc_problems)
+                        if cfg is not None:
+                            apply_fnd_dims(doc, f_el, hit,
+                                           fnd_dims_of(cfg,
+                                                       use_ends),
+                                           toc_problems)
                 except Exception:
                     failed += 1
             records.append(rec)
@@ -1080,18 +1216,6 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
     records = []
     missed = [0]
     toc_problems = []
-    assign_cache = {}
-
-    def _assigns_for(cfg):
-        key = cfg.get("post_params") or ""
-        if key not in assign_cache:
-            try:
-                assign_cache[key] = F.parse_assignments(key)
-            except ValueError as ex:
-                note("! post parameters: {}".format(ex))
-                assign_cache[key] = []
-        return assign_cache[key]
-
     sym_cache = {}
 
     def _sym(label, cats, what):
@@ -1147,10 +1271,13 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
             if toc_opts:
                 set_toc(doc, inst, hit, toc_opts[0], toc_opts[1],
                         toc_problems)
+            apply_fnd_dims(doc, inst, hit,
+                           fnd_dims_of(cfg, use_ends),
+                           toc_problems)
         else:
-            a = _assigns_for(cfg)
-            if a:
-                set_assignments(doc, inst, hit, a, toc_problems)
+            apply_post_dims(doc, inst, hit,
+                            post_dims_of(cfg, use_ends),
+                            toc_problems)
         if mark_on:
             set_mark(inst, mark)
         rec = {"uid": inst.UniqueId}
@@ -1163,6 +1290,9 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
                 if toc_opts:
                     set_toc(doc, f_inst, hit, toc_opts[0],
                             toc_opts[1], toc_problems)
+                apply_fnd_dims(doc, f_inst, hit,
+                               fnd_dims_of(cfg, use_ends),
+                               toc_problems)
                 if mark_on:
                     set_mark(f_inst, mark)
             except Exception as ex:

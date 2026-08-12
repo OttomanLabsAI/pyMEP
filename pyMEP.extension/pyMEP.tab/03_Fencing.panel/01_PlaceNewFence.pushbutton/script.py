@@ -101,10 +101,12 @@ class FenceWindow(forms.WPFWindow):
                        cfg["rotation_deg"]))
             if cfg["panel"]:
                 txt += u"\npanel: {}".format(cfg["panel"])
-            if not cfg["same_ends"]:
-                txt += (u"\nENDPOINTS get: post {} | foundation "
-                        u"{}".format(cfg["end_post"] or "none",
-                                     cfg["end_foundation"] or "none"))
+            if not cfg["same_end_posts"]:
+                txt += u"\nENDPOINTS get post: {}".format(
+                    cfg["end_post"] or "none")
+            if not cfg["same_end_foundations"]:
+                txt += u"\nENDPOINTS get foundation: {}".format(
+                    cfg["end_foundation"] or "none")
             self.TxtCfgSummary.Text = txt
             self.StatusText.Text = ""
         except Exception:
@@ -135,6 +137,8 @@ class FenceWindow(forms.WPFWindow):
             "post": cfg["post"],
             "foundation": cfg["foundation"],
             "same_ends": cfg["same_ends"],
+            "same_end_posts": cfg["same_end_posts"],
+            "same_end_foundations": cfg["same_end_foundations"],
             "end_post": cfg["end_post"],
             "end_foundation": cfg["end_foundation"],
             "panel": cfg["panel"],
@@ -143,8 +147,8 @@ class FenceWindow(forms.WPFWindow):
             "northing_param": cfg["northing_param"],
             "terrain_mode": cfg["terrain_mode"],
             "terrains": cfg["terrains"],
-            "post_params": cfg["post_params"],
             "justify": self.justify(),
+            "dims": dict((k, cfg[k]) for k in F.DIM_KEYS),
             "config": str(self.CmbConfig.SelectedItem or ""),
         }
         self.Close()
@@ -210,11 +214,7 @@ def main():
     toc_on, toc_param, toc_eq = F.toc_settings(settings)
     toc = (toc_param, toc_eq) if toc_on else None
     toc_probs = []
-    try:
-        assigns = F.parse_assignments(opt["post_params"])
-    except ValueError as ex:
-        log("! post parameters skipped: {}".format(ex))
-        assigns = None
+
     try:
         save_settings(settings)
     except Exception:
@@ -227,7 +227,8 @@ def main():
             opt["foundation"] or "none", opt["spacing_mm"],
             opt["justify"], "on" if opt["endpoints"] else "off",
             opt["rotation_deg"],
-            "" if opt["same_ends"] else
+            "" if (opt["same_end_posts"] and
+                   opt["same_end_foundations"]) else
             "; ENDPOINTS: post {} / foundation {}".format(
                 opt["end_post"] or "none",
                 opt["end_foundation"] or "none")))
@@ -258,13 +259,16 @@ def main():
         if panel_symbol is None:
             log("! panel family **{}** is NOT in this model - no "
                 "panels.".format(opt["panel"]))
-    if opt["same_ends"]:
+    if opt["same_end_posts"] and opt["same_end_foundations"]:
         end_post_symbol = post_symbol
         end_found_symbol = foundation_symbol
     else:
-        end_post_symbol = _resolve(opt["end_post"],
+        end_post_symbol = post_symbol if opt["same_end_posts"] \
+            else _resolve(opt["end_post"],
                                    F.POST_CATEGORIES, "end post")
-        end_found_symbol = _resolve(opt["end_foundation"],
+        end_found_symbol = foundation_symbol \
+            if opt["same_end_foundations"] \
+            else _resolve(opt["end_foundation"],
                                     F.FOUNDATION_CATEGORIES,
                                     "end foundation")
     # the PRIMARY carries the record; a foundation-only pair
@@ -347,9 +351,15 @@ def main():
             for t in terrains)))
     levels = FR.sorted_levels(doc)
 
+    _cfg_for_dims = dict(opt.get("dims") or {})
+    _cfg_for_dims["same_ends"] = opt["same_ends"]
+    _cfg_for_dims["same_end_posts"] = opt["same_end_posts"]
+    _cfg_for_dims["same_end_foundations"] = \
+        opt["same_end_foundations"]
     pick = FR.station_pick(dists, length, primary, secondary,
                            end_primary, end_secondary,
-                           opt["same_ends"])
+                           opt["same_end_posts"],
+                           opt["same_end_foundations"])
     t = Transaction(doc, "Place New Fence")
     t.Start()
     try:
@@ -363,7 +373,7 @@ def main():
             marks=[mark_prefix + str(i + 1)
                    for i in range(len(dists))]
             if mark_on else None,
-            toc=toc, toc_problems=toc_probs, assigns=assigns)
+            toc=toc, toc_problems=toc_probs, cfg=_cfg_for_dims)
         t.Commit()
     except Exception:
         try:
@@ -405,6 +415,9 @@ def main():
                 "foundation": opt["foundation"]
                 if foundation_symbol is not None else "",
                 "same_ends": opt["same_ends"],
+                "same_end_posts": opt["same_end_posts"],
+                "same_end_foundations":
+                    opt["same_end_foundations"],
                 "end_post": opt["end_post"],
                 "end_foundation": opt["end_foundation"],
                 "panel": opt["panel"]
@@ -412,7 +425,7 @@ def main():
                 "panel_width_param": opt["panel_width_param"],
                 "easting_param": opt["easting_param"],
                 "northing_param": opt["northing_param"],
-                "post_params": opt["post_params"],
+
                 "mark": mark_on,
                 "mark_prefix": mark_prefix,
                 "justify": opt["justify"],
@@ -421,6 +434,8 @@ def main():
                 "updated": datetime.datetime.now().strftime(
                     "%Y-%m-%dT%H:%M:%S"),
             }
+            for _k in F.DIM_KEYS:
+                rec[_k] = (opt.get("dims") or {}).get(_k, "")
             fence_id = F.add_fence(base, rec)
             log("Recorded as **fence {}** - move the line, reshape "
                 "the terrain or edit the config, then run **Update "
