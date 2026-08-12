@@ -170,6 +170,68 @@ def _family_type_param_id(doc, symbol, param_name):
     return pid
 
 
+def family_instance_params(doc, symbol):
+    """The family's writable INSTANCE parameter names (number /
+    length / text) - read off an existing instance when one stands
+    in the model, else off a TEMPORARY instance placed and rolled
+    straight back. Sorted for a dropdown."""
+    if symbol is None:
+        return []
+    names = []
+
+    def scan(inst):
+        try:
+            pars = inst.Parameters
+        except Exception:
+            return
+        for par in pars:
+            try:
+                if par.IsReadOnly:
+                    continue
+                if par.StorageType not in (StorageType.Double,
+                                           StorageType.Integer,
+                                           StorageType.String):
+                    continue
+                nm = par.Definition.Name
+                if nm and nm not in names:
+                    names.append(nm)
+            except Exception:
+                continue
+
+    fam_id = id_value(symbol.Family.Id)
+    found = None
+    for inst in FilteredElementCollector(doc).OfClass(
+            FamilyInstance):
+        try:
+            if id_value(inst.Symbol.Family.Id) == fam_id:
+                found = inst
+                break
+        except Exception:
+            continue
+    if found is not None:
+        scan(found)
+    else:
+        t = Transaction(doc, "pyMEP parameter probe")
+        try:
+            t.Start()
+            if not symbol.IsActive:
+                symbol.Activate()
+                doc.Regenerate()
+            lvls = sorted_levels(doc)
+            scan(doc.Create.NewFamilyInstance(
+                XYZ(0, 0, 0), symbol,
+                lvls[0] if lvls else None,
+                _structural_type(symbol)))
+        except Exception:
+            pass
+        finally:
+            try:
+                t.RollBack()
+            except Exception:
+                pass
+    return sorted(names, key=lambda x: x.lower())
+
+
 def family_type_options(doc, symbol, param_name):
     """The VALID values of the family's FamilyType parameter (the
     post's COLUMN SIZE options) - pulled from the FAMILY itself, so

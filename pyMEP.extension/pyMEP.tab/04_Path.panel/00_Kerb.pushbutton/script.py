@@ -64,13 +64,41 @@ class KerbWindow(forms.WPFWindow):
         self.labels = labels
         self._last = {}
         fam, ln, ang, lnp = P.kerb_settings(settings)
+        self._param_cache = {}
         self._fill(self.CmbKerb, labels, "")
         self._select(self.CmbKerb, fam)
         self.TxtLength.Text = "{:g}".format(ln)
-        self.TxtAngleParam.Text = ang
-        self.TxtLenParam.Text = lnp
+        self._fill_params()
+        self.CmbAngleParam.Text = ang
+        self.CmbLenParam.Text = lnp
+        self.CmbKerb.SelectionChanged += self._on_family_changed
         self.TxtInfo.Text = "{} placeable famil{} found.".format(
             len(labels), "y" if len(labels) == 1 else "ies")
+
+    def _fill_params(self):
+        """The parameter dropdowns list the PICKED family's own
+        writable instance parameters."""
+        try:
+            lbl = self._picked()
+            if lbl in self._param_cache:
+                names = self._param_cache[lbl]
+            else:
+                sym = FR.symbol_by_label(doc, lbl,
+                                         P.KERB_CATEGORIES) \
+                    if lbl else None
+                names = FR.family_instance_params(doc, sym)
+                self._param_cache[lbl] = names
+            for combo in (self.CmbAngleParam, self.CmbLenParam):
+                keep = combo.Text
+                combo.Items.Clear()
+                for nm in names:
+                    combo.Items.Add(nm)
+                combo.Text = keep
+        except Exception:
+            pass
+
+    def _on_family_changed(self, sender, args):
+        self._fill_params()
 
     @staticmethod
     def _fill(combo, labels, needle):
@@ -142,8 +170,8 @@ class KerbWindow(forms.WPFWindow):
         self.result = {
             "family": fam,
             "length_mm": ln,
-            "angle_param": (self.TxtAngleParam.Text or "").strip(),
-            "length_param": (self.TxtLenParam.Text or "").strip(),
+            "angle_param": (self.CmbAngleParam.Text or "").strip(),
+            "length_param": (self.CmbLenParam.Text or "").strip(),
         }
         self.Close()
 
