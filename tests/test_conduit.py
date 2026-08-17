@@ -87,6 +87,26 @@ class ConduitSettings(unittest.TestCase):
             self.assertEqual(wall, C.DEFAULT_WALL_MM)
 
 
+class MatchStandard(unittest.TestCase):
+    KEYS = ["EMT", "IMC", "Rigid Nonmetallic Conduit (RNC Sch 40)"]
+
+    def test_exact_match(self):
+        self.assertEqual(C.match_standard(self.KEYS, "EMT"), "EMT")
+
+    def test_case_and_whitespace_tolerant(self):
+        self.assertEqual(C.match_standard(self.KEYS, " emt "), "EMT")
+        self.assertEqual(
+            C.match_standard(self.KEYS,
+                             "rigid nonmetallic conduit (rnc sch 40)"),
+            "Rigid Nonmetallic Conduit (RNC Sch 40)")
+
+    def test_no_match_and_empty(self):
+        self.assertIsNone(C.match_standard(self.KEYS, "BS 4568"))
+        self.assertIsNone(C.match_standard(self.KEYS, ""))
+        self.assertIsNone(C.match_standard(self.KEYS, None))
+        self.assertIsNone(C.match_standard([], "EMT"))
+
+
 class InnerFromTrade(unittest.TestCase):
     def test_trade_minus_twice_the_wall(self):
         # trade = outer = 110; 2 mm wall -> inner 106

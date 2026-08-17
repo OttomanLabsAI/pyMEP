@@ -40,6 +40,26 @@ def conduit_settings(settings):
             wall)
 
 
+def match_standard(names, want):
+    """The conduit-size-settings standard KEY that a type's reported
+    Standard text means: exact match first, then case-insensitive and
+    whitespace-tolerant. None when nothing matches (the dialog then
+    leaves the pick to the user)."""
+    if want is None:
+        return None
+    w = str(want).strip()
+    if not w:
+        return None
+    for n in names:
+        if n == w:
+            return n
+    wl = w.lower()
+    for n in names:
+        if str(n).strip().lower() == wl:
+            return n
+    return None
+
+
 def inner_from_trade(trade_mm, wall_mm):
     """The INNER diameter of a created conduit size: the trade size
     (= outer diameter) minus the wall thickness on BOTH sides. Floored

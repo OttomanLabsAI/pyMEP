@@ -55,9 +55,21 @@
                     <ComboBox x:Name="CmbType" Height="24"
                               Margin="0,3,0,0"
                               SelectionChanged="on_type_changed"/>
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="170"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Conduit standard"/>
+                        <ComboBox x:Name="CmbStandard" Grid.Column="1"
+                                  Height="24" Margin="0,3,0,0"
+                                  SelectionChanged="on_std_changed"/>
+                    </Grid>
                     <TextBlock x:Name="TxtStandard"
                                Style="{StaticResource Hint}"
-                               Text="Standard: -"/>
+                               Text="Follows the picked type's Standard parameter - override it here if the model reports it oddly. Missing sizes are created on THIS standard."/>
                 </StackPanel>
             </GroupBox>
 
