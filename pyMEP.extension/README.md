@@ -81,8 +81,8 @@ carried over into `%APPDATA%\pyRevit\pyMEP_exports` first - the
 durable per-project home every button reads and writes, so the branch
 tracking and stored project files SURVIVE version updates. Every failure
 after the swap restores the previous version; if Windows won't release
-the live folder, nothing is touched and it points you at
-`supersede_pyExtensions.py`. After a successful install pyRevit
+the live folder, nothing is touched and it tells you to close Revit
+and replace the folder manually. After a successful install pyRevit
 RELOADS AUTOMATICALLY - accepting the upgrade is the go-ahead, no
 second question (a full Revit restart is still the safest after
 ribbon reshuffles). Uses the `github_repo` / `github_token` /
@@ -794,8 +794,6 @@ Deployed copies are updated from GitHub:
 **Install Update** (pyMEP panel) downloads the newest tagged
 `pyMEP.extension` from the repo and deploys it atomically (the previous
 folder is removed after success - reinstall any version from
-*Settings > General > Downgrade / reinstall*). Outside Revit,
-`supersede_pyExtensions.py` (repo root) deploys a downloaded
-`Downloads\pyMEP.extension.zip`, keeping a superseded copy.
+*Settings > General > Downgrade / reinstall*).
 
 The deployed version is recorded in `version.txt` (matches the git tag).

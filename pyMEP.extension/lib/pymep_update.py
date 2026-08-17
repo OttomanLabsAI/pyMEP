@@ -264,7 +264,8 @@ def deploy_zip(zip_path, log=None):
         raise RuntimeError(
             "Couldn't move the live extension folder (a file in it is "
             "probably locked by Revit):\n\n{}\n\nNothing was changed. "
-            "Close Revit and run supersede_pyExtensions.py instead."
+            "Close Revit and replace the pyMEP.extension folder "
+            "manually (%APPDATA%\\pyRevit\\Extensions)."
             .format(ex))
 
     temp_dir = os.path.join(base, ".__extract_" + source_name)

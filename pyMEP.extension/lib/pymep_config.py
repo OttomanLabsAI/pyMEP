@@ -543,9 +543,8 @@ def get_github_token():
 
 
 def get_downloads_folder():
-    """The user's Downloads folder, where Download Latest writes
-    pyMEP.extension.zip and Install Update (and the repo's
-    supersede_pyExtensions.py) picks it up.
+    """The user's Downloads folder, where Install Update stages
+    pyMEP.extension.zip.
 
     Priority: 'update_downloads_folder' settings override, the shell
     known-folder from the registry (handles relocated / OneDrive
