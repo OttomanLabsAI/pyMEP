@@ -540,7 +540,7 @@ def _set_all_named_length_m(inst, names, value_m):
 # transform solving (validated BEFORE anything is created)
 # ---------------------------------------------------------------------------
 def solve_points(doc, rows, log=None, force_offset=None,
-                 prefer_model=None, off_z_m=None):
+                 prefer_model=None, off_z_m=None, datum_from_level=False):
     """Solve the survey->internal transform for ``rows``: the Settings
     offset first, then the model's own project position. Every attempt is
     logged with the resulting distance. Returns (pts, mode, offsets) where
@@ -552,7 +552,11 @@ def solve_points(doc, rows, log=None, force_offset=None,
     ``off_z_m`` overrides the VERTICAL datum on every candidate
     (including force_offset): pass -level_elevation_m to measure the
     export's site levels above a picked datum level - the same
-    convention Place Pipes uses, so the two placers stay level."""
+    convention Place Pipes uses, so the two placers stay level.
+    ``datum_from_level`` (True when off_z_m came from a picked level)
+    folds the model's shared elevation of the internal origin into the
+    datum on every candidate, so a georeferenced model doesn't count
+    the site height twice - identical to place_landxml_pipes."""
     if not rows:
         raise ValueError("No structures to place.")
     try:
@@ -590,6 +594,7 @@ def solve_points(doc, rows, log=None, force_offset=None,
 
     candidates = [("Settings offset", s_off)]
     pp = None
+    elev0_m = 0.0
     try:
         # E/N and rotation from model_survey_position - it MEASURES the
         # shared->internal rotation direction with a probe point instead of
@@ -602,6 +607,8 @@ def solve_points(doc, rows, log=None, force_offset=None,
         mp = model_survey_position(doc)
         if mp is not None:
             pp = (mp[0], mp[1], s_off[2], mp[2])
+            if len(mp) > 3:
+                elev0_m = mp[3]
             candidates.append(("model project position", pp))
     except Exception:
         pass
@@ -617,6 +624,17 @@ def solve_points(doc, rows, log=None, force_offset=None,
     if off_z_m is not None:
         candidates = [(name, (off[0], off[1], float(off_z_m), off[3]))
                       for name, off in candidates]
+
+    if datum_from_level and abs(elev0_m) > 1e-9:
+        # single-count the site height (same correction as
+        # place_landxml_pipes): the shared coordinates already raise
+        # internal Z=0 by elev0_m, so measuring the site levels above the
+        # datum level on top of that would display everything doubled
+        candidates = [(name, (off[0], off[1], off[2] + elev0_m, off[3]))
+                      for name, off in candidates]
+        _say(log, "Vertical datum: this model's shared coordinates already "
+                  "raise the internal origin by {:+.3f} m - counted ONCE, "
+                  "not added on top of the datum level.".format(elev0_m))
 
     tried = []
     for name, off in candidates:
@@ -1704,7 +1722,8 @@ def run_place(shape=None):
     try:
         pts_info = solve_points(doc, rows, log=log,
                                 prefer_model=res["prefer_model"],
-                                off_z_m=datum_off_z)
+                                off_z_m=datum_off_z,
+                                datum_from_level=datum_off_z is not None)
     except Exception as ex:
         import traceback
         log(traceback.format_exc())
@@ -1739,7 +1758,8 @@ def run_place(shape=None):
                 pts_info = solve_points(
                     doc, rows, log=log,
                     force_offset=(float(oe), float(on), 0.0, 0.0),
-                    off_z_m=datum_off_z)
+                    off_z_m=datum_off_z,
+                    datum_from_level=datum_off_z is not None)
         if pts_info is None:
             forms.alert("Transform failed - nothing was created.\n\n{}"
                         "\n\nFull details are in the output window."

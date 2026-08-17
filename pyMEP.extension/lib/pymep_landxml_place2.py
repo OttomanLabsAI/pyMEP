@@ -119,9 +119,12 @@ def datum_off_z_m(level_elev_ft):
 
 
 def model_survey_position(doc):
-    """(e0_m, n0_m, rot_deg) for make_survey_fn, from the model's own
-    georeference: the survey coordinates of the internal origin plus the
-    rotation that maps survey deltas onto the internal axes.
+    """(e0_m, n0_m, rot_deg, elev0_m) for make_survey_fn, from the model's
+    own georeference: the survey coordinates of the internal origin, the
+    rotation that maps survey deltas onto the internal axes, and the SHARED
+    elevation of the internal origin in metres (the model's own vertical
+    georeference - how far the shared coordinate system already lifts
+    internal Z=0).
 
     The rotation direction is MEASURED, never assumed: GetProjectPosition
     is evaluated at the internal origin AND at a probe point on the
@@ -148,7 +151,7 @@ def model_survey_position(doc):
         except Exception:
             pass
         return (pos.EastWest * 0.3048, pos.NorthSouth * 0.3048,
-                -math.degrees(th_fwd))
+                -math.degrees(th_fwd), pos.Elevation * 0.3048)
     except Exception:
         return None
 
@@ -348,7 +351,7 @@ def place_landxml_pipes(doc, rows, network_workset_map,
                         off_z_m=None, rot_deg=None,
                         network_filter=None, log=None,
                         segment_name=None, network_system_map=None,
-                        prefer_model=None):
+                        prefer_model=None, datum_from_level=False):
     """Place pipes from resolved LandXML rows, mirroring the Dynamo node.
 
     rows: list of dicts (from pymep_landxml.placement_rows) - name,
@@ -365,6 +368,15 @@ def place_landxml_pipes(doc, rows, network_workset_map,
     network_system_map: optional {network name: PipingSystemType
         ElementId} - each pipe is created with its layer's system type,
         falling back to ``system_type_name`` for unmapped layers.
+    datum_from_level: True when ``off_z_m`` came from a picked DATUM
+        LEVEL (site levels measured above it). On a model whose shared
+        coordinates already lift the internal origin to the site
+        elevation, that convention would count the site height TWICE -
+        the level displays it AND the pipe sits that far above the
+        level. The model's shared elevation (ProjectPosition.Elevation)
+        is folded into the datum so it is counted ONCE; a model with no
+        vertical georeference is unchanged. Leave False for a numeric
+        Settings Z - those values are calibrated as-is.
     Returns (created, failed, skipped, mode, dia_set, mark_set).
     """
     # Resolve transform from Settings unless the caller overrode it.
@@ -413,11 +425,21 @@ def place_landxml_pipes(doc, rows, network_workset_map,
         raise ValueError("\n".join(miss))
 
     # ---- transforms (explicit first, model-derived fallback) -------------
-    # Both candidates share make_survey_fn AND the same off_z_m, so the
+    # Both candidates share make_survey_fn AND the same z0, so the
     # vertical datum is identical whichever wins.
-    to_internal_explicit = make_survey_fn(off_e_m, off_n_m, rot_deg, off_z_m)
     mp = model_survey_position(doc)
-    to_internal_model = (make_survey_fn(mp[0], mp[1], mp[2], off_z_m)
+    z0_m = off_z_m
+    if (datum_from_level and mp is not None and len(mp) > 3
+            and abs(mp[3]) > 1e-9):
+        # single-count the site height: the shared coordinates already
+        # raise internal Z=0 by mp[3] metres, so placing z_site above the
+        # datum level on top of that would display everything doubled
+        z0_m = off_z_m + mp[3]
+        _say(log, "Vertical datum: this model's shared coordinates already "
+                  "raise the internal origin by {:+.3f} m - counted ONCE, "
+                  "not added on top of the datum level.".format(mp[3]))
+    to_internal_explicit = make_survey_fn(off_e_m, off_n_m, rot_deg, z0_m)
+    to_internal_model = (make_survey_fn(mp[0], mp[1], mp[2], z0_m)
                          if mp is not None else None)
 
     # filter rows to chosen networks

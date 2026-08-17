@@ -165,6 +165,9 @@ class MeasuredRotation(unittest.TestCase):
         self.assertAlmostEqual(mp[0], ORIGIN_E_FT * FT, places=6)
         self.assertAlmostEqual(mp[1], ORIGIN_N_FT * FT, places=6)
         self.assertAlmostEqual(mp[2], -math.degrees(theta_fwd), places=9)
+        # 4th element: the SHARED elevation of the internal origin, in
+        # metres - the placers' datum_from_level single-count needs it
+        self.assertAlmostEqual(mp[3], ELEV_FT * FT, places=6)
         # round trip: internal truth -> shared metres -> back to internal
         fn = make_survey_fn(mp[0], mp[1], mp[2], ELEV_FT * FT)
         for x_ft, y_ft in INTERNAL_TRUTH:
@@ -194,6 +197,40 @@ class MeasuredRotation(unittest.TestCase):
         err_ft = math.hypot(p.X - 1000.0, p.Y - 0.0)
         # 2*40.36 deg swing on a 1000 ft arm ~ 1290 ft off
         self.assertGreater(err_ft, 1000.0)
+
+
+class SolvePointsDatumFromLevel(unittest.TestCase):
+    """The 'placing them twice as high' guard: with a datum LEVEL picked
+    on a model whose shared coordinates already lift internal Z=0 to the
+    site elevation, the solver must fold that shared elevation into the
+    datum so the site height is counted ONCE, not stacked on top."""
+
+    SITE_M = 47.85
+
+    def _solve(self, **kw):
+        loc = FakeLocation(THETA_FWD, ORIGIN_E_FT, ORIGIN_N_FT, ELEV_FT,
+                           THETA_FWD)
+        rows = []
+        for x_ft, y_ft in INTERNAL_TRUTH:
+            e_m, n_m, _ = shared_m(loc, x_ft, y_ft, 0.0)
+            rows.append({"x": e_m, "y": n_m, "z_m": self.SITE_M})
+        return solve_points(FakeDoc(loc), rows, prefer_model=True, **kw)
+
+    def test_level_datum_single_counts_shared_elevation(self):
+        # datum level at internal 0 -> off_z_m = 0; the flag adds elev0
+        # so the DISPLAYED (shared) elevation reads the site value once
+        pts, mode, offs = self._solve(off_z_m=0.0, datum_from_level=True)
+        self.assertAlmostEqual(offs[2], ELEV_FT * FT, places=6)
+        for (p, pz, r) in pts:
+            shown_m = (pz + ELEV_FT) * FT
+            self.assertAlmostEqual(shown_m, self.SITE_M, places=5)
+
+    def test_flag_off_keeps_raw_datum(self):
+        # numeric Settings Z stays exactly what the user calibrated
+        pts, mode, offs = self._solve(off_z_m=0.0, datum_from_level=False)
+        self.assertAlmostEqual(offs[2], 0.0, places=9)
+        for (p, pz, r) in pts:
+            self.assertAlmostEqual(pz * FT, self.SITE_M, places=5)
 
 
 class SolvePointsModelCandidate(unittest.TestCase):

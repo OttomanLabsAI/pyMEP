@@ -388,7 +388,8 @@ def _place(off_e=None, off_n=None, off_z=None, rot=None):
         network_filter=set(chosen_layers), log=log,
         segment_name=segment_name or None,
         network_system_map=network_system_map,
-        prefer_model=res["prefer_model"])
+        prefer_model=res["prefer_model"],
+        datum_from_level=datum_off_z is not None)
 
 
 try:

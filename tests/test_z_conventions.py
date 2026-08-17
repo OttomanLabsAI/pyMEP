@@ -224,5 +224,42 @@ class DatumLevel(unittest.TestCase):
                                places=9)
 
 
+class DatumLevelSingleCount(unittest.TestCase):
+    """The 'twice as high' bug: a model whose SHARED coordinates already
+    lift internal Z=0 to the site elevation must not have the site height
+    added AGAIN by the datum-level convention. The placers fold the
+    model's shared elevation (elev0) into z0, so displayed (shared)
+    elevations read the export's site values ONCE."""
+
+    ELEV0_M = 47.85       # shared elevation of the internal origin
+    SITE_M = 47.85        # a pipe invert at the same site level
+
+    def test_old_convention_doubled_the_display(self):
+        # datum level at internal 0 -> z0 = 0: invert lands 47.85 m over
+        # internal zero, but internal zero already DISPLAYS 47.85 shared
+        fn = make_survey_fn(0.0, 0.0, 0.0, datum_off_z_m(0.0))
+        p = fn(0.0, 0.0, self.SITE_M)
+        shown_m = p.Z * 0.3048 + self.ELEV0_M
+        self.assertAlmostEqual(shown_m, 2 * self.SITE_M, places=9)
+
+    def test_folding_elev0_single_counts(self):
+        # the fix: z0 = datum_off + elev0 -> displayed shared elevation
+        # reads the site value exactly once
+        z0 = datum_off_z_m(0.0) + self.ELEV0_M
+        fn = make_survey_fn(0.0, 0.0, 0.0, z0)
+        p = fn(0.0, 0.0, self.SITE_M)
+        shown_m = p.Z * 0.3048 + self.ELEV0_M
+        self.assertAlmostEqual(shown_m, self.SITE_M, places=9)
+
+    def test_unreferenced_model_is_unchanged(self):
+        # elev0 = 0 (no vertical georeference): the fold is a no-op and
+        # the original datum-level convention stands
+        z0 = datum_off_z_m(-45.667 / 0.3048) + 0.0
+        fn = make_survey_fn(0.0, 0.0, 0.0, z0)
+        p = fn(0.0, 0.0, 47.85)
+        self.assertAlmostEqual((p.Z + 45.667 / 0.3048) * 0.3048, 47.85,
+                               places=9)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
