@@ -305,6 +305,7 @@
                                 <CheckBox x:Name="ChkPanParams"   Content="Parameters"            Margin="0,6,0,0" IsChecked="True"/>
                                 <CheckBox x:Name="ChkPanProjData" Content="Project Data Transfer" Margin="0,6,0,0" IsChecked="True"/>
                                 <CheckBox x:Name="ChkPanAnnotate" Content="Annotate"              Margin="0,6,0,0" IsChecked="True"/>
+                                <CheckBox x:Name="ChkPanConduits" Content="Conduits"              Margin="0,6,0,0" IsChecked="True"/>
                                 <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0"
                                            Text="Untick a panel to HIDE it from the pyMEP tab. Applies as soon as you hit OK / Apply - no reload needed - and is re-applied on every Revit start. The choice lives in pyMEP_settings.json (outside the extension), so it SURVIVES update installations. The pyMEP setup panel itself cannot be hidden."/>
                             </StackPanel>

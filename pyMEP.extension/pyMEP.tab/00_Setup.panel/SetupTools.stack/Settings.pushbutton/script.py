@@ -150,7 +150,8 @@ class SettingsWindow(forms.WPFWindow):
                 (self.ChkPanChamber, "Chamber Drawing Setup"),
                 (self.ChkPanParams, "Parameters"),
                 (self.ChkPanProjData, "Project Data Transfer"),
-                (self.ChkPanAnnotate, "Annotate")]
+                (self.ChkPanAnnotate, "Annotate"),
+                (self.ChkPanConduits, "Conduits")]
 
     def _refresh_active_export(self):
         try:
