@@ -94,9 +94,14 @@ if zip_path is None:
     if zip_path is None:
         log.close()
         forms.alert(
-            "Download failed - nothing was changed.\n\nIf the repository "
-            "is private, set the 'github_token' key in pyMEP_settings.json "
-            "to a GitHub personal-access token with repo read access.",
+            "Download failed - nothing was changed.\n\n"
+            "The output window lists every URL tried and the exact "
+            "error for each. Usual causes: no internet access from "
+            "inside Revit, or a proxy/firewall blocking github.com / "
+            "codeload.github.com.\n\n"
+            "A 'github_token' key in pyMEP_settings.json lifts the "
+            "GitHub API rate limit on shared office connections (and "
+            "is required for private repos).",
             exitscript=True)
 
 if forms.alert(

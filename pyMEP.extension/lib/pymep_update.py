@@ -87,12 +87,63 @@ def zip_url_for(repo, ref):
     return "https://api.github.com/repos/{}/zipball/{}".format(repo, ref)
 
 
+def parse_ref_tags(text):
+    """Tag names out of a git smart-HTTP refs advertisement (the
+    ``info/refs?service=git-upload-pack`` payload): every
+    ``refs/tags/<name>`` with the peeled ``^{}`` suffix dropped.
+    Pure text-in, names-out - unit-tested."""
+    names = set()
+    for m in re.finditer(r"refs/tags/([^\s\x00]+)", text or ""):
+        n = m.group(1)
+        if n.endswith("^{}"):
+            n = n[:-3]
+        names.add(n)
+    return sorted(names)
+
+
+def _tags_via_git_http(repo):
+    """The repo's tags WITHOUT the GitHub API: git's own refs
+    advertisement on github.com. Works for public repos through
+    proxies that block api.github.com, and has no API rate limit."""
+    url = ("https://github.com/{}.git/info/refs?service=git-upload-pack"
+           .format(repo))
+    return parse_ref_tags(_client(None).DownloadString(url))
+
+
+def zip_candidates(repo, label, zip_url):
+    """Download URLs to try IN ORDER: the API zipball first, then the
+    codeload mirrors that need no API access at all (public repos) -
+    a version-like label maps to its tag archive, anything else to
+    the default branch (main, then master)."""
+    urls = [zip_url]
+    if version_key(label) is not None:
+        urls.append("https://codeload.github.com/{}/zip/refs/tags/{}"
+                    .format(repo, label))
+    else:
+        urls.append("https://codeload.github.com/{}/zip/refs/heads/main"
+                    .format(repo))
+        urls.append("https://codeload.github.com/{}/zip/refs/heads/master"
+                    .format(repo))
+    return urls
+
+
 def list_versions(repo=None, token=None):
-    """Every version-like tag on the repo, newest first."""
+    """Every version-like tag on the repo, newest first. The GitHub
+    API is asked first; when it fails (proxy, rate limit) the tags
+    come from git's own refs endpoint instead."""
     repo = repo or get_github_repo()
     token = token if token is not None else get_github_token()
-    tags = _api_json(repo, "tags?per_page=100", token) or []
-    named = [t.get("name") for t in tags if t.get("name")]
+    named = []
+    try:
+        tags = _api_json(repo, "tags?per_page=100", token) or []
+        named = [t.get("name") for t in tags if t.get("name")]
+    except Exception:
+        named = []
+    if not named:
+        try:
+            named = _tags_via_git_http(repo)
+        except Exception:
+            named = []
     versioned = [n for n in named if version_key(n) is not None]
     versioned.sort(key=version_key, reverse=True)
     return versioned
@@ -136,11 +187,17 @@ def download_extension_zip(label, zip_url, repo=None, token=None,
     work = tempfile.mkdtemp(prefix="pymep_update_")
     try:
         repo_zip = os.path.join(work, "repo.zip")
-        _say(log, "Downloading {} ...".format(zip_url))
-        try:
-            _client(token).DownloadFile(zip_url, repo_zip)
-        except Exception as ex:
-            _say(log, "Download failed: {}".format(ex))
+        got = False
+        for url in zip_candidates(repo, label, zip_url):
+            _say(log, "Downloading {} ...".format(url))
+            try:
+                _client(token).DownloadFile(url, repo_zip)
+                got = True
+                break
+            except Exception as ex:
+                _say(log, "- failed: {}".format(ex))
+        if not got:
+            _say(log, "Every download URL failed - see the errors above.")
             return None
 
         unpack = os.path.join(work, "unpacked")
