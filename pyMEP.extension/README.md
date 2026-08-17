@@ -734,7 +734,7 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `github_repo` | `owner/repo` the update buttons talk to (default `OttomanLabsAI/pyMEP`; Settings > Updates) |
 | `github_token` | optional GitHub personal-access token (private repo / rate limits; Settings > Updates) |
 | `update_downloads_folder` | override the Downloads folder used by Install Update |
-| `auto_close_output` | close each command's output window when it finishes (error reports stay open) |
+| `auto_close_output` | close each command's output window when it finishes (error reports stay open) - ON by default |
 | `hide_output` | never show the output window: it is hidden while the command runs and closed at the end (an error or traceback pops it open) |
 | `hidden_panels` | pyMEP ribbon panels hidden from the tab (display-title prefixes; Settings > Ribbon Panels; applied live + on every start) |
 | `topfam_label` / `topfam_delete` | Family at Pipe Top: last family type used, and whether the original is deleted afterwards |

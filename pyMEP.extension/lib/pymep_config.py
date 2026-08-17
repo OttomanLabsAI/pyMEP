@@ -492,8 +492,12 @@ def _flag(value):
 def get_auto_close_output():
     """True -> every pyMEP button closes its output window when it
     finishes (never when an error/traceback was logged). Settings key
-    'auto_close_output'; default False (window stays open)."""
-    return _flag(load_settings().get("auto_close_output"))
+    'auto_close_output'; DEFAULT True - windows close themselves
+    unless the user has explicitly turned it off in Settings."""
+    s = load_settings()
+    if "auto_close_output" not in s:
+        return True
+    return _flag(s.get("auto_close_output"))
 
 
 def get_hide_output():
