@@ -28,14 +28,19 @@ from pyrevit import revit, forms, script
 
 from pymep_config import load_settings, save_settings
 from pymep_log import Logger
+from pymep_mesh import surface_z
 
 from Autodesk.Revit.DB import (
     BuiltInCategory,
     FilteredElementCollector,
     FindReferenceTarget,
     Floor,
+    GeometryInstance,
+    Mesh as DBMesh,
+    Options,
     ReferenceIntersector,
     RevitLinkInstance,
+    Solid,
     UnitTypeId,
     UnitUtils,
     View3D,
@@ -537,6 +542,111 @@ def nearest_terrain_hit(ri, origin, direction, match, lowest=False):
     return best.GetReference().GlobalPoint
 
 
+def probe_ray(ri, origin, direction):
+    """One diagnostic ray, logged: did the intersector return ANYTHING,
+    and on which categories? Explains a silent all-miss instead of
+    leaving the user with a bare 'no terrain hits'."""
+    try:
+        refs = ri.Find(origin, direction)
+    except Exception as ex:
+        log("- probe: the intersector THREW: {}".format(ex))
+        return
+    if refs is None or refs.Count == 0:
+        log("- probe: the intersector returned NO hits at all from "
+            "{:.1f} m up - the terrain isn't reachable in that view "
+            "(hidden category / filter / workset, or an API miss).".format(
+                origin.Z * 0.3048))
+        return
+    cats = {}
+    for rc in refs:
+        try:
+            ref = rc.GetReference()
+            el = doc.GetElement(ref.ElementId)
+            if isinstance(el, RevitLinkInstance):
+                ldoc = el.GetLinkDocument()
+                el = (ldoc.GetElement(ref.LinkedElementId)
+                      if ldoc is not None else None)
+            nm = (el.Category.Name if el is not None
+                  and el.Category is not None else "?")
+        except Exception:
+            nm = "?"
+        cats[nm] = cats.get(nm, 0) + 1
+    log("- probe: {} hit(s), but NONE on terrain - they landed on: "
+        "{}.".format(sum(cats.values()),
+                     ", ".join("{} x{}".format(k, v)
+                               for k, v in sorted(cats.items(),
+                                                  key=lambda kv: -kv[1]))))
+
+
+# ----------------------------------------------------- geometry fallback
+def _mesh_tris(m, tf, out):
+    if m is None:
+        return
+    try:
+        n = m.NumTriangles
+    except Exception:
+        return
+    for i in range(n):
+        try:
+            t = m.get_Triangle(i)
+            vs = []
+            for k in range(3):
+                p = t.get_Vertex(k)
+                if tf is not None:
+                    p = tf.OfPoint(p)
+                vs.append((p.X, p.Y, p.Z))
+            out.append(tuple(vs))
+        except Exception:
+            pass
+
+
+def _tris_from_geom(geo, tf, out):
+    if geo is None:
+        return
+    for g in geo:
+        if isinstance(g, Solid):
+            for f in g.Faces:
+                try:
+                    _mesh_tris(f.Triangulate(), tf, out)
+                except Exception:
+                    pass
+        elif isinstance(g, DBMesh):
+            _mesh_tris(g, tf, out)
+        elif isinstance(g, GeometryInstance):
+            try:
+                # instance geometry comes back in MODEL coordinates
+                _tris_from_geom(g.GetInstanceGeometry(), tf, out)
+            except Exception:
+                pass
+
+
+def terrain_triangles(topo_items, target):
+    """Every candidate terrain's OWN triangles in model coordinates -
+    the view-independent ground the fallback reads. Links are carried
+    through their instance transform."""
+    tris = []
+    keys = [k for _lbl, k in topo_items] if target is None else [target]
+    for key in keys:
+        try:
+            if key[0] == "host":
+                el = doc.GetElement(key[1])
+                tf = None
+            else:
+                li = doc.GetElement(key[0])
+                ldoc = li.GetLinkDocument()
+                if ldoc is None:
+                    continue
+                el = ldoc.GetElement(key[1])
+                tf = li.GetTotalTransform()
+            if el is None:
+                continue
+            _tris_from_geom(el.get_Geometry(Options()), tf, tris)
+        except Exception as ex:
+            log("- couldn't read geometry of a terrain candidate: {}"
+                .format(ex))
+    return tris
+
+
 # --------------------------------------------------------------- shape editor
 def get_shape_editor(floor):
     try:
@@ -639,6 +749,29 @@ def main():
     log("Rays start at internal **{:.1f} m** (just above the "
         "candidates).".format(ray_z * 0.3048))
 
+    # geometry fallback state: built lazily on the FIRST ray miss, a
+    # single diagnostic probe explains WHY the rays are missing
+    state = {"tris": None, "probed": False, "from_mesh": 0}
+
+    def ground_hit(x, y):
+        hit = nearest_terrain_hit(ri, XYZ(x, y, ray_z), down, match,
+                                  lowest=lowest)
+        if hit is not None:
+            return hit
+        if not state["probed"]:
+            state["probed"] = True
+            probe_ray(ri, XYZ(x, y, ray_z), down)
+        if state["tris"] is None:
+            state["tris"] = terrain_triangles(topo_items, target)
+            log("Falling back to the terrain's OWN geometry "
+                "(view-independent): {} triangle(s) read.".format(
+                    len(state["tris"])))
+        z = surface_z(state["tris"], x, y, lowest=lowest)
+        if z is None:
+            return None
+        state["from_mesh"] += 1
+        return XYZ(x, y, z)
+
     total_added, total_missed = 0, 0
     with revit.Transaction("Drape floors to topo"):
         for floor in floors:
@@ -675,9 +808,7 @@ def main():
 
             added, missed, rejected, nudged = 0, 0, 0, 0
             for p in pts:
-                hit = nearest_terrain_hit(
-                    ri, XYZ(p.X, p.Y, ray_z), down, match,
-                    lowest=lowest)
+                hit = ground_hit(p.X, p.Y)
                 if hit is None:
                     missed += 1
                     continue
@@ -694,9 +825,7 @@ def main():
                 q = nudge_inward(hit, polys)
                 h2 = None
                 if q is not None:
-                    h2 = nearest_terrain_hit(
-                        ri, XYZ(q.X, q.Y, ray_z), down, match,
-                        lowest=lowest)
+                    h2 = ground_hit(q.X, q.Y)
                 if h2 is not None:
                     try:
                         editor.DrawPoint(h2)
@@ -717,16 +846,24 @@ def main():
                 ", {} rejected by the slab".format(rejected)
                 if rejected else ""))
 
+    if state["from_mesh"]:
+        log("**{}** point(s) came from the terrain's own geometry - "
+            "the view ray-cast missed them.".format(state["from_mesh"]))
     log.close()
     if total_added == 0:
-        forms.alert('No terrain hits found.\n\nCheck there is a '
-                    'Toposolid or Topography below the floor(s), and '
-                    'that it is visible in the 3D view used for '
-                    'ray-casting ("{}").'.format(view3d.Name))
+        forms.alert('No terrain hits found - not by ray-casting in '
+                    'view "{}", and not in the terrain geometry under '
+                    'the floor(s) either.\n\nThe report window lists '
+                    'what the rays DID hit and which terrain '
+                    'candidates were read - check the floors actually '
+                    'sit over the terrain in plan.'.format(view3d.Name))
     else:
         forms.alert("Done: {} point(s) added across {} floor(s), {} "
-                    "ray(s) missed.".format(total_added, len(floors),
-                                            total_missed))
+                    "ray(s) missed{}.".format(
+                        total_added, len(floors), total_missed,
+                        " ({} from the terrain's own geometry)".format(
+                            state["from_mesh"])
+                        if state["from_mesh"] else ""))
 
 
 main()
