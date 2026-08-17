@@ -1,20 +1,55 @@
 # -*- coding: utf-8 -*-
 """Conduits - pure helpers (no Revit imports) so the CPython suite
-tests them: the size-matching maths behind Pipes to Conduits.
+tests them: the size-matching maths behind Pipes to Conduits and the
+dialog's remembered settings.
 
 The button turns each selected PIPE into a CONDUIT on the same line
 with the same nominal diameter. Conduit diameters are not free values
 - Revit only accepts nominals that exist in the conduit type's
 STANDARD (Electrical Settings > Conduit Settings > Sizes), so the
-button first adds any missing pipe sizes to that standard (the same
-automation Place Pipes runs on the pipe segment) and only snaps to
-the nearest existing size when the standard cannot be extended.
+dialog offers to CREATE the missing sizes on the standard the picked
+type follows: the TRADE SIZE and the OUTER diameter are both the
+pipe's size, and the INNER diameter is trade minus twice the conduit
+thickness entered in the dialog. Only when size creation is off (or
+the standard refuses) does a conduit snap to the nearest existing
+size.
 """
 
 SETTINGS_CONDUIT_TYPE = "conduit_type_name"
+SETTINGS_CONDUIT_ADD_SIZES = "conduit_add_sizes"
+SETTINGS_CONDUIT_WALL = "conduit_wall_mm"
 
 # a size within this of an available nominal counts as that size
 SIZE_TOL_MM = 0.1
+
+DEFAULT_WALL_MM = 2.0
+
+
+def conduit_settings(settings):
+    """(type name, create missing sizes, conduit thickness mm) - the
+    Pipes to Conduits dialog's remembered values."""
+    try:
+        wall = float(settings.get(SETTINGS_CONDUIT_WALL)
+                     or DEFAULT_WALL_MM)
+        if wall <= 0:
+            wall = DEFAULT_WALL_MM
+    except Exception:
+        wall = DEFAULT_WALL_MM
+    return (str(settings.get(SETTINGS_CONDUIT_TYPE) or ""),
+            bool(settings.get(SETTINGS_CONDUIT_ADD_SIZES, True)),
+            wall)
+
+
+def inner_from_trade(trade_mm, wall_mm):
+    """The INNER diameter of a created conduit size: the trade size
+    (= outer diameter) minus the wall thickness on BOTH sides. Floored
+    at a tenth of the trade so an over-thick wall can never collapse
+    or invert the size."""
+    inner = trade_mm - 2.0 * wall_mm
+    floor_v = 0.1 * trade_mm
+    if inner < floor_v:
+        return floor_v
+    return inner
 
 
 def nearest_size(available_mm, want_mm):

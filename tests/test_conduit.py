@@ -63,7 +63,42 @@ class SettingsKeys(unittest.TestCase):
     def test_key_names(self):
         # the script and any future settings UI must agree on these
         self.assertEqual(C.SETTINGS_CONDUIT_TYPE, "conduit_type_name")
+        self.assertEqual(C.SETTINGS_CONDUIT_ADD_SIZES, "conduit_add_sizes")
+        self.assertEqual(C.SETTINGS_CONDUIT_WALL, "conduit_wall_mm")
         self.assertGreater(C.SIZE_TOL_MM, 0.0)
+
+
+class ConduitSettings(unittest.TestCase):
+    def test_defaults(self):
+        name, add, wall = C.conduit_settings({})
+        self.assertEqual(name, "")
+        self.assertTrue(add)                     # size creation on by default
+        self.assertEqual(wall, C.DEFAULT_WALL_MM)
+
+    def test_remembered_values(self):
+        s = {"conduit_type_name": "Conduit with Fittings",
+             "conduit_add_sizes": False, "conduit_wall_mm": 3.5}
+        self.assertEqual(C.conduit_settings(s),
+                         ("Conduit with Fittings", False, 3.5))
+
+    def test_bad_wall_falls_back(self):
+        for bad in ("abc", -1.0, 0.0, None):
+            _n, _a, wall = C.conduit_settings({"conduit_wall_mm": bad})
+            self.assertEqual(wall, C.DEFAULT_WALL_MM)
+
+
+class InnerFromTrade(unittest.TestCase):
+    def test_trade_minus_twice_the_wall(self):
+        # trade = outer = 110; 2 mm wall -> inner 106
+        self.assertAlmostEqual(C.inner_from_trade(110.0, 2.0), 106.0)
+
+    def test_overthick_wall_floors_at_a_tenth(self):
+        # a 60 mm wall on a 110 trade would invert the size
+        self.assertAlmostEqual(C.inner_from_trade(110.0, 60.0), 11.0)
+
+    def test_floor_boundary(self):
+        # inner exactly at the floor passes through
+        self.assertAlmostEqual(C.inner_from_trade(100.0, 45.0), 10.0)
 
 
 if __name__ == "__main__":

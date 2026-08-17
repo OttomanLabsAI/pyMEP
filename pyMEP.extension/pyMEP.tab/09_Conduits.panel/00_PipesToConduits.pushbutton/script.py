@@ -1,27 +1,26 @@
 # -*- coding: utf-8 -*-
 """Pipes to Conduits - a conduit on every selected pipe's line, at the
-pipe's nominal size.
+pipe's nominal size, behind a dialog.
 
-Select pipes and click (nothing selected drops into pick mode - pick
-pipes, then ENTER or Finish). Each STRAIGHT pipe gets a conduit on the
-same line, hosted on the pipe's reference level, taking the pipe's
-nominal diameter, workset and Mark. The pipes are left untouched -
-delete them once you're happy.
+Select pipes and click (nothing selected drops into pick mode after
+the dialog - pick pipes, then ENTER or Finish). Each STRAIGHT pipe
+gets a conduit on the same line, hosted on the pipe's reference
+level, taking the pipe's nominal diameter, workset and Mark. The
+pipes are left untouched - delete them once you're happy.
 
-Conduit sizes are not free values: Revit only accepts nominals that
-exist in the conduit type's STANDARD (Electrical Settings > Conduit
-Settings > Sizes). Any pipe size the standard is missing is ADDED to
-it first (inner/outer taken from the pipe); only when the standard
-can't be extended does the conduit snap to the nearest existing size
-- every add and snap is reported.
-
-The conduit type is remembered in Settings (conduit_type_name); the
-first run - or a model without the remembered type - asks.
+The dialog picks the CONDUIT TYPE (and shows the STANDARD it
+follows), and offers to CREATE the missing sizes on that standard:
+the TRADE SIZE and the OUTER diameter are both the pipe's size, and
+the INNER diameter is trade minus twice the CONDUIT THICKNESS entered
+in the dialog. With size creation off (or when the standard refuses)
+the conduit snaps to the nearest existing size instead - every add
+and snap is reported. Everything is remembered in Settings.
 """
 
 __title__ = "Pipes to\nConduits"
 __author__ = "Glent Group"
 
+import os
 import sys
 
 for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
@@ -30,7 +29,9 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
 from pyrevit import revit, forms, script
 
 from pymep_conduit import (
-    SETTINGS_CONDUIT_TYPE, SIZE_TOL_MM, missing_sizes, pick_size,
+    SETTINGS_CONDUIT_TYPE, SETTINGS_CONDUIT_ADD_SIZES,
+    SETTINGS_CONDUIT_WALL, SIZE_TOL_MM,
+    conduit_settings, inner_from_trade, missing_sizes, pick_size,
 )
 from pymep_config import load_settings, save_settings
 from pymep_revit import safe_name, ft2mm, mm2ft
@@ -57,8 +58,12 @@ uidoc = revit.uidoc
 
 log("### Pipes to Conduits")
 
+XAML_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
+    "pymep_conduit.xaml")
+
 # ---------------------------------------------------------------------------
-# 1. The pipes: pre-selection, else pick mode (ENTER or Finish locks in)
+# 1. Pre-selection (pick mode comes AFTER the dialog when empty)
 # ---------------------------------------------------------------------------
 pipes = []
 for eid in uidoc.Selection.GetElementIds():
@@ -66,9 +71,152 @@ for eid in uidoc.Selection.GetElementIds():
     if isinstance(el, Pipe):
         pipes.append(el)
 
+# ---------------------------------------------------------------------------
+# 2. Conduit types + the STANDARD each one follows
+# ---------------------------------------------------------------------------
+ctypes = list(FilteredElementCollector(doc).OfClass(ConduitType))
+if not ctypes:
+    forms.alert("This model has no CONDUIT TYPES - load or create one "
+                "first (Electrical > Conduit).", exitscript=True)
+
+by_name = {}
+std_by_name = {}
+for ct in ctypes:
+    nm = safe_name(ct)
+    by_name[nm] = ct
+    std = ""
+    try:
+        _sp = ct.get_Parameter(BuiltInParameter.CONDUIT_STANDARD_TYPE_PARAM)
+        if _sp is not None:
+            std = _sp.AsValueString() or _sp.AsString() or ""
+    except Exception:
+        std = ""
+    std_by_name[nm] = std
+
+sizes_by_std = {}
+css = None
+try:
+    css = ConduitSizeSettings.GetConduitSizeSettings(doc)
+    for kv in css:
+        mm_list = []
+        for cs in kv.Value:
+            mm_list.append(ft2mm(cs.NominalDiameter))
+        sizes_by_std[kv.Key] = mm_list
+except Exception:
+    css = None
+
+
+# ---------------------------------------------------------------------------
+# 3. The dialog
+# ---------------------------------------------------------------------------
+class ConduitWindow(forms.WPFWindow):
+
+    def __init__(self, type_names, remembered, add_sizes, wall_mm,
+                 n_selected):
+        forms.WPFWindow.__init__(self, XAML_PATH)
+        self.result = None
+        if n_selected:
+            self.TxtInfo.Text = ("{} pipe(s) selected - each straight one "
+                                 "gets a conduit on its line at its "
+                                 "size.".format(n_selected))
+        else:
+            self.TxtInfo.Text = ("No pipes selected yet - Create drops "
+                                 "into pick mode (pick pipes, then ENTER "
+                                 "or Finish).")
+        self.CmbType.Items.Clear()
+        for n in type_names:
+            self.CmbType.Items.Add(n)
+        if remembered and remembered in type_names:
+            self.CmbType.SelectedItem = remembered
+        elif self.CmbType.Items.Count:
+            self.CmbType.SelectedIndex = 0
+        self.ChkAddSizes.IsChecked = bool(add_sizes)
+        self.TxtThickness.Text = "{:g}".format(wall_mm)
+        self._sync()
+
+    def _sync(self):
+        try:
+            self.TxtThickness.IsEnabled = bool(self.ChkAddSizes.IsChecked)
+            nm = self.CmbType.SelectedItem
+            std = std_by_name.get(nm) or ""
+            if std:
+                n = len(sizes_by_std.get(std) or [])
+                self.TxtStandard.Text = ("Standard: {} - {} size(s) "
+                                         "defined.".format(std, n))
+            else:
+                self.TxtStandard.Text = ("Standard: (couldn't read - "
+                                         "sizes can't be created, "
+                                         "diameters snap to what exists)")
+        except Exception:
+            pass
+
+    def on_type_changed(self, sender, args):
+        self._sync()
+
+    def on_add_sizes_changed(self, sender, args):
+        self._sync()
+
+    def on_go(self, sender, args):
+        nm = self.CmbType.SelectedItem
+        if not nm:
+            self.StatusText.Text = "Pick a conduit type."
+            return
+        add = bool(self.ChkAddSizes.IsChecked)
+        wall = None
+        if add:
+            try:
+                wall = float((self.TxtThickness.Text or "").strip())
+            except Exception:
+                wall = None
+            if wall is None or wall <= 0:
+                self.StatusText.Text = ("Conduit thickness must be a "
+                                        "positive number of mm.")
+                return
+        self.result = {"type": nm, "add_sizes": add, "wall": wall}
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.Close()
+
+
+_settings = load_settings()
+_rem_type, _rem_add, _rem_wall = conduit_settings(_settings)
+win = ConduitWindow(sorted(by_name), _rem_type, _rem_add, _rem_wall,
+                    len(pipes))
+win.ShowDialog()
+if not win.result:
+    forms.alert("Cancelled - nothing was created.", exitscript=True)
+
+ctype = by_name[win.result["type"]]
+add_sizes = win.result["add_sizes"]
+wall_mm = win.result["wall"]
+std_name = std_by_name.get(win.result["type"]) or ""
+
+try:
+    _settings[SETTINGS_CONDUIT_TYPE] = win.result["type"]
+    _settings[SETTINGS_CONDUIT_ADD_SIZES] = add_sizes
+    if wall_mm:
+        _settings[SETTINGS_CONDUIT_WALL] = wall_mm
+    save_settings(_settings)
+except Exception:
+    pass
+
+log("Conduit type: **{}** (standard: {}).".format(
+    win.result["type"], std_name or "(unknown)"))
+if add_sizes:
+    log("Missing sizes WILL be created: trade = outer = the pipe size, "
+        "inner = trade - 2 x {:g} mm.".format(wall_mm))
+else:
+    log("Size creation is OFF - diameters snap to the standard's "
+        "existing sizes.")
+
+# ---------------------------------------------------------------------------
+# 4. Pick mode when nothing was pre-selected
+# ---------------------------------------------------------------------------
 if not pipes:
-    log("No pipes pre-selected - pick the pipes in the view, then press "
-        "**ENTER** (or hit Finish on the options bar).")
+    log("Pick the pipes in the view, then press **ENTER** (or hit "
+        "Finish on the options bar).")
 
     class _PipesOnly(ISelectionFilter):
         def AllowElement(self, e):
@@ -99,41 +247,9 @@ if not pipes:
 
 log("**{}** pipe(s) selected.".format(len(pipes)))
 
-# ---------------------------------------------------------------------------
-# 2. The conduit type: remembered in Settings, first run asks
-# ---------------------------------------------------------------------------
-ctypes = list(FilteredElementCollector(doc).OfClass(ConduitType))
-if not ctypes:
-    forms.alert("This model has no CONDUIT TYPES - load or create one "
-                "first (Electrical > Conduit).", exitscript=True)
-
-by_name = {}
-for ct in ctypes:
-    by_name[safe_name(ct)] = ct
-
-settings = load_settings()
-want_name = str(settings.get(SETTINGS_CONDUIT_TYPE) or "")
-ctype = by_name.get(want_name)
-if ctype is None:
-    if len(ctypes) == 1:
-        ctype = ctypes[0]
-    else:
-        name = forms.SelectFromList.show(
-            sorted(by_name), title="Conduit type",
-            button_name="Use this conduit type", multiselect=False)
-        if not name:
-            forms.alert("Cancelled - nothing was created.", exitscript=True)
-        ctype = by_name[name]
-try:
-    settings[SETTINGS_CONDUIT_TYPE] = safe_name(ctype)
-    save_settings(settings)
-except Exception:
-    pass
-log("Conduit type: **{}** (remembered).".format(safe_name(ctype)))
-
 
 # ---------------------------------------------------------------------------
-# 3. Read the pipes: line, nominal / inner / outer, level
+# 5. Read the pipes: line, nominal, level
 # ---------------------------------------------------------------------------
 def _dbl(el, bip):
     try:
@@ -154,7 +270,6 @@ if _any_level is None:
                 "conduits on.", exitscript=True)
 
 rows = []            # (pipe, line, dia_ft, level_id)
-sample = {}          # dia_mm key -> (inner_ft, outer_ft) from a pipe
 skipped_curved = 0
 skipped_nodia = 0
 for p in pipes:
@@ -172,11 +287,6 @@ for p in pipes:
         lvl = p.ReferenceLevel
     except Exception:
         pass
-    key = round(ft2mm(dia), 3)
-    if key not in sample:
-        inner = _dbl(p, BuiltInParameter.RBS_PIPE_INNER_DIAM_PARAM)
-        outer = _dbl(p, BuiltInParameter.RBS_PIPE_OUTER_DIAMETER)
-        sample[key] = (inner or dia, outer or dia)
     rows.append((p, crv, dia,
                  (lvl.Id if lvl is not None else _any_level.Id)))
 
@@ -186,58 +296,39 @@ if not rows:
                     skipped_curved, skipped_nodia), exitscript=True)
 
 # ---------------------------------------------------------------------------
-# 4. The conduit STANDARD's size list - add what the pipes need
+# 6. Which sizes the standard is missing
 # ---------------------------------------------------------------------------
-std_name = None
-try:
-    _sp = ctype.get_Parameter(BuiltInParameter.CONDUIT_STANDARD_TYPE_PARAM)
-    if _sp is not None:
-        std_name = _sp.AsValueString() or _sp.AsString()
-except Exception:
-    std_name = None
-
-css = None
-avail_mm = []
-if std_name:
-    try:
-        css = ConduitSizeSettings.GetConduitSizeSettings(doc)
-        for kv in css:
-            if kv.Key == std_name:
-                for cs in kv.Value:
-                    avail_mm.append(ft2mm(cs.NominalDiameter))
-                break
-    except Exception:
-        css = None
-if std_name:
-    log("Conduit standard: **{}** with {} size(s).".format(
-        std_name, len(avail_mm)))
-else:
-    log("NOTE: couldn't read this conduit type's STANDARD - missing "
-        "sizes can't be added, diameters snap to what exists.")
-
+avail_mm = list(sizes_by_std.get(std_name) or [])
 wanted_mm = sorted(set(round(ft2mm(d), 3) for (_p, _c, d, _l) in rows))
-to_add = missing_sizes(avail_mm, wanted_mm) if css is not None else []
+to_add = []
+if add_sizes and css is not None and std_name:
+    to_add = missing_sizes(avail_mm, wanted_mm)
+log("Pipe sizes: {}.".format(
+    ", ".join("{:g} mm".format(v) for v in wanted_mm)))
 
 # ---------------------------------------------------------------------------
-# 5. Place - sizes first, then one conduit per pipe
+# 7. Place - sizes first, then one conduit per pipe
 # ---------------------------------------------------------------------------
 created = 0
 failed = 0
 dia_set = 0
 snapped = {}         # want_mm -> used_mm
-added_mm = []
+added = []           # (trade_mm, inner_mm)
 add_failed_mm = []
 
 t = Transaction(doc, "Pipes to Conduits")
 t.Start()
 
 for w in to_add:
-    inner, outer = sample.get(w, (mm2ft(w), mm2ft(w)))
+    inner = inner_from_trade(w, wall_mm)
     try:
-        ok = css.AddSize(std_name, ConduitSize(mm2ft(w), inner, outer,
-                                               True, True))
+        # trade size = outer diameter = the pipe's size; inner from the
+        # thickness the dialog asked for
+        ok = css.AddSize(std_name,
+                         ConduitSize(mm2ft(w), mm2ft(inner), mm2ft(w),
+                                     True, True))
         if ok:
-            added_mm.append(w)
+            added.append((w, inner))
             avail_mm.append(w)
         else:
             add_failed_mm.append(w)
@@ -296,13 +387,14 @@ for (p, crv, dia, lvl_id) in rows:
 t.Commit()
 
 # ---------------------------------------------------------------------------
-# 6. Report
+# 8. Report
 # ---------------------------------------------------------------------------
 log("Created **{}** conduit(s), diameters set on {}, failed {}.".format(
     created, dia_set, failed))
-if added_mm:
-    log("Sizes ADDED to standard '{}': {}.".format(
-        std_name, ", ".join("{:g} mm".format(v) for v in added_mm)))
+if added:
+    log("Sizes CREATED on standard '{}': {}.".format(
+        std_name, ", ".join("{:g} mm (inner {:g})".format(w, i)
+                            for (w, i) in added)))
 if add_failed_mm:
     log("Sizes the standard would NOT take: {}.".format(
         ", ".join("{:g} mm".format(v) for v in add_failed_mm)))
@@ -318,11 +410,11 @@ log("The pipes are untouched - delete them once you're happy.")
 
 msg = ["Created: {}".format(created),
        "Diameters set: {}".format(dia_set)]
+if added:
+    msg.append("Sizes created on '{}': {}".format(
+        std_name, ", ".join("{:g}".format(w) for (w, _i) in added)))
 if snapped:
     msg.append("Snapped to nearest size: {}".format(len(snapped)))
-if added_mm:
-    msg.append("Sizes added to '{}': {}".format(
-        std_name, ", ".join("{:g}".format(v) for v in added_mm)))
 if skipped_curved:
     msg.append("Curved pipes skipped: {}".format(skipped_curved))
 if failed:

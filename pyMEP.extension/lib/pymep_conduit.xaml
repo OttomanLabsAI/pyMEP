@@ -1,0 +1,101 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Pipes to Conduits"
+        Width="560" Height="520" MinWidth="480" MinHeight="440"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Background="White">
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Padding" Value="10,8,10,10"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,6,10,0"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="DialogButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#F4F4F4" Padding="14,10">
+            <StackPanel>
+                <TextBlock FontSize="15" FontWeight="SemiBold"
+                           Text="Pipes to Conduits"/>
+                <TextBlock x:Name="TxtInfo"
+                           Style="{StaticResource Hint}"
+                           Text="A conduit on every selected pipe's line, at the pipe's size."/>
+            </StackPanel>
+        </Border>
+
+        <StackPanel Grid.Row="1" Margin="14,12,14,0">
+            <GroupBox Header="Conduit type">
+                <StackPanel>
+                    <ComboBox x:Name="CmbType" Height="24"
+                              Margin="0,3,0,0"
+                              SelectionChanged="on_type_changed"/>
+                    <TextBlock x:Name="TxtStandard"
+                               Style="{StaticResource Hint}"
+                               Text="Standard: -"/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Sizes">
+                <StackPanel>
+                    <CheckBox x:Name="ChkAddSizes" Margin="0,4,0,0"
+                              Content="create the MISSING sizes on the type's conduit standard"
+                              Checked="on_add_sizes_changed"
+                              Unchecked="on_add_sizes_changed"/>
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="170"/>
+                            <ColumnDefinition Width="130"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Conduit thickness (mm)"/>
+                        <TextBox x:Name="TxtThickness" Grid.Column="1"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Conduit diameters must exist in the STANDARD the picked type follows (Electrical Settings &gt; Conduit Settings &gt; Sizes). With the box ON, every pipe size the standard is missing is created on it: the TRADE SIZE and the OUTER diameter are both the pipe's size, and the INNER diameter is trade minus TWICE the thickness above. With it OFF (or when the standard refuses), the conduit snaps to the nearest EXISTING size instead - every snap is reported."/>
+                </StackPanel>
+            </GroupBox>
+
+            <TextBlock x:Name="StatusText" Foreground="#B00020"
+                       TextWrapping="Wrap" Margin="0,0,0,8" Text=""/>
+        </StackPanel>
+
+        <Border Grid.Row="2" Background="#F4F4F4" Padding="14,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnGo" Content="Create"
+                        Style="{StaticResource DialogButton}" IsDefault="True"
+                        Click="on_go"/>
+                <Button x:Name="BtnCancel" Content="Cancel"
+                        Style="{StaticResource DialogButton}" IsCancel="True"
+                        Click="on_cancel"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
