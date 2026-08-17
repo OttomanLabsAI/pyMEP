@@ -657,8 +657,24 @@ def get_shape_editor(floor):
         if not editor.IsEnabled:
             editor.Enable()
     except Exception:
-        pass    # Enable() deprecated in newer APIs; DrawPoint enables it
+        pass    # Enable() deprecated in newer APIs; adding a point
+                # enables it
     return editor
+
+
+def point_drawer(editor):
+    """The editor's add-a-point method, whatever this Revit calls it:
+    AddPoint (Revit 2024+) or DrawPoint (2023 and earlier). A build
+    that has dropped DrawPoint makes every point 'rejected by the
+    slab' if the old name is called blind."""
+    fn = getattr(editor, "AddPoint", None)
+    if fn is None:
+        fn = getattr(editor, "DrawPoint", None)
+    if fn is None:
+        raise AttributeError(
+            "this Revit's SlabShapeEditor has neither AddPoint nor "
+            "DrawPoint")
+    return fn
 
 
 # ------------------------------------------------------------------------ run
@@ -772,7 +788,7 @@ def main():
         state["from_mesh"] += 1
         return XYZ(x, y, z)
 
-    total_added, total_missed = 0, 0
+    total_added, total_missed, total_rejected = 0, 0, 0
     with revit.Transaction("Drape floors to topo"):
         for floor in floors:
             try:
@@ -800,11 +816,23 @@ def main():
 
             try:
                 editor = get_shape_editor(floor)
+                draw = point_drawer(editor)
             except Exception as err:
                 log("! floor {}: cannot be shape-edited (slope arrow "
-                    "/ span direction?): {} - skipped".format(
-                        floor.Id, err))
+                    "/ span direction / in a group?): {} - skipped"
+                    .format(floor.Id, err))
                 continue
+
+            first_err = [None]
+
+            def try_draw(pt):
+                try:
+                    draw(pt)
+                    return True
+                except Exception as ex:
+                    if first_err[0] is None:
+                        first_err[0] = "{}".format(ex)
+                    return False
 
             added, missed, rejected, nudged = 0, 0, 0, 0
             for p in pts:
@@ -812,12 +840,9 @@ def main():
                 if hit is None:
                     missed += 1
                     continue
-                try:
-                    editor.DrawPoint(hit)
+                if try_draw(hit):
                     added += 1
                     continue
-                except Exception:
-                    pass
                 # the slab rejected the point (curved edges are
                 # approximated by straight segments, so a point ON the
                 # true arc can sit just outside) - retry ~50 mm inward
@@ -826,18 +851,15 @@ def main():
                 h2 = None
                 if q is not None:
                     h2 = ground_hit(q.X, q.Y)
-                if h2 is not None:
-                    try:
-                        editor.DrawPoint(h2)
-                        added += 1
-                        nudged += 1
-                        continue
-                    except Exception:
-                        pass
+                if h2 is not None and try_draw(h2):
+                    added += 1
+                    nudged += 1
+                    continue
                 rejected += 1
 
             total_added += added
-            total_missed += missed + rejected
+            total_missed += missed
+            total_rejected += rejected
             log("**Floor {}** - {} point(s) added{}{}{}".format(
                 floor.Id, added,
                 " ({} nudged inward off a curved edge)".format(nudged)
@@ -845,12 +867,22 @@ def main():
                 ", {} no terrain hit".format(missed) if missed else "",
                 ", {} rejected by the slab".format(rejected)
                 if rejected else ""))
+            if rejected and first_err[0]:
+                log("- the slab's FIRST rejection said: **{}**".format(
+                    first_err[0]))
 
     if state["from_mesh"]:
         log("**{}** point(s) came from the terrain's own geometry - "
             "the view ray-cast missed them.".format(state["from_mesh"]))
     log.close()
-    if total_added == 0:
+    if total_added == 0 and total_rejected > 0:
+        forms.alert("The terrain WAS found, but the slab REJECTED every "
+                    "point ({}).\n\nThe report shows the slab's own "
+                    "reason (first rejection). Usual causes: the floor "
+                    "is in a GROUP, has a SLOPE ARROW or a sloped "
+                    "sketch line, or its type blocks shape editing."
+                    .format(total_rejected))
+    elif total_added == 0:
         forms.alert('No terrain hits found - not by ray-casting in '
                     'view "{}", and not in the terrain geometry under '
                     'the floor(s) either.\n\nThe report window lists '
@@ -859,8 +891,9 @@ def main():
                     'sit over the terrain in plan.'.format(view3d.Name))
     else:
         forms.alert("Done: {} point(s) added across {} floor(s), {} "
-                    "ray(s) missed{}.".format(
+                    "ray(s) missed, {} rejected by the slab{}.".format(
                         total_added, len(floors), total_missed,
+                        total_rejected,
                         " ({} from the terrain's own geometry)".format(
                             state["from_mesh"])
                         if state["from_mesh"] else ""))
