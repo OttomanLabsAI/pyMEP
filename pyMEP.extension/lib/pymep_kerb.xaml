@@ -41,8 +41,8 @@
 
         <Border Grid.Row="0" Background="#F4F4F4" Padding="14,10">
             <StackPanel>
-                <TextBlock FontSize="15" FontWeight="SemiBold"
-                           Text="Kerb"/>
+                <TextBlock x:Name="TxtHeader" FontSize="15"
+                           FontWeight="SemiBold" Text="Kerb"/>
                 <TextBlock x:Name="TxtInfo"
                            Style="{StaticResource Hint}"
                            Text="Kerb units along a line, draped onto the terrain."/>
@@ -79,7 +79,8 @@
                                    Text="Unit length (mm)"/>
                         <TextBox x:Name="TxtLength" Grid.Row="0"
                                  Grid.Column="1"/>
-                        <TextBlock Grid.Row="1" Grid.Column="0"
+                        <TextBlock x:Name="LblAngleParam" Grid.Row="1"
+                                   Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
                                    Text="Angle parameter"/>
                         <ComboBox x:Name="CmbAngleParam" Grid.Row="1"
@@ -98,7 +99,8 @@
                                   Margin="0,10,0,0"
                                   Content="slope fit - place units TOUCHING on the slope (Pythagoras)"/>
                     </Grid>
-                    <TextBlock Style="{StaticResource Hint}"
+                    <TextBlock x:Name="TxtHint"
+                               Style="{StaticResource Hint}"
                                Text="Units lay END-TO-END from the line's start; the leftover shortens the LAST unit. Each unit sits at its bay's centre, rotated to the line (a curve gets the curve's tangent there). The dropdowns list the PICKED FAMILY's own parameters (typing a name works too). The terrain's slope ALONG the line is written to the ANGLE parameter (-90..+90 deg, positive climbs). With SLOPE FIT on, each unit's PLAN advance shrinks to sqrt(length&#178; - rise&#178;) - the unit is the hypotenuse lying on the ground, so consecutive units TOUCH instead of leaving gaps on slopes; off keeps the flat plan spacing. The LENGTH parameter (optional) receives each unit's true length; the last one comes up short."/>
                 </StackPanel>
             </GroupBox>

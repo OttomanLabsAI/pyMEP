@@ -978,6 +978,40 @@ class PathKerb(unittest.TestCase):
                          ("Kerb : HB2", 450.0, "Slope", "Length",
                           True))
 
+    def test_flat_kerb_settings_defaults(self):
+        P = self.P
+        fam, ln, lnp = P.flat_kerb_settings({})
+        self.assertEqual((fam, lnp), ("", ""))
+        self.assertEqual(ln, 915.0)
+
+    def test_flat_kerb_settings_remembered(self):
+        P = self.P
+        s = {P.SETTINGS_FLAT_KERB_FAMILY: "Kerb : Flat 255",
+             P.SETTINGS_FLAT_KERB_LENGTH: "600",
+             P.SETTINGS_FLAT_KERB_LENGTH_PARAM: " Length "}
+        self.assertEqual(P.flat_kerb_settings(s),
+                         ("Kerb : Flat 255", 600.0, "Length"))
+
+    def test_flat_kerb_keys_are_separate_from_angled(self):
+        # the two buttons must never overwrite each other's family
+        P = self.P
+        self.assertNotEqual(P.SETTINGS_FLAT_KERB_FAMILY,
+                            P.SETTINGS_KERB_FAMILY)
+        self.assertNotEqual(P.SETTINGS_FLAT_KERB_LENGTH,
+                            P.SETTINGS_KERB_LENGTH)
+        s = {P.SETTINGS_KERB_FAMILY: "Kerb : HB2",
+             P.SETTINGS_KERB_LENGTH: "450"}
+        fam, ln, _lnp = P.flat_kerb_settings(s)
+        self.assertEqual(fam, "")           # angled pick doesn't leak
+        self.assertEqual(ln, 915.0)
+
+    def test_flat_kerb_bad_length_falls_back(self):
+        P = self.P
+        for bad in ("abc", 0, -5, None, ""):
+            _f, ln, _p = P.flat_kerb_settings(
+                {P.SETTINGS_FLAT_KERB_LENGTH: bad})
+            self.assertEqual(ln, 915.0)
+
     def test_slope_fit_advance(self):
         P = self.P
         # the 3-4-5 triangle: a 5-long unit rising 3 advances 4 in

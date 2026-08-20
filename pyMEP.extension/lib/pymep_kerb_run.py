@@ -1,31 +1,26 @@
 # -*- coding: utf-8 -*-
-"""Kerb - lay kerb units along a picked line, draped onto the
-terrain like a fence.
+"""Kerb placement engine - shared by the Path panel's two kerb
+buttons so they can never drift apart.
 
-One dialog first: the kerb FAMILY (searchable), the UNIT LENGTH, the
-ANGLE parameter and an optional LENGTH parameter. Then pick the LINE
-and the TERRAIN. The units lay END-TO-END from the line's start -
-each sits at its bay's CENTRE, rotated to the line's plan direction
-there (curved lines get the curve's tangent), ray-cast straight down
-onto the terrain. The terrain's slope ALONG the line at each unit is
-written to the angle parameter as -90..+90 degrees (positive climbs
-in the line's direction); the length parameter (when named) receives
-the unit's length, so the LAST unit comes up short instead of
-overhanging.
+ANGLED kerb: each unit is TILTED onto the ground - the terrain's slope
+along the line is written to the family's angle parameter (-90..+90
+degrees) and the optional SLOPE FIT shortens each unit's plan advance
+(Pythagoras) so tilted units still touch.
 
-Kerbs are placed, not tracked - re-run after the line or terrain
-changes. IronPython 2.7 / Revit 2022-2026.
+FLAT kerb: each unit is laid LEVEL. Nothing is tilted, so there is no
+angle parameter and no slope fit - the units STEP with the ground
+instead of following it, which is how a flat-laid kerb actually sits.
+It keeps its OWN remembered family and unit length: a flat kerb is a
+different product from an angled one.
+
+Both drape the same way: units lay END-TO-END from the line's start,
+each at its bay's CENTRE, rotated to the line's plan tangent there
+and ray-cast straight down onto the picked terrain.
 """
-
-__title__  = "Kerb"
-__author__ = "Glent Group"
 
 import math
 import os
 import sys
-
-for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
-    del sys.modules[_mod]
 
 from pyrevit import revit, forms, script
 
@@ -35,36 +30,51 @@ import pymep_fence as F
 import pymep_fence_revit as FR
 import pymep_path as P
 
-from Autodesk.Revit.DB import (BuiltInCategory, CurveElement,
-                               Transaction, UnitTypeId, UnitUtils,
-                               XYZ)
+from Autodesk.Revit.DB import CurveElement, Transaction, XYZ
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 
-doc = revit.doc
-uidoc = revit.uidoc
-output = script.get_output()
-log = Logger(output, "Kerb")
+NONE_LABEL = "(none)"
+
+ANGLED = "angled"
+FLAT = "flat"
 
 XAML_PATH = os.path.join(
     os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
     "pymep_kerb.xaml")
 
-log("### Kerb")
-
-NONE_LABEL = "(none)"
+FLAT_HINT = ("Units lay END-TO-END from the line's start; the leftover "
+             "shortens the LAST unit. Each unit sits at its bay's "
+             "centre, rotated to the line (a curve gets the curve's "
+             "tangent there) and dropped onto the terrain below it. "
+             "Flat units are laid LEVEL - nothing is tilted to the "
+             "slope, so on falling ground they STEP down one unit at a "
+             "time. The LENGTH parameter (optional) receives each "
+             "unit's length; the last one comes up short. For units "
+             "that tilt onto the slope, use ANGLED KERB instead.")
 
 
 class KerbWindow(forms.WPFWindow):
     """Family + unit length + parameter names; remembered in pyMEP
-    settings."""
+    settings. In FLAT mode the angle parameter and the slope-fit tick
+    are hidden - neither means anything for a level unit."""
 
-    def __init__(self, settings, labels):
+    def __init__(self, doc, settings, labels, mode):
         forms.WPFWindow.__init__(self, XAML_PATH)
+        self.doc = doc
         self.result = None
         self.labels = labels
+        self.mode = mode
         self._last = {}
-        fam, ln, ang, lnp, sfit = P.kerb_settings(settings)
         self._param_cache = {}
+        angled = (mode == ANGLED)
+        if angled:
+            fam, ln, ang, lnp, sfit = P.kerb_settings(settings)
+        else:
+            fam, ln, lnp = P.flat_kerb_settings(settings)
+            ang, sfit = "", False
+        title = "Angled Kerb" if angled else "Flat Kerb"
+        self.Title = title
+        self.TxtHeader.Text = title
         self._fill(self.CmbKerb, labels, "")
         self._select(self.CmbKerb, fam)
         self.TxtLength.Text = "{:g}".format(ln)
@@ -72,9 +82,24 @@ class KerbWindow(forms.WPFWindow):
         self.CmbAngleParam.Text = ang
         self.CmbLenParam.Text = lnp
         self.ChkSlopeFit.IsChecked = bool(sfit)
+        if not angled:
+            for el in (self.LblAngleParam, self.CmbAngleParam,
+                       self.ChkSlopeFit):
+                self._show(el, False)
+            self.TxtHint.Text = FLAT_HINT
         self.CmbKerb.SelectionChanged += self._on_family_changed
         self.TxtInfo.Text = "{} placeable famil{} found.".format(
             len(labels), "y" if len(labels) == 1 else "ies")
+
+    @staticmethod
+    def _show(el, on):
+        """HIDE what is not needed (collapsed, not greyed)."""
+        try:
+            from System.Windows import Visibility
+            el.Visibility = Visibility.Visible if on \
+                else Visibility.Collapsed
+        except Exception:
+            el.IsEnabled = on
 
     def _fill_params(self):
         """The parameter dropdowns list the PICKED family's own
@@ -84,10 +109,10 @@ class KerbWindow(forms.WPFWindow):
             if lbl in self._param_cache:
                 names = self._param_cache[lbl]
             else:
-                sym = FR.symbol_by_label(doc, lbl,
+                sym = FR.symbol_by_label(self.doc, lbl,
                                          P.KERB_CATEGORIES) \
                     if lbl else None
-                names = FR.family_instance_params(doc, sym)
+                names = FR.family_instance_params(self.doc, sym)
                 self._param_cache[lbl] = names
             for combo in (self.CmbAngleParam, self.CmbLenParam):
                 keep = combo.Text
@@ -168,12 +193,14 @@ class KerbWindow(forms.WPFWindow):
             self.StatusText.Text = ("Unit length must be a positive "
                                     "number (mm).")
             return
+        angled = (self.mode == ANGLED)
         self.result = {
             "family": fam,
             "length_mm": ln,
-            "angle_param": (self.CmbAngleParam.Text or "").strip(),
+            "angle_param": ((self.CmbAngleParam.Text or "").strip()
+                            if angled else ""),
             "length_param": (self.CmbLenParam.Text or "").strip(),
-            "slope_fit": bool(self.ChkSlopeFit.IsChecked),
+            "slope_fit": bool(self.ChkSlopeFit.IsChecked) and angled,
         }
         self.Close()
 
@@ -190,13 +217,10 @@ class LineFilter(ISelectionFilter):
         return False
 
 
-_TERRAIN_CATS = FR.terrain_cat_ids()
-
-
 class TerrainFilter(ISelectionFilter):
     def AllowElement(self, elem):
         try:
-            return FR.id_value(elem.Category.Id) in _TERRAIN_CATS
+            return FR.id_value(elem.Category.Id) in FR.terrain_cat_ids()
         except Exception:
             return False
 
@@ -204,7 +228,7 @@ class TerrainFilter(ISelectionFilter):
         return False
 
 
-def pick_one(sel_filter, prompt):
+def _pick_one(uidoc, doc, sel_filter, prompt):
     try:
         r = uidoc.Selection.PickObject(ObjectType.Element, sel_filter,
                                        prompt)
@@ -213,7 +237,17 @@ def pick_one(sel_filter, prompt):
         return None
 
 
-def main():
+def run(mode):
+    """Place kerb units along a picked line. ``mode`` is ANGLED (units
+    tilt onto the slope) or FLAT (units laid level)."""
+    angled = (mode == ANGLED)
+    name = "Angled Kerb" if angled else "Flat Kerb"
+    doc = revit.doc
+    uidoc = revit.uidoc
+    output = script.get_output()
+    log = Logger(output, "AngledKerb" if angled else "FlatKerb")
+    log("### {}".format(name))
+
     settings = load_settings()
     labels = [lbl for lbl, _fs in
               FR.placeable_symbols(doc, P.KERB_CATEGORIES)]
@@ -224,7 +258,7 @@ def main():
                     "Structural Framing / Site - load the kerb "
                     "family first.", exitscript=True)
 
-    win = KerbWindow(settings, labels)
+    win = KerbWindow(doc, settings, labels, mode)
     win.ShowDialog()
     if win.result is None:
         log("Cancelled - nothing placed.")
@@ -232,31 +266,36 @@ def main():
         script.exit()
     opt = win.result
 
-    settings[P.SETTINGS_KERB_FAMILY] = opt["family"]
-    settings[P.SETTINGS_KERB_LENGTH] = opt["length_mm"]
-    settings[P.SETTINGS_KERB_ANGLE_PARAM] = opt["angle_param"]
-    settings[P.SETTINGS_KERB_LENGTH_PARAM] = opt["length_param"]
-    settings[P.SETTINGS_KERB_SLOPE_FIT] = opt["slope_fit"]
+    if angled:
+        settings[P.SETTINGS_KERB_FAMILY] = opt["family"]
+        settings[P.SETTINGS_KERB_LENGTH] = opt["length_mm"]
+        settings[P.SETTINGS_KERB_ANGLE_PARAM] = opt["angle_param"]
+        settings[P.SETTINGS_KERB_LENGTH_PARAM] = opt["length_param"]
+        settings[P.SETTINGS_KERB_SLOPE_FIT] = opt["slope_fit"]
+    else:
+        settings[P.SETTINGS_FLAT_KERB_FAMILY] = opt["family"]
+        settings[P.SETTINGS_FLAT_KERB_LENGTH] = opt["length_mm"]
+        settings[P.SETTINGS_FLAT_KERB_LENGTH_PARAM] = opt["length_param"]
     try:
         save_settings(settings)
     except Exception:
         pass
 
-    symbol = FR.symbol_by_label(doc, opt["family"],
-                                P.KERB_CATEGORIES)
+    symbol = FR.symbol_by_label(doc, opt["family"], P.KERB_CATEGORIES)
     if symbol is None:
         log.close()
         forms.alert("Family '{}' is not in this model.".format(
             opt["family"]), exitscript=True)
 
-    line_el = pick_one(LineFilter(), "Pick the LINE to kerb along")
+    line_el = _pick_one(uidoc, doc, LineFilter(),
+                        "Pick the LINE to kerb along")
     if line_el is None:
         log("No line picked - nothing placed.")
         log.close()
         script.exit()
-    terrain = pick_one(TerrainFilter(),
-                       "Pick the TERRAIN (toposolid / topography / "
-                       "floor / roof)")
+    terrain = _pick_one(uidoc, doc, TerrainFilter(),
+                        "Pick the TERRAIN (toposolid / topography / "
+                        "floor / roof)")
     if terrain is None:
         log("No terrain picked - nothing placed.")
         log.close()
@@ -328,21 +367,24 @@ def main():
                             P.slope_angle_deg(dz, adv)))
             s_pos += adv
     else:
-        # flat PLAN spacing (the original behaviour)
+        # flat PLAN spacing: FLAT units always walk this way (they are
+        # level, so their footprint IS their length); an angled kerb
+        # takes it whenever slope fit is off
         marks = F.stations(length, unit_ft, F.JUSTIFY_START, True,
                            closed)
         if closed and marks:
             marks = marks + [length]
         for mid, width in F.panel_bays(marks, min_ft):
-            d = min(width / 2.0, FR.mm2ft(500.0))
-            pb = F.point_at(poly, mid - d)[0]
-            pf = F.point_at(poly, mid + d)[0]
-            zb, zf = _z_at(mid - d), _z_at(mid + d)
             ang_deg = 0.0
-            if zb is not None and zf is not None:
-                run = ((pf[0] - pb[0]) ** 2 +
-                       (pf[1] - pb[1]) ** 2) ** 0.5
-                ang_deg = P.slope_angle_deg(zf - zb, run)
+            if angled:
+                d = min(width / 2.0, FR.mm2ft(500.0))
+                pb = F.point_at(poly, mid - d)[0]
+                pf = F.point_at(poly, mid + d)[0]
+                zb, zf = _z_at(mid - d), _z_at(mid + d)
+                if zb is not None and zf is not None:
+                    run_ft = ((pf[0] - pb[0]) ** 2 +
+                              (pf[1] - pb[1]) ** 2) ** 0.5
+                    ang_deg = P.slope_angle_deg(zf - zb, run_ft)
             entries.append((mid, width, ang_deg))
 
     if not entries:
@@ -357,11 +399,12 @@ def main():
                     exitscript=True)
     log("**{}** unit(s) along the line{}.".format(
         len(entries),
-        " (slope fit: units touch on the slope)"
-        if opt["slope_fit"] else ""))
+        " (slope fit: units touch on the slope)" if opt["slope_fit"]
+        else (" - laid LEVEL, stepping with the ground" if not angled
+              else "")))
 
     placed, missed, no_angle = 0, 0, 0
-    t = Transaction(doc, "Kerb")
+    t = Transaction(doc, name)
     t.Start()
     try:
         try:
@@ -390,8 +433,7 @@ def main():
                                           ang_deg):
                     no_angle += 1
             if opt["length_param"]:
-                FR.set_panel_width(inst, width,
-                                   opt["length_param"])
+                FR.set_panel_width(inst, width, opt["length_param"])
         t.Commit()
     except Exception:
         try:
@@ -408,9 +450,6 @@ def main():
     log("**{}** kerb unit(s) placed. Kerbs are not tracked - "
         "re-run after the line or terrain changes.".format(placed))
     log.close()
-    forms.alert("Kerb done: {} unit(s) placed{}.".format(
-        placed, ", {} missed the terrain".format(missed)
+    forms.alert("{} done: {} unit(s) placed{}.".format(
+        name, placed, ", {} missed the terrain".format(missed)
         if missed else ""))
-
-
-main()
