@@ -677,6 +677,45 @@ def point_drawer(editor):
     return fn
 
 
+def vertex_modifier(editor):
+    """The editor's move-an-existing-vertex method, or None. Moving
+    the slab's OWN sketch vertices onto the terrain is what stops the
+    surface tearing down to the level at every corner."""
+    return getattr(editor, "ModifySubElement", None)
+
+
+def reset_shape(editor):
+    """Wipe any previous shape edits so a re-run starts CLEAN instead
+    of stacking new points on old spikes."""
+    fn = getattr(editor, "ResetSlabShape", None)
+    if fn is None:
+        return False
+    fn()
+    return True
+
+
+VERTEX_Z_TOL = 0.003        # ft (~1 mm) - close enough counts as ON
+VERTEX_XY_TOL = 0.033       # ft (~10 mm) - a sample THIS near an
+                            # existing vertex IS that vertex
+
+
+def set_vertex_z(modify, v, want_z):
+    """Drive one existing slab-shape vertex to ``want_z`` (absolute
+    model Z). The move is applied as a delta from the vertex's CURRENT
+    elevation - on a freshly reset slab the delta and offset-from-base
+    conventions coincide, and the read-back pass corrects the result
+    either way."""
+    try:
+        for _i in range(2):
+            cur = v.Position.Z
+            if abs(cur - want_z) <= VERTEX_Z_TOL:
+                return True
+            modify(v, want_z - cur)
+        return abs(v.Position.Z - want_z) <= VERTEX_Z_TOL
+    except Exception:
+        return False
+
+
 # ------------------------------------------------------------------------ run
 def main():
     settings = load_settings()
@@ -822,19 +861,97 @@ def main():
                     "/ span direction / in a group?): {} - skipped"
                     .format(floor.Id, err))
                 continue
+            modify = vertex_modifier(editor)
+
+            # start CLEAN: wipe previous shape edits so a re-run heals
+            # a spiked floor instead of stacking new points on top
+            try:
+                if reset_shape(editor):
+                    doc.Regenerate()
+            except Exception:
+                pass
+
+            # 1) MOVE the slab's OWN vertices (sketch corners - outer
+            #    boundary AND hole loops) onto the terrain. Only ever
+            #    ADDING points left these behind at the level, which
+            #    tore the surface down to a 'set at zero' with a
+            #    doubled point beside every corner.
+            corners_up, corners_left, missed = 0, 0, 0
+            vert_xy = []
+            if modify is not None:
+                try:
+                    verts = list(editor.SlabShapeVertices)
+                except Exception:
+                    verts = []
+                for v in verts:
+                    try:
+                        vp = v.Position
+                    except Exception:
+                        continue
+                    vert_xy.append((vp.X, vp.Y))
+                    hit = ground_hit(vp.X, vp.Y)
+                    if hit is None:
+                        missed += 1
+                    elif set_vertex_z(modify, v, hit.Z):
+                        corners_up += 1
+                    else:
+                        corners_left += 1
+            else:
+                log("- this Revit's shape editor can't MOVE existing "
+                    "vertices - the sketch corners keep their level.")
+
+            # 2) the sampled points: an existing vertex is already
+            #    handled, so a sample sitting ON one is dropped - THAT
+            #    was the doubled point
+            if vert_xy:
+                keep = []
+                for p in pts:
+                    on_v = False
+                    for (vx, vy) in vert_xy:
+                        if ((p.X - vx) ** 2 + (p.Y - vy) ** 2
+                                <= VERTEX_XY_TOL ** 2):
+                            on_v = True
+                            break
+                    if not on_v:
+                        keep.append(p)
+                pts = keep
+            if corners_only and modify is not None:
+                pts = []    # the slab's vertices ARE the corners
 
             first_err = [None]
+            zadj = [None]   # measured AddPoint Z datum: None = untested
 
             def try_draw(pt):
+                want = pt.Z
                 try:
-                    draw(pt)
-                    return True
+                    if zadj[0]:
+                        pt = XYZ(pt.X, pt.Y, pt.Z - zadj[0])
+                    v = draw(pt)
                 except Exception as ex:
                     if first_err[0] is None:
                         first_err[0] = "{}".format(ex)
                     return False
+                if zadj[0] is None:
+                    # calibrate on the FIRST added vertex: an AddPoint
+                    # that measures Z from the slab instead of
+                    # absolutely would land every point wrong
+                    zadj[0] = 0.0
+                    try:
+                        if v is not None:
+                            off = v.Position.Z - want
+                            if abs(off) > VERTEX_Z_TOL:
+                                zadj[0] = off
+                                log("- AddPoint here measures Z from "
+                                    "the SLAB, not absolutely - "
+                                    "compensating by {:+.3f} m."
+                                    .format(off * 0.3048))
+                                if modify is not None:
+                                    set_vertex_z(modify, v, want)
+                    except Exception:
+                        pass
+                return True
 
-            added, missed, rejected, nudged = 0, 0, 0, 0
+            added, rejected, nudged = 0, 0, 0
             for p in pts:
                 hit = ground_hit(p.X, p.Y)
                 if hit is None:
@@ -857,16 +974,20 @@ def main():
                     continue
                 rejected += 1
 
-            total_added += added
+            total_added += added + corners_up
             total_missed += missed
             total_rejected += rejected
-            log("**Floor {}** - {} point(s) added{}{}{}".format(
-                floor.Id, added,
-                " ({} nudged inward off a curved edge)".format(nudged)
-                if nudged else "",
-                ", {} no terrain hit".format(missed) if missed else "",
-                ", {} rejected by the slab".format(rejected)
-                if rejected else ""))
+            log("**Floor {}** - {} corner(s) lifted, {} point(s) "
+                "added{}{}{}{}".format(
+                    floor.Id, corners_up, added,
+                    " ({} nudged inward off a curved edge)".format(
+                        nudged) if nudged else "",
+                    ", {} no terrain hit".format(missed)
+                    if missed else "",
+                    ", {} rejected by the slab".format(rejected)
+                    if rejected else "",
+                    ", {} corner(s) would not move".format(corners_left)
+                    if corners_left else ""))
             if rejected and first_err[0]:
                 log("- the slab's FIRST rejection said: **{}**".format(
                     first_err[0]))
