@@ -272,6 +272,7 @@ try:
 
         def __init__(self, settings, info):
             forms.WPFWindow.__init__(self, XAML_PATH)
+            log("- dialog XAML loaded.")
             self.result = None
             self._ready = False
             self.TxtInfo.Text = info
@@ -315,6 +316,7 @@ try:
             self._sync_suffixes()
             self._ready = True
             self._preview()
+            log("- dialog fields filled.")
 
         def _order(self):
             out = []
@@ -417,6 +419,7 @@ try:
         " - {} skipped (no size / vertical)".format(skipped) if skipped else "")
     log("Opening the dialog ...")
     win = AnnotateWindow(settings, info)
+    log("- showing the dialog.")
     win.ShowDialog()
     if win.result is None:
         log("Dialog cancelled - nothing placed.")

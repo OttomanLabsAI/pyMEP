@@ -1,7 +1,7 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Annotate"
-        Width="620" Height="600" MinWidth="520" MinHeight="520"
+        Width="640" Height="640" MinWidth="540" MinHeight="560"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False"
         Background="White">
@@ -13,10 +13,6 @@
         <Style TargetType="TextBox">
             <Setter Property="Height" Value="24"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="Margin" Value="0,3,0,0"/>
-        </Style>
-        <Style TargetType="ComboBox">
-            <Setter Property="Height" Value="24"/>
             <Setter Property="Margin" Value="0,3,0,0"/>
         </Style>
         <Style x:Key="FieldLabel" TargetType="TextBlock">
@@ -76,7 +72,8 @@
                                    Style="{StaticResource FieldLabel}"
                                    Text="Text type"/>
                         <ComboBox x:Name="CmbTextType" Grid.Row="1"
-                                  Grid.Column="1"/>
+                                  Grid.Column="1" Height="24"
+                                  Margin="0,3,0,0"/>
                         <TextBlock Grid.Row="2" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
                                    Text="Bank gap (mm)"/>
@@ -85,7 +82,7 @@
                                  HorizontalAlignment="Left"/>
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="The prefix is free text (e.g. HV, COMMS) - leave it empty to drop it from the label. BANK GAP is how far apart two runs may sit, surface to surface, and still be labelled as ONE bank: raise it to pull a wider spread together, lower it to keep neighbouring trenches apart."/>
+                               Text="The prefix is free text (e.g. HV, COMMS) - leave it empty to drop it from the label. BANK GAP is how far apart two runs may sit, surface to surface, and still be labelled as ONE bank."/>
                 </StackPanel>
             </GroupBox>
 
@@ -103,33 +100,23 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0"
-                                   Style="{StaticResource FieldLabel}"
-                                   Text="1."/>
-                        <ComboBox x:Name="CmbSlot1" Grid.Row="0"
-                                  Grid.Column="1"
-                                  SelectionChanged="on_slot_changed"/>
-                        <TextBox x:Name="TxtSuf1" Grid.Row="0"
-                                 Grid.Column="2" Margin="8,3,0,0"
-                                 TextChanged="on_suffix_changed"/>
-                        <CheckBox x:Name="ChkBreak1" Grid.Row="0"
-                                  Grid.Column="3" Margin="10,8,0,0"
-                                  Content="new line after"
-                                  Checked="on_changed"
-                                  Unchecked="on_changed"/>
-
+                        <TextBlock Grid.Row="0" Grid.Column="2"
+                                   Style="{StaticResource Hint}"
+                                   Text="suffix"/>
                         <TextBlock Grid.Row="1" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
-                                   Text="2."/>
-                        <ComboBox x:Name="CmbSlot2" Grid.Row="1"
-                                  Grid.Column="1"
+                                   Text="1."/>
+                        <ComboBox x:Name="CmbSlot1" Grid.Row="1"
+                                  Grid.Column="1" Height="24"
+                                  Margin="0,3,0,0"
                                   SelectionChanged="on_slot_changed"/>
-                        <TextBox x:Name="TxtSuf2" Grid.Row="1"
+                        <TextBox x:Name="TxtSuf1" Grid.Row="1"
                                  Grid.Column="2" Margin="8,3,0,0"
                                  TextChanged="on_suffix_changed"/>
-                        <CheckBox x:Name="ChkBreak2" Grid.Row="1"
+                        <CheckBox x:Name="ChkBreak1" Grid.Row="1"
                                   Grid.Column="3" Margin="10,8,0,0"
                                   Content="new line after"
                                   Checked="on_changed"
@@ -137,14 +124,15 @@
 
                         <TextBlock Grid.Row="2" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
-                                   Text="3."/>
-                        <ComboBox x:Name="CmbSlot3" Grid.Row="2"
-                                  Grid.Column="1"
+                                   Text="2."/>
+                        <ComboBox x:Name="CmbSlot2" Grid.Row="2"
+                                  Grid.Column="1" Height="24"
+                                  Margin="0,3,0,0"
                                   SelectionChanged="on_slot_changed"/>
-                        <TextBox x:Name="TxtSuf3" Grid.Row="2"
+                        <TextBox x:Name="TxtSuf2" Grid.Row="2"
                                  Grid.Column="2" Margin="8,3,0,0"
                                  TextChanged="on_suffix_changed"/>
-                        <CheckBox x:Name="ChkBreak3" Grid.Row="2"
+                        <CheckBox x:Name="ChkBreak2" Grid.Row="2"
                                   Grid.Column="3" Margin="10,8,0,0"
                                   Content="new line after"
                                   Checked="on_changed"
@@ -152,16 +140,33 @@
 
                         <TextBlock Grid.Row="3" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
-                                   Text="4."/>
-                        <ComboBox x:Name="CmbSlot4" Grid.Row="3"
-                                  Grid.Column="1"
+                                   Text="3."/>
+                        <ComboBox x:Name="CmbSlot3" Grid.Row="3"
+                                  Grid.Column="1" Height="24"
+                                  Margin="0,3,0,0"
                                   SelectionChanged="on_slot_changed"/>
-                        <TextBox x:Name="TxtSuf4" Grid.Row="3"
+                        <TextBox x:Name="TxtSuf3" Grid.Row="3"
+                                 Grid.Column="2" Margin="8,3,0,0"
+                                 TextChanged="on_suffix_changed"/>
+                        <CheckBox x:Name="ChkBreak3" Grid.Row="3"
+                                  Grid.Column="3" Margin="10,8,0,0"
+                                  Content="new line after"
+                                  Checked="on_changed"
+                                  Unchecked="on_changed"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="4."/>
+                        <ComboBox x:Name="CmbSlot4" Grid.Row="4"
+                                  Grid.Column="1" Height="24"
+                                  Margin="0,3,0,0"
+                                  SelectionChanged="on_slot_changed"/>
+                        <TextBox x:Name="TxtSuf4" Grid.Row="4"
                                  Grid.Column="2" Margin="8,3,0,0"
                                  TextChanged="on_suffix_changed"/>
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Each part appears once, in the order above; set a slot to (none) to leave it out. The box beside it is that part's SUFFIX, written straight after it with no space - the diameter starts as &#216; so a bank reads 150&#216;; type ' mm' (with the space) or 'dia' instead if you prefer, and a suffix follows its part when you reorder. COMBINATION is the bank's arrangement measured ACROSS x UP (2 side by side and 2 stacked reads 2x2); a bank that does not fill a rectangle is counted instead (3 no.). DIAMETER lists every size in the bank when they differ. SLOPE only ever prints on pipes."/>
+                               Text="Each part appears once, in the order above; set a slot to (none) to leave it out. The SUFFIX box is written straight after its part with no space - the diameter starts with the diameter symbol; type ' mm' (with the space), 'dia' or anything else instead, and a suffix follows its part when you reorder. COMBINATION is the bank measured ACROSS x UP (2 side by side and 2 stacked reads 2x2); a bank that does not fill a rectangle is counted instead (3 no.). DIAMETER lists every size in the bank when they differ. SLOPE only ever prints on pipes."/>
                 </StackPanel>
             </GroupBox>
 
