@@ -95,7 +95,8 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="30"/>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="130"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -110,8 +111,11 @@
                         <ComboBox x:Name="CmbSlot1" Grid.Row="0"
                                   Grid.Column="1"
                                   SelectionChanged="on_slot_changed"/>
+                        <TextBox x:Name="TxtSuf1" Grid.Row="0"
+                                 Grid.Column="2" Margin="8,3,0,0"
+                                 TextChanged="on_suffix_changed"/>
                         <CheckBox x:Name="ChkBreak1" Grid.Row="0"
-                                  Grid.Column="2" Margin="10,8,0,0"
+                                  Grid.Column="3" Margin="10,8,0,0"
                                   Content="new line after"
                                   Checked="on_changed"
                                   Unchecked="on_changed"/>
@@ -122,8 +126,11 @@
                         <ComboBox x:Name="CmbSlot2" Grid.Row="1"
                                   Grid.Column="1"
                                   SelectionChanged="on_slot_changed"/>
+                        <TextBox x:Name="TxtSuf2" Grid.Row="1"
+                                 Grid.Column="2" Margin="8,3,0,0"
+                                 TextChanged="on_suffix_changed"/>
                         <CheckBox x:Name="ChkBreak2" Grid.Row="1"
-                                  Grid.Column="2" Margin="10,8,0,0"
+                                  Grid.Column="3" Margin="10,8,0,0"
                                   Content="new line after"
                                   Checked="on_changed"
                                   Unchecked="on_changed"/>
@@ -134,8 +141,11 @@
                         <ComboBox x:Name="CmbSlot3" Grid.Row="2"
                                   Grid.Column="1"
                                   SelectionChanged="on_slot_changed"/>
+                        <TextBox x:Name="TxtSuf3" Grid.Row="2"
+                                 Grid.Column="2" Margin="8,3,0,0"
+                                 TextChanged="on_suffix_changed"/>
                         <CheckBox x:Name="ChkBreak3" Grid.Row="2"
-                                  Grid.Column="2" Margin="10,8,0,0"
+                                  Grid.Column="3" Margin="10,8,0,0"
                                   Content="new line after"
                                   Checked="on_changed"
                                   Unchecked="on_changed"/>
@@ -146,9 +156,12 @@
                         <ComboBox x:Name="CmbSlot4" Grid.Row="3"
                                   Grid.Column="1"
                                   SelectionChanged="on_slot_changed"/>
+                        <TextBox x:Name="TxtSuf4" Grid.Row="3"
+                                 Grid.Column="2" Margin="8,3,0,0"
+                                 TextChanged="on_suffix_changed"/>
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Each part appears once, in the order above; set a slot to (none) to leave it out. COMBINATION is the bank's arrangement measured ACROSS x UP (2 side by side and 2 stacked reads 2x2); a bank that does not fill a rectangle is counted instead (3 no.). DIAMETER lists every size in the bank when they differ. SLOPE only ever prints on pipes."/>
+                               Text="Each part appears once, in the order above; set a slot to (none) to leave it out. The box beside it is that part's SUFFIX, written straight after it with no space - the diameter starts as &#216; so a bank reads 150&#216;; type ' mm' (with the space) or 'dia' instead if you prefer, and a suffix follows its part when you reorder. COMBINATION is the bank's arrangement measured ACROSS x UP (2 side by side and 2 stacked reads 2x2); a bank that does not fill a rectangle is counted instead (3 no.). DIAMETER lists every size in the bank when they differ. SLOPE only ever prints on pipes."/>
                 </StackPanel>
             </GroupBox>
 

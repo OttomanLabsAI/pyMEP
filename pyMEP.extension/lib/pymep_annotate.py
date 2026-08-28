@@ -10,10 +10,12 @@ built from up to four parts in the order the dialog sets:
 
     PREFIX        free text, e.g. 'HV'
     COMBINATION   the bank's arrangement ACROSS x UP, e.g. '2x2'
-    DIAMETER      '150mm' (or '100/150mm' when a bank is mixed)
+    DIAMETER      '150' (or '100/150' when a bank is mixed)
     SLOPE         '1:150' - pipes only, off by default
 
-with an optional line break after any part.
+each with its own SUFFIX written straight after it (the diameter's
+defaults to the diameter symbol, so a bank reads '150\u00d8'), and an
+optional line break after any part.
 """
 
 import math
@@ -30,7 +32,7 @@ ITEMS = [ITEM_PREFIX, ITEM_COMBO, ITEM_DIA, ITEM_SLOPE]
 ITEM_LABELS = [
     (ITEM_PREFIX, "Prefix"),
     (ITEM_COMBO, "Combination (2x2)"),
-    (ITEM_DIA, "Diameter (150mm)"),
+    (ITEM_DIA, "Diameter (150)"),
     (ITEM_SLOPE, "Slope (1:150) - pipes only"),
     (ITEM_NONE, "(none)"),
 ]
@@ -39,11 +41,18 @@ SLOTS = 4
 DEFAULT_ORDER = [ITEM_PREFIX, ITEM_COMBO, ITEM_DIA, ITEM_NONE]
 DEFAULT_BREAKS = [False, False, False]
 
+# what follows each part, straight after it with no space - the
+# diameter reads '150\u00d8' the way a drawing writes it, and any of
+# them can be changed (' mm', 'no.', 'dia') in the dialog
+DEFAULT_SUFFIXES = {ITEM_PREFIX: "", ITEM_COMBO: "",
+                    ITEM_DIA: u"\u00d8", ITEM_SLOPE: ""}
+
 SETTINGS_PREFIX = "annotate_prefix"
 SETTINGS_TEXT_TYPE = "annotate_text_type"
 SETTINGS_ORDER = "annotate_order"
 SETTINGS_BREAKS = "annotate_breaks"
 SETTINGS_BANK_GAP = "annotate_bank_gap_mm"
+SETTINGS_SUFFIXES = "annotate_suffixes"
 
 # two runs belong to one bank when the CLEAR gap between their
 # surfaces is no more than this, in mm - a plain distance the dialog
@@ -57,9 +66,9 @@ BANK_ANGLE_TOL_DEG = 5.0
 
 
 def annotate_settings(settings):
-    """(prefix, text type name, order, breaks, bank gap mm) - the
-    dialog's remembered values, with anything unrecognised
-    repaired."""
+    """The dialog's remembered values as a dict - 'prefix',
+    'text_type', 'order', 'breaks', 'gap' and 'suffixes' - with
+    anything unrecognised repaired."""
     prefix = str(settings.get(SETTINGS_PREFIX) or "")
     ttype = str(settings.get(SETTINGS_TEXT_TYPE) or "")
     order = list(settings.get(SETTINGS_ORDER) or DEFAULT_ORDER)
@@ -83,20 +92,30 @@ def annotate_settings(settings):
             gap = DEFAULT_BANK_GAP_MM
     except (TypeError, ValueError):
         gap = DEFAULT_BANK_GAP_MM
-    return prefix, ttype, clean, breaks, gap
+    suffixes = dict(DEFAULT_SUFFIXES)
+    stored = settings.get(SETTINGS_SUFFIXES)
+    if isinstance(stored, dict):
+        for key in ITEMS:
+            if key in stored:
+                suffixes[key] = u"{}".format(stored[key] or "")
+    return {"prefix": prefix, "text_type": ttype, "order": clean,
+            "breaks": breaks, "gap": gap, "suffixes": suffixes}
 
 
-def compose(values, order, breaks):
-    """The label text: every non-empty part in ``order``, joined by a
-    space or - where ``breaks`` says so - a line break. A part that
-    resolves to nothing is skipped WITHOUT leaving its separator
-    behind, so an empty prefix never opens the label with a blank
-    line."""
+def compose(values, order, breaks, suffixes=None):
+    """The label text: every non-empty part in ``order``, each with
+    its SUFFIX appended (no space - '150' + '\u00d8' reads '150\u00d8'),
+    joined by a space or - where ``breaks`` says so - a line break. A
+    part that resolves to nothing is skipped WITHOUT leaving its
+    separator or its suffix behind, so an empty prefix never opens the
+    label with a blank line."""
+    suffixes = suffixes or {}
     parts = []
     for i, key in enumerate(order):
         text = (values.get(key) or "").strip() if key else ""
         if not text:
             continue
+        text = u"{}{}".format(text, suffixes.get(key, "") or "")
         brk = bool(breaks[i]) if i < len(breaks) else False
         parts.append((text, brk))
     out = []
@@ -250,12 +269,14 @@ def combo_text(cells, tol):
 
 
 def dia_text(dias):
-    """The DIAMETER part: '150mm', or every distinct size when a bank
-    is mixed ('100/150mm')."""
+    """The DIAMETER part as a bare number - '150', or every distinct
+    size when a bank is mixed ('100/150'). The unit or symbol comes
+    from the part's SUFFIX, so a drawing can read '150\u00d8' or
+    '150 mm' without touching this."""
     vals = sorted(set(int(round(d)) for d in dias if d))
     if not vals:
         return ""
-    return "{}mm".format("/".join(str(v) for v in vals))
+    return "/".join(str(v) for v in vals)
 
 
 def slope_text(slope):

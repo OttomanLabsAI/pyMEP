@@ -4,10 +4,10 @@ plan view, one label per BANK of runs travelling together.
 
 Workflow:
   1. Pre-select the runs in a plan view - either pipes or conduits,
-     never a mixture, and nothing else.
+     never a mixture; fittings and anything else are ignored.
   2. Click the button and fill in the dialog: the PREFIX, the TEXT
-     TYPE, and the order of the label's parts (with a line break
-     after any of them).
+     TYPE, and the order of the label's parts, each with its own
+     SUFFIX and an optional line break after it.
   3. One label per bank is placed at the bank's mid-run point, offset
      perpendicular by Settings > Annotate > pipe annotation offset
      (default 500 mm), with a leader back to the bank.
@@ -16,8 +16,11 @@ The label is built from up to four parts, in the dialog's order:
 
     PREFIX        free text, e.g. 'HV'
     COMBINATION   the bank's arrangement ACROSS x UP, e.g. '2x2'
-    DIAMETER      '150mm' - every size listed when a bank is mixed
+    DIAMETER      '150' - every size listed when a bank is mixed
     SLOPE         '1:150' - pipes only, off by default
+
+Each part's SUFFIX is written straight after it: the diameter's starts
+as the diameter symbol, so a bank reads '150\u00d8'.
 
 A BANK is worked out from the geometry: runs that are parallel, sit
 within the dialog's BANK GAP of each other (the clear distance between
@@ -26,10 +29,10 @@ Segments of the same run count once, so a bank split into three
 lengths is still '2x2'. Raise the gap to pull a wider spread into one
 label; lower it to keep neighbouring trenches apart.
 
-Selection rules - the button does NOTHING unless the selection is
-exclusively pipes or exclusively conduits: a mixture of the two, or
-anything else caught in the selection, stops the run with a message
-rather than a half-right label.
+Selection rules - pipes and conduits are never annotated together: a
+selection holding both stops with a message rather than a half-right
+label. Anything else caught in the selection (conduit fittings above
+all) is simply ignored and reported at the end.
 """
 
 __title__  = "Annotate\nPipes"
@@ -145,22 +148,21 @@ if pipes and conduits:
                 "diameter only mean something within a single category."
                 .format(len(pipes), len(conduits)), exitscript=True)
 
-if others:
-    forms.alert("The selection holds {} element(s) that are neither pipes "
-                "nor conduits:\n\n{}\n\nDeselect them and run again - "
-                "nothing was annotated."
-                .format(sum(others.values()),
-                        "\n".join("  {} x{}".format(k, v)
-                                  for k, v in sorted(others.items(),
-                                                     key=lambda kv: -kv[1]))),
-                exitscript=True)
+# Anything else in the selection is simply IGNORED - a real conduit
+# selection nearly always drags in fittings, and refusing to run over
+# them stopped the button working at all.
+ignored = sum(others.values())
 
 runs = pipes or conduits
 is_pipe = bool(pipes)
 kind = "pipe" if is_pipe else "conduit"
 if not runs:
     forms.alert("Select one or more PIPES or CONDUITS in the view first, "
-                "then click the button.", exitscript=True)
+                "then click the button.{}"
+                .format("\n\nThe {} selected element(s) are neither: {}."
+                        .format(ignored,
+                                ", ".join(sorted(others)))
+                        if ignored else ""), exitscript=True)
 
 
 # ---------------------------------------------------------------------------
@@ -259,10 +261,17 @@ class AnnotateWindow(forms.WPFWindow):
         self.result = None
         self._ready = False
         self.TxtInfo.Text = info
-        prefix, ttype, order, breaks, gap = A.annotate_settings(settings)
+        saved = A.annotate_settings(settings)
+        prefix, ttype = saved["prefix"], saved["text_type"]
+        order, breaks, gap = (saved["order"], saved["breaks"],
+                              saved["gap"])
+        self._suffix = dict(saved["suffixes"])
+        self._syncing = False
         self.slots = [self.CmbSlot1, self.CmbSlot2, self.CmbSlot3,
                       self.CmbSlot4]
         self.breaks = [self.ChkBreak1, self.ChkBreak2, self.ChkBreak3]
+        self.sufs = [self.TxtSuf1, self.TxtSuf2, self.TxtSuf3,
+                     self.TxtSuf4]
         for combo in self.slots:
             combo.Items.Clear()
             for _key, label in A.ITEM_LABELS:
@@ -289,6 +298,7 @@ class AnnotateWindow(forms.WPFWindow):
             if nm == want:
                 self.CmbTextType.SelectedIndex = i
                 break
+        self._sync_suffixes()
         self._ready = True
         self._preview()
 
@@ -302,6 +312,34 @@ class AnnotateWindow(forms.WPFWindow):
     def _break_flags(self):
         return [bool(c.IsChecked) for c in self.breaks]
 
+    def _sync_suffixes(self):
+        """Show each slot's part suffix - so reordering carries the
+        suffix with its part rather than leaving it in the row."""
+        self._syncing = True
+        try:
+            for combo, box in zip(self.slots, self.sufs):
+                key = self._key_of.get(str(combo.SelectedItem or ""),
+                                       A.ITEM_NONE)
+                box.IsEnabled = bool(key)
+                box.Text = self._suffix.get(key, "") if key else ""
+        finally:
+            self._syncing = False
+
+    def on_suffix_changed(self, sender, args):
+        if getattr(self, "_syncing", False):
+            return
+        try:
+            for combo, box in zip(self.slots, self.sufs):
+                if box is sender:
+                    key = self._key_of.get(
+                        str(combo.SelectedItem or ""), A.ITEM_NONE)
+                    if key:
+                        self._suffix[key] = box.Text or ""
+                    break
+        except Exception:
+            pass
+        self._preview()
+
     def _preview(self):
         # the XAML's own handlers can fire while the window is still
         # being built, before these fields exist
@@ -309,9 +347,10 @@ class AnnotateWindow(forms.WPFWindow):
             return
         try:
             demo = {A.ITEM_PREFIX: (self.TxtPrefix.Text or "").strip(),
-                    A.ITEM_COMBO: "2x2", A.ITEM_DIA: "150mm",
+                    A.ITEM_COMBO: "2x2", A.ITEM_DIA: "150",
                     A.ITEM_SLOPE: "1:150"}
-            txt = A.compose(demo, self._order(), self._break_flags())
+            txt = A.compose(demo, self._order(), self._break_flags(),
+                            self._suffix)
             self.TxtPreview.Text = txt or "(empty label)"
         except Exception:
             pass
@@ -320,6 +359,8 @@ class AnnotateWindow(forms.WPFWindow):
         self._preview()
 
     def on_slot_changed(self, sender, args):
+        if getattr(self, "_ready", False):
+            self._sync_suffixes()
         self._preview()
 
     def on_go(self, sender, args):
@@ -347,6 +388,7 @@ class AnnotateWindow(forms.WPFWindow):
             "order": order,
             "breaks": self._break_flags(),
             "gap": gap,
+            "suffixes": dict(self._suffix),
         }
         self.Close()
 
@@ -370,6 +412,7 @@ settings[A.SETTINGS_TEXT_TYPE] = opt["text_type"]
 settings[A.SETTINGS_ORDER] = opt["order"]
 settings[A.SETTINGS_BREAKS] = opt["breaks"]
 settings[A.SETTINGS_BANK_GAP] = opt["gap"]
+settings[A.SETTINGS_SUFFIXES] = opt["suffixes"]
 try:
     save_settings(settings)
 except Exception:
@@ -441,7 +484,8 @@ labels = []
 for rec in records:
     values = dict(rec["values"])
     values[A.ITEM_PREFIX] = opt["prefix"]
-    text = A.compose(values, opt["order"], opt["breaks"])
+    text = A.compose(values, opt["order"], opt["breaks"],
+                     opt["suffixes"])
     if not text:
         continue
     px, py = rec["perp"]
@@ -493,9 +537,11 @@ except Exception as ex:
                 .format(placed, len(labels), type(ex).__name__, ex),
                 exitscript=True)
 
-forms.alert("Annotated {} bank(s) of {}s from {} run(s){}."
+forms.alert("Annotated {} bank(s) of {}s from {} run(s){}{}."
             .format(placed, kind, len(items),
-                    ", {} skipped".format(skipped) if skipped else ""))
+                    ", {} skipped".format(skipped) if skipped else "",
+                    ", {} other element(s) ignored".format(ignored)
+                    if ignored else ""))
 
 # Close the pyRevit output window if anything opened it.
 try:
