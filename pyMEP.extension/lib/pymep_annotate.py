@@ -86,12 +86,18 @@ def annotate_settings(settings):
     breaks = list(settings.get(SETTINGS_BREAKS) or DEFAULT_BREAKS)
     breaks = [bool(b) for b in breaks]
     breaks = (breaks + [False] * (SLOTS - 1))[:SLOTS - 1]
-    try:
-        gap = float(settings.get(SETTINGS_BANK_GAP))
-        if gap < 0:
-            gap = DEFAULT_BANK_GAP_MM
-    except (TypeError, ValueError):
-        gap = DEFAULT_BANK_GAP_MM
+    # never float(None): IronPython raises SystemError for it, not
+    # TypeError, and that crash killed the whole button on any first
+    # run (the key only exists after one successful save)
+    gap = DEFAULT_BANK_GAP_MM
+    raw = settings.get(SETTINGS_BANK_GAP)
+    if raw is not None:
+        try:
+            g = float(raw)
+            if g >= 0:
+                gap = g
+        except Exception:
+            pass
     suffixes = dict(DEFAULT_SUFFIXES)
     stored = settings.get(SETTINGS_SUFFIXES)
     if isinstance(stored, dict):
