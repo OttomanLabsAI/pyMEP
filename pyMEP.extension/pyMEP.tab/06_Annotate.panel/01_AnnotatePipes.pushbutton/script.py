@@ -19,10 +19,12 @@ The label is built from up to four parts, in the dialog's order:
     DIAMETER      '150mm' - every size listed when a bank is mixed
     SLOPE         '1:150' - pipes only, off by default
 
-A BANK is worked out from the geometry: runs that are parallel, whose
-cross-sections sit within reach of each other (scaled to the runs' own
-diameter) and which overlap along their length. Segments of the same
-run count once, so a bank split into three lengths is still '2x2'.
+A BANK is worked out from the geometry: runs that are parallel, sit
+within the dialog's BANK GAP of each other (the clear distance between
+their surfaces, default 600 mm) and overlap along their length.
+Segments of the same run count once, so a bank split into three
+lengths is still '2x2'. Raise the gap to pull a wider spread into one
+label; lower it to keep neighbouring trenches apart.
 
 Selection rules - the button does NOTHING unless the selection is
 exclusively pipes or exclusively conduits: a mixture of the two, or
@@ -225,62 +227,15 @@ if not items:
 
 
 # ---------------------------------------------------------------------------
-# 2. GROUP INTO BANKS and build each one's parts
+# 2. SANITY CAP (the bank grouping compares every pair)
 # ---------------------------------------------------------------------------
-MAX_RUNS = 1500     # the bank grouping compares every pair
-
-
-def _is_same(i, j):
-    return A.same_bank(items[i], items[j])
-
+MAX_RUNS = 1500
 
 if len(items) > MAX_RUNS:
     forms.alert("{} {}s selected - that is more than this tool groups "
                 "into banks at once ({}).\n\nSelect a smaller stretch "
                 "and run again.".format(len(items), kind, MAX_RUNS),
                 exitscript=True)
-
-banks = A.cluster(len(items), _is_same)
-
-offset_ft = mm2ft(get_annotate_pipe_offset_mm())
-records = []
-for members in banks:
-    first = items[members[0]]
-    ux, uy = first["dir"]
-    px, py = -uy, ux                       # +90 deg CCW in plan
-    ref = first["mid"]
-
-    cells, alongs = [], []
-    for i in members:
-        it = items[i]
-        dx = it["mid"][0] - ref[0]
-        dy = it["mid"][1] - ref[1]
-        cells.append((dx * px + dy * py, it["mid"][2] - ref[2]))
-        for e in it["ends"]:
-            alongs.append((e[0] - ref[0]) * ux + (e[1] - ref[1]) * uy)
-
-    # a run split into segments must count ONCE: cells closer than
-    # this are the same position in the bank
-    tol = max(10.0, 0.4 * min(items[i]["dia"] for i in members))
-    combo = A.combo_text(cells, tol)
-    dia = A.dia_text([items[i]["dia"] for i in members])
-    slope = (A.slope_text(max(items[i]["slope"] for i in members))
-             if is_pipe else "")
-
-    # anchor: mid-run along the bank, centred across it
-    along_mid = (min(alongs) + max(alongs)) / 2.0
-    across_mid = sum(c[0] for c in cells) / float(len(cells))
-    z_mid = sum(c[1] for c in cells) / float(len(cells)) + ref[2]
-    bx = ref[0] + ux * along_mid + px * across_mid
-    by = ref[1] + uy * along_mid + py * across_mid
-
-    records.append({
-        "values": {A.ITEM_COMBO: combo, A.ITEM_DIA: dia,
-                   A.ITEM_SLOPE: slope},
-        "point": XYZ(mm2ft(bx), mm2ft(by), mm2ft(z_mid)),
-        "perp": (px, py),
-        "n": len(members),
-    })
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +259,7 @@ class AnnotateWindow(forms.WPFWindow):
         self.result = None
         self._ready = False
         self.TxtInfo.Text = info
-        prefix, ttype, order, breaks = A.annotate_settings(settings)
+        prefix, ttype, order, breaks, gap = A.annotate_settings(settings)
         self.slots = [self.CmbSlot1, self.CmbSlot2, self.CmbSlot3,
                       self.CmbSlot4]
         self.breaks = [self.ChkBreak1, self.ChkBreak2, self.ChkBreak3]
@@ -319,6 +274,7 @@ class AnnotateWindow(forms.WPFWindow):
         for chk, on in zip(self.breaks, breaks):
             chk.IsChecked = bool(on)
         self.TxtPrefix.Text = prefix
+        self.TxtBankGap.Text = "{:g}".format(gap)
         self.CmbTextType.Items.Clear()
         for nm, _tid in text_types:
             self.CmbTextType.Items.Add(nm)
@@ -377,11 +333,20 @@ class AnnotateWindow(forms.WPFWindow):
             self.StatusText.Text = ("Each part can only be used once - "
                                     "set the repeat to (none).")
             return
+        try:
+            gap = float((self.TxtBankGap.Text or "").strip())
+        except ValueError:
+            gap = -1.0
+        if gap < 0:
+            self.StatusText.Text = ("Bank gap must be a number of mm "
+                                    "(0 or more).")
+            return
         self.result = {
             "prefix": (self.TxtPrefix.Text or "").strip(),
             "text_type": str(self.CmbTextType.SelectedItem or ""),
             "order": order,
             "breaks": self._break_flags(),
+            "gap": gap,
         }
         self.Close()
 
@@ -391,8 +356,8 @@ class AnnotateWindow(forms.WPFWindow):
 
 
 settings = load_settings()
-info = "{} {}(s) in {} bank(s){}.".format(
-    len(items), kind, len(banks),
+info = "{} {}(s) selected{}.".format(
+    len(items), kind,
     " - {} skipped (no size / vertical)".format(skipped) if skipped else "")
 win = AnnotateWindow(settings, info)
 win.ShowDialog()
@@ -404,6 +369,7 @@ settings[A.SETTINGS_PREFIX] = opt["prefix"]
 settings[A.SETTINGS_TEXT_TYPE] = opt["text_type"]
 settings[A.SETTINGS_ORDER] = opt["order"]
 settings[A.SETTINGS_BREAKS] = opt["breaks"]
+settings[A.SETTINGS_BANK_GAP] = opt["gap"]
 try:
     save_settings(settings)
 except Exception:
@@ -418,8 +384,58 @@ if text_type_id is None:
     text_type_id = text_types[0][1]
 
 
+def _is_same(i, j):
+    return A.same_bank(items[i], items[j], gap_mm=opt["gap"])
+
+
 # ---------------------------------------------------------------------------
-# 4. PLACE ONE LABEL PER BANK, IN ONE TRANSACTION
+# 4. GROUP INTO BANKS (the dialog's bank gap decides them)
+# ---------------------------------------------------------------------------
+banks = A.cluster(len(items), _is_same)
+
+offset_ft = mm2ft(get_annotate_pipe_offset_mm())
+records = []
+for members in banks:
+    first = items[members[0]]
+    ux, uy = first["dir"]
+    px, py = -uy, ux                       # +90 deg CCW in plan
+    ref = first["mid"]
+
+    cells, alongs = [], []
+    for i in members:
+        it = items[i]
+        dx = it["mid"][0] - ref[0]
+        dy = it["mid"][1] - ref[1]
+        cells.append((dx * px + dy * py, it["mid"][2] - ref[2]))
+        for e in it["ends"]:
+            alongs.append((e[0] - ref[0]) * ux + (e[1] - ref[1]) * uy)
+
+    # a run split into segments must count ONCE: cells closer than
+    # this are the same position in the bank
+    tol = max(10.0, 0.4 * min(items[i]["dia"] for i in members))
+    combo = A.combo_text(cells, tol)
+    dia = A.dia_text([items[i]["dia"] for i in members])
+    slope = (A.slope_text(max(items[i]["slope"] for i in members))
+             if is_pipe else "")
+
+    # anchor: mid-run along the bank, centred across it
+    along_mid = (min(alongs) + max(alongs)) / 2.0
+    across_mid = sum(c[0] for c in cells) / float(len(cells))
+    z_mid = sum(c[1] for c in cells) / float(len(cells)) + ref[2]
+    bx = ref[0] + ux * along_mid + px * across_mid
+    by = ref[1] + uy * along_mid + py * across_mid
+
+    records.append({
+        "values": {A.ITEM_COMBO: combo, A.ITEM_DIA: dia,
+                   A.ITEM_SLOPE: slope},
+        "point": XYZ(mm2ft(bx), mm2ft(by), mm2ft(z_mid)),
+        "perp": (px, py),
+        "n": len(members),
+    })
+
+
+# ---------------------------------------------------------------------------
+# 5. PLACE ONE LABEL PER BANK, IN ONE TRANSACTION
 # ---------------------------------------------------------------------------
 labels = []
 for rec in records:

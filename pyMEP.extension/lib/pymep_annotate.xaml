@@ -64,6 +64,7 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Grid.Column="0"
                                    Style="{StaticResource FieldLabel}"
@@ -76,9 +77,15 @@
                                    Text="Text type"/>
                         <ComboBox x:Name="CmbTextType" Grid.Row="1"
                                   Grid.Column="1"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0"
+                                   Style="{StaticResource FieldLabel}"
+                                   Text="Bank gap (mm)"/>
+                        <TextBox x:Name="TxtBankGap" Grid.Row="2"
+                                 Grid.Column="1" Width="120"
+                                 HorizontalAlignment="Left"/>
                     </Grid>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="The prefix is free text (e.g. HV, COMMS) - leave it empty to drop it from the label."/>
+                               Text="The prefix is free text (e.g. HV, COMMS) - leave it empty to drop it from the label. BANK GAP is how far apart two runs may sit, surface to surface, and still be labelled as ONE bank: raise it to pull a wider spread together, lower it to keep neighbouring trenches apart."/>
                 </StackPanel>
             </GroupBox>
 

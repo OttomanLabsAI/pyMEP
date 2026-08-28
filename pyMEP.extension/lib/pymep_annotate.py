@@ -43,19 +43,23 @@ SETTINGS_PREFIX = "annotate_prefix"
 SETTINGS_TEXT_TYPE = "annotate_text_type"
 SETTINGS_ORDER = "annotate_order"
 SETTINGS_BREAKS = "annotate_breaks"
+SETTINGS_BANK_GAP = "annotate_bank_gap_mm"
 
-# two runs belong to one bank when the clear gap between them is no
-# more than this many times the bigger diameter - self-scaling, so a
-# 150 mm conduit bank and a 600 mm pipe bank both group sensibly
-BANK_GAP_FACTOR = 3.0
+# two runs belong to one bank when the CLEAR gap between their
+# surfaces is no more than this, in mm - a plain distance the dialog
+# shows and the user can change, because no multiple of the diameter
+# suits both 50 mm conduits at 210 mm centres and a metre-wide
+# pipe trench
+DEFAULT_BANK_GAP_MM = 600.0
 
 # runs further off parallel than this are different banks
 BANK_ANGLE_TOL_DEG = 5.0
 
 
 def annotate_settings(settings):
-    """(prefix, text type name, order, breaks) - the dialog's
-    remembered values, with anything unrecognised repaired."""
+    """(prefix, text type name, order, breaks, bank gap mm) - the
+    dialog's remembered values, with anything unrecognised
+    repaired."""
     prefix = str(settings.get(SETTINGS_PREFIX) or "")
     ttype = str(settings.get(SETTINGS_TEXT_TYPE) or "")
     order = list(settings.get(SETTINGS_ORDER) or DEFAULT_ORDER)
@@ -73,7 +77,13 @@ def annotate_settings(settings):
     breaks = list(settings.get(SETTINGS_BREAKS) or DEFAULT_BREAKS)
     breaks = [bool(b) for b in breaks]
     breaks = (breaks + [False] * (SLOTS - 1))[:SLOTS - 1]
-    return prefix, ttype, clean, breaks
+    try:
+        gap = float(settings.get(SETTINGS_BANK_GAP))
+        if gap < 0:
+            gap = DEFAULT_BANK_GAP_MM
+    except (TypeError, ValueError):
+        gap = DEFAULT_BANK_GAP_MM
+    return prefix, ttype, clean, breaks, gap
 
 
 def compose(values, order, breaks):
@@ -128,17 +138,17 @@ def _overlap(a0, a1, b0, b1):
     return min(a1, b1) - max(a0, b0)
 
 
-def same_bank(a, b, gap_factor=BANK_GAP_FACTOR,
+def same_bank(a, b, gap_mm=DEFAULT_BANK_GAP_MM,
               tol_deg=BANK_ANGLE_TOL_DEG):
     """Do runs ``a`` and ``b`` travel together? Each is a dict with
     'dir' (normalised XY), 'mid' (x, y, z in mm), 'ends' ((x,y,z),
     (x,y,z) in mm) and 'dia' (mm).
 
-    Three tests, all self-scaling on the bigger diameter: the runs
-    must be PARALLEL, their cross-sections must be within reach of
-    each other, and they must OVERLAP along the run - otherwise two
-    conduits in different trenches a hundred metres apart would count
-    as one bank just because they line up."""
+    Three tests: the runs must be PARALLEL, the CLEAR gap between
+    their surfaces across the section must be no more than ``gap_mm``,
+    and they must OVERLAP along the run (within the same gap) -
+    otherwise two conduits in different trenches a hundred metres
+    apart would count as one bank just because they line up."""
     if not parallel(a["dir"], b["dir"], tol_deg):
         return False
     ux, uy = a["dir"]
@@ -147,7 +157,7 @@ def same_bank(a, b, gap_factor=BANK_GAP_FACTOR,
     dy = b["mid"][1] - a["mid"][1]
     across = dx * px + dy * py
     up = b["mid"][2] - a["mid"][2]
-    reach = gap_factor * max(a["dia"], b["dia"])
+    reach = float(gap_mm)
     clear = math.sqrt(across * across + up * up) - \
         (a["dia"] + b["dia"]) / 2.0
     if clear > reach:

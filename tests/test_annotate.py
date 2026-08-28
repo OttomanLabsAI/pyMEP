@@ -76,15 +76,33 @@ class SameBank(unittest.TestCase):
         b = run(10000, 0, 20000, 0)
         self.assertTrue(A.same_bank(a, b))
 
-    def test_gap_scales_with_diameter(self):
-        # 600 mm pipes 900 mm apart still read as one bank; 50 mm
-        # conduits at the same spacing do not
+    def test_two_50mm_conduits_at_210_centres(self):
+        # straight from the drawing: 50 mm conduits 210 mm apart are
+        # ONE bank - the old 3x-diameter reach split them into two
+        # 1x1 labels
+        a = run(0, 0, 10000, 0, dia=50.0)
+        b = run(0, 210, 10000, 210, dia=50.0)
+        self.assertTrue(A.same_bank(a, b))
+
+    def test_gap_is_the_clear_distance_between_surfaces(self):
+        # 600 mm pipes at 900 mm centres: 300 mm of clear air, inside
+        # the default gap
         big_a = run(0, 0, 10000, 0, dia=600.0)
         big_b = run(0, 900, 10000, 900, dia=600.0)
         self.assertTrue(A.same_bank(big_a, big_b))
+        # 50 mm conduits at the same centres: 850 mm of air, outside it
         small_a = run(0, 0, 10000, 0, dia=50.0)
         small_b = run(0, 900, 10000, 900, dia=50.0)
         self.assertFalse(A.same_bank(small_a, small_b))
+
+    def test_gap_is_tunable(self):
+        a = run(0, 0, 10000, 0, dia=50.0)
+        b = run(0, 900, 10000, 900, dia=50.0)
+        self.assertTrue(A.same_bank(a, b, gap_mm=1000.0))
+        self.assertFalse(A.same_bank(a, b, gap_mm=100.0))
+        # a tighter gap splits the 210 mm pair back apart
+        c = run(0, 210, 10000, 210, dia=50.0)
+        self.assertFalse(A.same_bank(a, c, gap_mm=100.0))
 
 
 class Cluster(unittest.TestCase):
@@ -106,6 +124,28 @@ class Cluster(unittest.TestCase):
     def test_singletons(self):
         self.assertEqual(A.cluster(3, lambda i, j: False),
                          [[0], [1], [2]])
+
+
+class DrawingCase(unittest.TestCase):
+    """The screenshot: two 50 mm ELV conduits at 210 mm centres came
+    out as two '1x1 50mm' labels instead of one bank."""
+
+    def test_one_bank_reading_2x1(self):
+        items = [run(0, 0, 20000, 0, dia=50.0),
+                 run(0, 210, 20000, 210, dia=50.0)]
+        groups = A.cluster(len(items),
+                           lambda i, j: A.same_bank(items[i], items[j]))
+        self.assertEqual(len(groups), 1)
+        # cells as the script builds them, in the bank's own frame
+        cells = [(0.0, 0.0), (210.0, 0.0)]
+        tol = max(10.0, 0.4 * 50.0)
+        self.assertEqual(A.combo_text(cells, tol), "2x1")
+        self.assertEqual(A.dia_text([50.0, 50.0]), "50mm")
+        vals = {A.ITEM_PREFIX: "ELV", A.ITEM_COMBO: "2x1",
+                A.ITEM_DIA: "50mm"}
+        self.assertEqual(
+            A.compose(vals, A.DEFAULT_ORDER, [True, False, False]),
+            "ELV\n2x1 50mm")
 
 
 class Arrangement(unittest.TestCase):
@@ -200,10 +240,11 @@ class Compose(unittest.TestCase):
 
 class Settings(unittest.TestCase):
     def test_defaults(self):
-        prefix, ttype, order, breaks = A.annotate_settings({})
+        prefix, ttype, order, breaks, gap = A.annotate_settings({})
         self.assertEqual((prefix, ttype), ("", ""))
         self.assertEqual(order, A.DEFAULT_ORDER)
         self.assertEqual(breaks, A.DEFAULT_BREAKS)
+        self.assertEqual(gap, A.DEFAULT_BANK_GAP_MM)
 
     def test_remembered(self):
         s = {A.SETTINGS_PREFIX: "COMMS",
@@ -211,7 +252,7 @@ class Settings(unittest.TestCase):
              A.SETTINGS_ORDER: [A.ITEM_COMBO, A.ITEM_DIA,
                                 A.ITEM_PREFIX, A.ITEM_NONE],
              A.SETTINGS_BREAKS: [False, True, False]}
-        prefix, ttype, order, breaks = A.annotate_settings(s)
+        prefix, ttype, order, breaks, _gap = A.annotate_settings(s)
         self.assertEqual(prefix, "COMMS")
         self.assertEqual(ttype, "2.5mm Arial")
         self.assertEqual(order[0], A.ITEM_COMBO)
@@ -219,14 +260,23 @@ class Settings(unittest.TestCase):
 
     def test_repeats_and_junk_are_repaired(self):
         s = {A.SETTINGS_ORDER: [A.ITEM_DIA, A.ITEM_DIA, "nonsense"]}
-        _p, _t, order, breaks = A.annotate_settings(s)
+        _p, _t, order, breaks, _g = A.annotate_settings(s)
         self.assertEqual(order, [A.ITEM_DIA, A.ITEM_NONE, A.ITEM_NONE,
                                  A.ITEM_NONE])
         self.assertEqual(len(breaks), A.SLOTS - 1)
 
+    def test_bank_gap_remembered_and_repaired(self):
+        _p, _t, _o, _b, gap = A.annotate_settings(
+            {A.SETTINGS_BANK_GAP: "250"})
+        self.assertEqual(gap, 250.0)
+        for bad in ("abc", -5, None):
+            _p, _t, _o, _b, gap = A.annotate_settings(
+                {A.SETTINGS_BANK_GAP: bad})
+            self.assertEqual(gap, A.DEFAULT_BANK_GAP_MM)
+
     def test_all_none_falls_back_to_default(self):
         s = {A.SETTINGS_ORDER: ["", "", "", ""]}
-        _p, _t, order, _b = A.annotate_settings(s)
+        _p, _t, order, _b, _g = A.annotate_settings(s)
         self.assertEqual(order, A.DEFAULT_ORDER)
 
 
