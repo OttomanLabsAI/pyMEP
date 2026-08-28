@@ -165,6 +165,10 @@
                                  Grid.Column="2" Margin="8,3,0,0"
                                  TextChanged="on_suffix_changed"/>
                     </Grid>
+                    <CheckBox x:Name="ChkSwap" Margin="0,8,0,0"
+                              Content="swap the combination - write UP x ACROSS (a row of 4 reads 1x4 instead of 4x1)"
+                              Checked="on_changed"
+                              Unchecked="on_changed"/>
                     <TextBlock Style="{StaticResource Hint}"
                                Text="Each part appears once, in the order above; set a slot to (none) to leave it out. The SUFFIX box is written straight after its part with no space - the diameter starts with the diameter symbol; type ' mm' (with the space), 'dia' or anything else instead, and a suffix follows its part when you reorder. COMBINATION is the bank measured ACROSS x UP (2 side by side and 2 stacked reads 2x2); a bank that does not fill a rectangle is counted instead (3 no.). DIAMETER lists every size in the bank when they differ. SLOPE only ever prints on pipes."/>
                 </StackPanel>
@@ -179,7 +183,7 @@
                                    Text=""/>
                     </Border>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="An example label for a 2 x 2 bank of 150 mm runs falling at 1:150."/>
+                               Text="An example label for a bank of TWO runs side by side, 150 mm, falling at 1:150 - the swap tick flips its combination."/>
                 </StackPanel>
             </GroupBox>
 

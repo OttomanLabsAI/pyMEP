@@ -180,6 +180,22 @@ class Arrangement(unittest.TestCase):
     def test_empty(self):
         self.assertEqual(A.combo_text([], self.TOL), "")
 
+    def test_swap_writes_up_by_across(self):
+        # the option: a row of 4 side by side reads 1x4 instead of 4x1
+        row4 = [(0, 0), (200, 0), (400, 0), (600, 0)]
+        self.assertEqual(A.combo_text(row4, self.TOL), "4x1")
+        self.assertEqual(A.combo_text(row4, self.TOL, swap=True), "1x4")
+        stack = [(0, 0), (0, 200)]
+        self.assertEqual(A.combo_text(stack, self.TOL, swap=True),
+                         "2x1")
+
+    def test_swap_leaves_squares_and_counts_alone(self):
+        sq = [(0, 0), (200, 0), (0, 200), (200, 200)]
+        self.assertEqual(A.combo_text(sq, self.TOL, swap=True), "2x2")
+        ragged = [(0, 0), (200, 0), (0, 200)]
+        self.assertEqual(A.combo_text(ragged, self.TOL, swap=True),
+                         "3 no.")
+
 
 class Parts(unittest.TestCase):
     def test_dia_text_single_and_mixed(self):
@@ -295,6 +311,7 @@ class Settings(unittest.TestCase):
         self.assertEqual(s["order"], A.DEFAULT_ORDER)
         self.assertEqual(s["breaks"], A.DEFAULT_BREAKS)
         self.assertEqual(s["gap"], A.DEFAULT_BANK_GAP_MM)
+        self.assertFalse(s["swap"])          # across x up by default
 
     def test_remembered(self):
         s = {A.SETTINGS_PREFIX: "COMMS",
@@ -323,6 +340,10 @@ class Settings(unittest.TestCase):
             self.assertEqual(
                 A.annotate_settings({A.SETTINGS_BANK_GAP: bad})["gap"],
                 A.DEFAULT_BANK_GAP_MM)
+
+    def test_swap_remembered(self):
+        self.assertTrue(A.annotate_settings(
+            {A.SETTINGS_COMBO_SWAP: True})["swap"])
 
     def test_all_none_falls_back_to_default(self):
         s = {A.SETTINGS_ORDER: ["", "", "", ""]}

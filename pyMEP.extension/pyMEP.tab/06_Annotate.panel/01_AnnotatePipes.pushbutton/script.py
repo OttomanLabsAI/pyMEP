@@ -299,6 +299,7 @@ try:
                 chk.IsChecked = bool(on)
             self.TxtPrefix.Text = prefix
             self.TxtBankGap.Text = "{:g}".format(gap)
+            self.ChkSwap.IsChecked = bool(saved["swap"])
             self.CmbTextType.Items.Clear()
             for nm, _tid in text_types:
                 self.CmbTextType.Items.Add(nm)
@@ -362,9 +363,10 @@ try:
             if not getattr(self, "_ready", False):
                 return
             try:
+                swap = bool(self.ChkSwap.IsChecked)
                 demo = {A.ITEM_PREFIX: (self.TxtPrefix.Text or "").strip(),
-                        A.ITEM_COMBO: "2x2", A.ITEM_DIA: "150",
-                        A.ITEM_SLOPE: "1:150"}
+                        A.ITEM_COMBO: "1x2" if swap else "2x1",
+                        A.ITEM_DIA: "150", A.ITEM_SLOPE: "1:150"}
                 txt = A.compose(demo, self._order(), self._break_flags(),
                                 self._suffix)
                 self.TxtPreview.Text = txt or "(empty label)"
@@ -405,6 +407,7 @@ try:
                 "breaks": self._break_flags(),
                 "gap": gap,
                 "suffixes": dict(self._suffix),
+                "swap": bool(self.ChkSwap.IsChecked),
             }
             self.Close()
 
@@ -435,6 +438,7 @@ try:
     settings[A.SETTINGS_BREAKS] = opt["breaks"]
     settings[A.SETTINGS_BANK_GAP] = opt["gap"]
     settings[A.SETTINGS_SUFFIXES] = opt["suffixes"]
+    settings[A.SETTINGS_COMBO_SWAP] = opt["swap"]
     try:
         save_settings(settings)
     except Exception:
@@ -480,7 +484,7 @@ try:
         # a run split into segments must count ONCE: cells closer than
         # this are the same position in the bank
         tol = max(10.0, 0.4 * min(items[i]["dia"] for i in members))
-        combo = A.combo_text(cells, tol)
+        combo = A.combo_text(cells, tol, swap=opt["swap"])
         dia = A.dia_text([items[i]["dia"] for i in members])
         slope = (A.slope_text(max(items[i]["slope"] for i in members))
                  if is_pipe else "")

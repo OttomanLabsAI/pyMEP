@@ -53,6 +53,7 @@ SETTINGS_ORDER = "annotate_order"
 SETTINGS_BREAKS = "annotate_breaks"
 SETTINGS_BANK_GAP = "annotate_bank_gap_mm"
 SETTINGS_SUFFIXES = "annotate_suffixes"
+SETTINGS_COMBO_SWAP = "annotate_combo_swap"
 
 # two runs belong to one bank when the CLEAR gap between their
 # surfaces is no more than this, in mm - a plain distance the dialog
@@ -105,7 +106,8 @@ def annotate_settings(settings):
             if key in stored:
                 suffixes[key] = u"{}".format(stored[key] or "")
     return {"prefix": prefix, "text_type": ttype, "order": clean,
-            "breaks": breaks, "gap": gap, "suffixes": suffixes}
+            "breaks": breaks, "gap": gap, "suffixes": suffixes,
+            "swap": bool(settings.get(SETTINGS_COMBO_SWAP, False))}
 
 
 def compose(values, order, breaks, suffixes=None):
@@ -262,15 +264,17 @@ def arrangement(cells, tol):
     return (cols, rows, cols * rows == distinct, distinct)
 
 
-def combo_text(cells, tol):
-    """The COMBINATION part: 'across x up' for a filled grid, else a
-    plain count so a ragged bank is never described as a rectangle it
-    is not."""
+def combo_text(cells, tol, swap=False):
+    """The COMBINATION part: 'across x up' for a filled grid - or
+    'up x across' with ``swap``, for offices that write a row of four
+    as 1x4 rather than 4x1 - else a plain count so a ragged bank is
+    never described as a rectangle it is not."""
     cols, rows, exact, distinct = arrangement(cells, tol)
     if distinct == 0:
         return ""
     if exact:
-        return "{}x{}".format(cols, rows)
+        a, b = (rows, cols) if swap else (cols, rows)
+        return "{}x{}".format(a, b)
     return "{} no.".format(distinct)
 
 
