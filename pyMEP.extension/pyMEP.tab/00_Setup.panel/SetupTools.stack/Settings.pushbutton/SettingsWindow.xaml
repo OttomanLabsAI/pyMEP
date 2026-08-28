@@ -192,13 +192,6 @@
 
                     <!-- ================= ANNOTATE ================= -->
                     <StackPanel x:Name="PanelAnnotate" Visibility="Collapsed">
-                        <GroupBox Header="Annotate Ducts">
-                            <StackPanel>
-                                <TextBlock Text="Suffix text (second label line)" Style="{StaticResource FieldLabel}"/>
-                                <TextBox x:Name="TxtAnnSuffix"/>
-                                <TextBlock x:Name="HintAnnSuffix" Style="{StaticResource Hint}"/>
-                            </StackPanel>
-                        </GroupBox>
                         <GroupBox Header="Annotate Pipes">
                             <StackPanel>
                                 <TextBlock Text="Label offset from pipe (mm)" Style="{StaticResource FieldLabel}"/>

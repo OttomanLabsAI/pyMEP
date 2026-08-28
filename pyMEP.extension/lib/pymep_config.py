@@ -208,10 +208,6 @@ def get_duct_system_type_name():
 DEFAULT_PIPE_TYPE_NAME    = "PE SDR11 - Drainage"
 DEFAULT_PIPE_SYSTEM_NAME  = "SEWER BATTERY DRAINAGE"
 DEFAULT_PIPE_HOST_LEVEL   = "LVL 0.00"
-# Annotate (Annotate Duct Group) - default suffix text appended to the
-# generated 'NxM - kNo.D(dia)' label. Overridable in Settings.
-DEFAULT_ANNOTATE_SUFFIX = "PVCU DUCTS"
-
 # Annotate Pipes - default perpendicular offset (mm) applied to each
 # auto-placed '{D}mm @ 1:{X}' label. The label sits this far away from
 # its pipe's midpoint, measured perpendicular to the pipe's XY direction
@@ -294,15 +290,6 @@ def get_pipe_host_level_name():
 
 # ---- Annotate ------------------------------------------------------------
 
-def get_annotate_suffix():
-    """Suffix text appended below the 'NxM - kNo.D(dia)' label produced by the
-    Annotate Duct Group button (e.g. 'PVCU DUCTS'). Falls back to
-    DEFAULT_ANNOTATE_SUFFIX."""
-    s = load_settings()
-    v = s.get("annotate_suffix")
-    if v is None or str(v).strip() == "":
-        return DEFAULT_ANNOTATE_SUFFIX
-    return str(v).strip()
 
 
 def get_annotate_pipe_offset_mm():

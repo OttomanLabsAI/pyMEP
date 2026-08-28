@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Annotate Pipes - label the selected PIPES or CONDUITS in the active
-plan view, one label per BANK of runs travelling together.
+"""Annotate - label the selected PIPES, CONDUITS or DUCTS in the
+active plan view, one label per BANK of runs travelling together.
 
 Workflow:
-  1. Pre-select the runs in a plan view - either pipes or conduits,
-     never a mixture; fittings and anything else are ignored.
+  1. Pre-select the runs in a plan view - pipes, conduits OR ducts,
+     one kind at a time; fittings and anything else are ignored.
   2. Click the button and fill in the dialog: the PREFIX, the TEXT
      TYPE, and the order of the label's parts, each with its own
      SUFFIX and an optional line break after it.
@@ -16,7 +16,8 @@ The label is built from up to four parts, in the dialog's order:
 
     PREFIX        free text, e.g. 'HV'
     COMBINATION   the bank's arrangement ACROSS x UP, e.g. '2x2'
-    DIAMETER      '150' - every size listed when a bank is mixed
+    SIZE          '150' - every size listed when a bank is mixed;
+                  a rectangular duct reads its 'WIDTHxHEIGHT'
     SLOPE         '1:150' - pipes only, off by default
 
 Each part's SUFFIX is written straight after it: the diameter's starts
@@ -29,13 +30,13 @@ Segments of the same run count once, so a bank split into three
 lengths is still '2x2'. Raise the gap to pull a wider spread into one
 label; lower it to keep neighbouring trenches apart.
 
-Selection rules - pipes and conduits are never annotated together: a
-selection holding both stops with a message rather than a half-right
-label. Anything else caught in the selection (conduit fittings above
+Selection rules - the kinds are never annotated together: a selection
+mixing pipes, conduits and/or ducts stops with a message rather than
+a half-right label. Anything else caught in the selection (conduit fittings above
 all) is simply ignored and reported at the end.
 """
 
-__title__  = "Annotate\nPipes"
+__title__  = "Annotate"
 __author__ = "Glent Group"
 
 import os
@@ -98,8 +99,8 @@ XAML_PATH = os.path.join(
 from pymep_log import Logger
 
 output = script.get_output()
-log = Logger(output, "AnnotatePipes")
-log("### Annotate Pipes")
+log = Logger(output, "Annotate")
+log("### Annotate")
 
 # The WHOLE run sits in one try so NOTHING can die silently - any
 # failure lands in the output window AND an alert, instead of the
@@ -134,9 +135,10 @@ try:
 
     PIPE_CAT = int(BuiltInCategory.OST_PipeCurves)
     CONDUIT_CAT = int(BuiltInCategory.OST_Conduit)
+    DUCT_CAT = int(BuiltInCategory.OST_DuctCurves)
 
     sel_ids = list(uidoc.Selection.GetElementIds())
-    pipes, conduits, others = [], [], {}
+    pipes, conduits, ducts, others = [], [], [], {}
     for eid in sel_ids:
         e = doc.GetElement(eid)
         cat = _cat_int(e)
@@ -144,6 +146,8 @@ try:
             pipes.append(e)
         elif cat == CONDUIT_CAT:
             conduits.append(e)
+        elif cat == DUCT_CAT:
+            ducts.append(e)
         else:
             try:
                 nm = e.Category.Name if (e is not None and
@@ -152,25 +156,30 @@ try:
                 nm = "?"
             others[nm] = others.get(nm, 0) + 1
 
-    if pipes and conduits:
-        forms.alert("The selection holds BOTH pipes ({}) and conduits ({}).\n\n"
-                    "Annotate one kind at a time - a bank's arrangement and "
-                    "diameter only mean something within a single category."
-                    .format(len(pipes), len(conduits)), exitscript=True)
+    present = [(n, g) for n, g in (("pipe", pipes), ("conduit", conduits),
+                                   ("duct", ducts)) if g]
+    if len(present) > 1:
+        forms.alert("The selection mixes {} - annotate one kind at a "
+                    "time: a bank's arrangement and size only mean "
+                    "something within a single category.".format(
+                        " and ".join("{} {}(s)".format(len(g), n)
+                                     for n, g in present)),
+                    exitscript=True)
 
     # Anything else in the selection is simply IGNORED - a real conduit
     # selection nearly always drags in fittings, and refusing to run over
     # them stopped the button working at all.
     ignored = sum(others.values())
 
-    runs = pipes or conduits
+    runs = pipes or conduits or ducts
     is_pipe = bool(pipes)
-    kind = "pipe" if is_pipe else "conduit"
-    log("Selection: {} pipe(s), {} conduit(s), {} other element(s) "
-        "ignored.".format(len(pipes), len(conduits), ignored))
+    kind = present[0][0] if present else "run"
+    log("Selection: {} pipe(s), {} conduit(s), {} duct(s), {} other "
+        "element(s) ignored.".format(len(pipes), len(conduits),
+                                     len(ducts), ignored))
     if not runs:
-        forms.alert("Select one or more PIPES or CONDUITS in the view first, "
-                    "then click the button.{}"
+        forms.alert("Select one or more PIPES, CONDUITS or DUCTS in the "
+                    "view first, then click the button.{}"
                     .format("\n\nThe {} selected element(s) are neither: {}."
                             .format(ignored,
                                     ", ".join(sorted(others)))
@@ -193,20 +202,41 @@ try:
         return None, None
 
 
-    def _dia_mm(el):
-        """The size to label: a conduit's TRADE size (what a schedule
-        calls it), a pipe's outside diameter as before."""
-        if not is_pipe:
-            try:
-                p = el.get_Parameter(
-                    BuiltInParameter.RBS_CONDUIT_DIAMETER_PARAM)
-                if p is not None and p.HasValue:
-                    v = ft2mm(p.AsDouble())
-                    if v > 0:
-                        return v
-            except Exception:
-                pass
-        return get_od(el, list(get_connectors(el))) or 0.0
+    def _bip_mm(el, bip):
+        try:
+            p = el.get_Parameter(bip)
+            if p is not None and p.HasValue:
+                v = ft2mm(p.AsDouble())
+                if v > 0:
+                    return v
+        except Exception:
+            pass
+        return 0.0
+
+
+    def _size_of(el):
+        """(size text, effective mm) - what the label prints and the
+        extent the bank maths measures with. Pipes: outside diameter.
+        Conduits: trade size. Ducts: diameter when round, else
+        WIDTHxHEIGHT with the larger side as the extent."""
+        if kind == "duct":
+            d = _bip_mm(el, BuiltInParameter.RBS_CURVE_DIAMETER_PARAM)
+            if d:
+                return "{}".format(int(round(d))), d
+            w = _bip_mm(el, BuiltInParameter.RBS_CURVE_WIDTH_PARAM)
+            h = _bip_mm(el, BuiltInParameter.RBS_CURVE_HEIGHT_PARAM)
+            if w and h:
+                return ("{}x{}".format(int(round(w)), int(round(h))),
+                        max(w, h))
+            return "", 0.0
+        if kind == "conduit":
+            d = _bip_mm(el, BuiltInParameter.RBS_CONDUIT_DIAMETER_PARAM)
+            if d:
+                return "{}".format(int(round(d))), d
+        d = get_od(el, list(get_connectors(el))) or 0.0
+        if d <= 0:
+            return "", 0.0
+        return "{}".format(int(round(d))), d
 
 
     items = []
@@ -220,11 +250,12 @@ try:
         if d is None:               # purely vertical or degenerate in plan
             skipped += 1
             continue
-        dia = _dia_mm(el)
+        size, dia = _size_of(el)
         if dia <= 0:
             skipped += 1
             continue
         items.append({
+            "size": size,
             "dir": d,
             "mid": (ft2mm((p0.X + p1.X) * 0.5), ft2mm((p0.Y + p1.Y) * 0.5),
                     ft2mm((p0.Z + p1.Z) * 0.5)),
@@ -485,7 +516,7 @@ try:
         # this are the same position in the bank
         tol = max(10.0, 0.4 * min(items[i]["dia"] for i in members))
         combo = A.combo_text(cells, tol, swap=opt["swap"])
-        dia = A.dia_text([items[i]["dia"] for i in members])
+        dia = A.sizes_text([items[i]["size"] for i in members])
         slope = (A.slope_text(max(items[i]["slope"] for i in members))
                  if is_pipe else "")
 

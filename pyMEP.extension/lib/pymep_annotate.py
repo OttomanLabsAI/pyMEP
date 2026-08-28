@@ -4,7 +4,8 @@ tests it: how a selection of parallel runs is grouped into BANKS, how
 a bank's arrangement becomes '2x2', and how the label's parts are
 ordered onto one or more lines.
 
-Annotate Pipes labels PIPES or CONDUITS (never both at once). Each
+The Annotate button labels PIPES, CONDUITS or DUCTS (one kind at a
+time, never a mixture). Each
 bank - a set of parallel runs travelling together - gets ONE label
 built from up to four parts in the order the dialog sets:
 
@@ -19,6 +20,7 @@ optional line break after any part.
 """
 
 import math
+import re
 
 # ---------------------------------------------------------------- items
 ITEM_NONE = ""
@@ -287,6 +289,20 @@ def dia_text(dias):
     if not vals:
         return ""
     return "/".join(str(v) for v in vals)
+
+
+def _size_key(t):
+    """Sort sizes smallest-first by their leading number ('250' before
+    '300', '400x250' by its 400), anything unnumbered last."""
+    m = re.match(r"^\s*(\d+)", t)
+    return (int(m.group(1)) if m else 10 ** 9, t)
+
+
+def sizes_text(texts):
+    """The SIZE part from per-run size TEXTS - '150', '100/150' when a
+    bank is mixed, '400x250' for a rectangular duct. Distinct values
+    joined smallest-first; empties drop out."""
+    return "/".join(sorted(set(t for t in texts if t), key=_size_key))
 
 
 def slope_text(slope):

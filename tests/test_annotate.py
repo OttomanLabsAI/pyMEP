@@ -203,6 +203,17 @@ class Parts(unittest.TestCase):
         self.assertEqual(A.dia_text([150.0, 100.0]), "100/150")
         self.assertEqual(A.dia_text([]), "")
 
+    def test_sizes_text_from_run_texts(self):
+        # pipes/conduits give plain numbers, rectangular ducts WxH
+        self.assertEqual(A.sizes_text(["150", "150"]), "150")
+        self.assertEqual(A.sizes_text(["300", "250"]), "250/300")
+        self.assertEqual(A.sizes_text(["400x250", "400x250"]),
+                         "400x250")
+        # a mixed duct bank sorts by the leading number
+        self.assertEqual(A.sizes_text(["400x250", "300"]),
+                         "300/400x250")
+        self.assertEqual(A.sizes_text(["", ""]), "")
+
     def test_slope_text(self):
         self.assertEqual(A.slope_text(1.0 / 150.0), "1:150")
         self.assertEqual(A.slope_text(0.0), "1:0")

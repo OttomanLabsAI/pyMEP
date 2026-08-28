@@ -9,7 +9,7 @@ Categories:
   General      - folders, Python executable, output window auto-close
   Ducts        - Build Ducts type / system names
   Pipes        - placement names + the LandXML survey origin
-  Annotate     - duct label suffix, pipe label offset
+  Annotate     - label offset
   Section Dims - chamber reference-plane dimension pairs
   Updates      - GitHub repo/token + install any tagged version
 """
@@ -35,7 +35,7 @@ from pymep_config import (
     DEFAULT_DUCT_TYPE_NAME, DEFAULT_DUCT_SYSTEM_NAME,
     DEFAULT_PIPE_TYPE_NAME, DEFAULT_PIPE_SYSTEM_NAME,
     DEFAULT_PIPE_HOST_LEVEL,
-    DEFAULT_ANNOTATE_SUFFIX, DEFAULT_ANNOTATE_PIPE_OFFSET_MM,
+    DEFAULT_ANNOTATE_PIPE_OFFSET_MM,
     get_landxml_survey_transform, get_annotate_pipe_offset_mm,
     get_auto_close_output, get_hide_output,
     get_chamber_dim_pairs, save_chamber_dim_pairs,
@@ -111,11 +111,6 @@ class SettingsWindow(forms.WPFWindow):
         self.TxtLxRot.Text = "{:.4f}".format(lx_rot)
 
         # Annotate
-        self.TxtAnnSuffix.Text = s.get("annotate_suffix", "") or ""
-        self.HintAnnSuffix.Text = (
-            "Appended on the second line of the Annotate Ducts label (the "
-            "first line is generated, e.g. '3x1 - 3No.200'). "
-            "Blank = default: {}".format(DEFAULT_ANNOTATE_SUFFIX))
         self.TxtAnnOffset.Text = "{:g}".format(get_annotate_pipe_offset_mm())
         self.HintAnnOffset.Text = (
             "Perpendicular distance each auto-placed label sits from its "
@@ -214,7 +209,6 @@ class SettingsWindow(forms.WPFWindow):
         s["landxml_off_z_m"] = lx_z
         s["landxml_rot_deg"] = lx_rot
 
-        s["annotate_suffix"] = self.TxtAnnSuffix.Text.strip()
         s["annotate_pipe_offset_mm"] = ann_off
 
         s["github_repo"] = self.TxtRepo.Text.strip()

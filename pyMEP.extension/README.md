@@ -37,7 +37,7 @@ pyMEP.extension/
     04_Chambers.panel/          # 'Chamber Drawing Setup': sections workflow, Chamber Plans
     05_Parameters.panel/        # Replicate Parameter
     06_ProjectDataTransfer.panel/ # 'Project Data Transfer': Export/Import Project Data (view templates + filters as JSON)
-    06_Annotate.panel/          # 4 annotation buttons
+    06_Annotate.panel/          # 3 annotation buttons
     08_Electrical.panel/        # Encasement (shown before Drainage on the ribbon)
 ```
 
@@ -672,15 +672,17 @@ Associations are stored per model in
 
 ### Annotate
 
-**Annotate** (four buttons) - pipe-annotation tools, all working on a
+**Annotate** (three buttons) - annotation tools, all working on a
 pre-selection in the active plan view:
 
-* *Annotate Ducts* - one two-line TextNote for a bank of parallel
-  pipes/conduits (`3x2 + 2x1 - 8No.110Ø` style, grid decomposition with one
-  leader per sub-rectangle), suffix line from Settings.
-* *Annotate Pipes* - one `160mm @ 1:200` TextNote per selected pipe, placed
-  perpendicular to the run at the configured offset, leader back to the
-  midpoint. No clicks needed.
+* *Annotate* - one TextNote per BANK of parallel pipes, conduits or
+  ducts (one kind at a time), built from ordered parts - prefix,
+  combination (`2x2`, swappable to up-x-across), size (`150Ø`,
+  `400x250` for rectangular ducts) and slope (pipes only) - each with
+  its own suffix and optional line breaks, all set in a dialog with a
+  live preview and remembered between runs. Banks are read from the
+  geometry (parallel, within the bank gap, overlapping); labels sit
+  at the bank's mid-run at the configured offset with a leader back.
 * *Pipe End Elev* - invert-level spot elevations at both ends of every
   selected pipe.
 * *Pipe Dia+Slope* - writes `160mm @ 1:100` into the project parameter
@@ -726,7 +728,6 @@ Written by the Settings dialog to `%APPDATA%\pyRevit\pyMEP_settings.json`:
 | `landxml_segment_name` | pipe Segment that receives LandXML pipe sizes |
 | `dashboard_layer_workset_map` | saved layer-to-workset assignments (Dashboard > Place Pipes) |
 | `dashboard_html_path` | override the dashboard HTML that Open Dashboard launches |
-| `annotate_suffix` | line 2 of the Annotate Ducts label |
 | `annotate_pipe_offset_mm` | perpendicular offset for pipe labels / spot elevations |
 | `chamber_dim_pairs` | reference-plane name pairs dimensioned by Dimension Section |
 | `gully_downpipe_length_mm` / `gully_invert_offset_mm` / `gully_slope_ratio` | remembered by the Gully to MH prompts (not in the Settings dialog) |
