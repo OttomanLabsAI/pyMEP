@@ -1,42 +1,39 @@
 # -*- coding: utf-8 -*-
-"""Annotate Pipes - place a single-line '{D}mm @ 1:{X}' label next to
-every pre-selected pipe in the active plan view. No click required:
-each label is auto-placed at its pipe's midpoint, offset perpendicular
-to the pipe's XY run direction by the distance configured in
-Settings > Annotate > Set pipe annotation offset (mm) (default 500 mm).
+"""Annotate Pipes - label the selected PIPES or CONDUITS in the active
+plan view, one label per BANK of runs travelling together.
 
 Workflow:
-  1. Pre-select one or more pipes in a plan view.
-  2. Click the button.
-  3. The script reads each pipe's Outside Diameter (mm) and slope
-     (rise/run, converted to a '1:X' run-length), and places one text
-     note per pipe at that pipe's midpoint, offset perpendicular by the
-     configured distance. A leader is added from the text mid-line back
-     to the pipe midpoint.
+  1. Pre-select the runs in a plan view - either pipes or conduits,
+     never a mixture, and nothing else.
+  2. Click the button and fill in the dialog: the PREFIX, the TEXT
+     TYPE, and the order of the label's parts (with a line break
+     after any of them).
+  3. One label per bank is placed at the bank's mid-run point, offset
+     perpendicular by Settings > Annotate > pipe annotation offset
+     (default 500 mm), with a leader back to the bank.
 
-Layout:
-  - For each pipe, the XY direction is sign-normalised (so dx >= 0,
-    or dx == 0 and dy >= 0) before computing the perpendicular. That
-    way parallel pipes drawn in opposite start/end order still get
-    labels on the same side of the run.
-  - Perpendicular is +90 deg CCW: a +X pipe gets labels above (+Y); a +Y
-    pipe gets labels to the left (-X).
-  - The leader exits whichever side of the text is closer to the pipe.
+The label is built from up to four parts, in the dialog's order:
 
-Notes:
-  - One label per pipe, with that pipe's own diameter and slope - no
-    modal collapse.
-  - Horizontal pipes (slope = 0) print as '1:0', matching Revit's own
-    display.
-  - Selection is filtered to OST_PipeCurves only; conduits are ignored.
-  - Pipes with no usable Outside Diameter or zero XY length are
-    silently skipped.
+    PREFIX        free text, e.g. 'HV'
+    COMBINATION   the bank's arrangement ACROSS x UP, e.g. '2x2'
+    DIAMETER      '150mm' - every size listed when a bank is mixed
+    SLOPE         '1:150' - pipes only, off by default
+
+A BANK is worked out from the geometry: runs that are parallel, whose
+cross-sections sit within reach of each other (scaled to the runs' own
+diameter) and which overlap along their length. Segments of the same
+run count once, so a bank split into three lengths is still '2x2'.
+
+Selection rules - the button does NOTHING unless the selection is
+exclusively pipes or exclusively conduits: a mixture of the two, or
+anything else caught in the selection, stops the run with a message
+rather than a half-right label.
 """
 
 __title__  = "Annotate\nPipes"
 __author__ = "Glent Group"
 
-import math
+import os
 import sys
 
 # Force-reload pymep_* lib modules so the script picks up latest code
@@ -49,7 +46,8 @@ clr.AddReference("RevitAPIUI")
 
 from Autodesk.Revit.DB import (
     Transaction, TextNote, ElementTypeGroup, ElementId,
-    ViewType, FilteredElementCollector, TextNoteType, BuiltInCategory, XYZ,
+    ViewType, FilteredElementCollector, TextNoteType, BuiltInCategory,
+    BuiltInParameter, XYZ,
 )
 
 # TextNoteLeaderType - some Revit builds don't expose this name under
@@ -77,16 +75,23 @@ except ImportError:
 
 from pyrevit import revit, forms, script
 
-from pymep_config import get_annotate_pipe_offset_mm
-from pymep_revit  import get_connectors, get_od, get_slope, mm2ft
+from pymep_config import (get_annotate_pipe_offset_mm, load_settings,
+                          save_settings)
+from pymep_revit import (get_connectors, get_od, get_slope, ft2mm,
+                         mm2ft, safe_name)
+import pymep_annotate as A
 
 doc    = revit.doc
 uidoc  = revit.uidoc
 view   = doc.ActiveView
 
+XAML_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(sys.modules["pymep_config"].__file__)),
+    "pymep_annotate.xaml")
+
 
 # ---------------------------------------------------------------------------
-# 0. PRE-FLIGHT: plan view, pre-selected pipes
+# 0. PRE-FLIGHT: plan view, and a selection of pipes OR conduits ONLY
 # ---------------------------------------------------------------------------
 PLAN_VIEW_TYPES = (
     ViewType.FloorPlan,
@@ -99,6 +104,7 @@ if view is None or view.ViewType not in PLAN_VIEW_TYPES:
                 "try again.",
                 exitscript=True)
 
+
 def _cat_int(elem):
     """Element category id as int, compatible with Revit 2024+ (.Value) and
     earlier (.IntegerValue)."""
@@ -110,132 +116,340 @@ def _cat_int(elem):
     except AttributeError:
         return cid.IntegerValue
 
+
 PIPE_CAT = int(BuiltInCategory.OST_PipeCurves)
+CONDUIT_CAT = int(BuiltInCategory.OST_Conduit)
 
 sel_ids = list(uidoc.Selection.GetElementIds())
-pipes = []
+pipes, conduits, others = [], [], {}
 for eid in sel_ids:
     e = doc.GetElement(eid)
-    if _cat_int(e) == PIPE_CAT:
+    cat = _cat_int(e)
+    if cat == PIPE_CAT:
         pipes.append(e)
+    elif cat == CONDUIT_CAT:
+        conduits.append(e)
+    else:
+        try:
+            nm = e.Category.Name if (e is not None and
+                                     e.Category is not None) else "?"
+        except Exception:
+            nm = "?"
+        others[nm] = others.get(nm, 0) + 1
 
-if not pipes:
-    forms.alert("Select one or more pipes (OST_PipeCurves) in the view "
-                "first, then click the button.\n\n"
-                "({} element(s) selected, none of them pipes.)"
-                .format(len(sel_ids)),
+if pipes and conduits:
+    forms.alert("The selection holds BOTH pipes ({}) and conduits ({}).\n\n"
+                "Annotate one kind at a time - a bank's arrangement and "
+                "diameter only mean something within a single category."
+                .format(len(pipes), len(conduits)), exitscript=True)
+
+if others:
+    forms.alert("The selection holds {} element(s) that are neither pipes "
+                "nor conduits:\n\n{}\n\nDeselect them and run again - "
+                "nothing was annotated."
+                .format(sum(others.values()),
+                        "\n".join("  {} x{}".format(k, v)
+                                  for k, v in sorted(others.items(),
+                                                     key=lambda kv: -kv[1]))),
                 exitscript=True)
 
+runs = pipes or conduits
+is_pipe = bool(pipes)
+kind = "pipe" if is_pipe else "conduit"
+if not runs:
+    forms.alert("Select one or more PIPES or CONDUITS in the view first, "
+                "then click the button.", exitscript=True)
+
 
 # ---------------------------------------------------------------------------
-# 1. PER-PIPE READS + ENDPOINTS
+# 1. READ THE RUNS: direction, midpoint, ends, diameter, slope (all mm)
 # ---------------------------------------------------------------------------
-def _pipe_endpoints(pipe):
-    """Return (XYZ, XYZ) endpoints of the pipe centreline (Revit ft), or
-    (None, None) if neither Location.Curve nor connectors are usable."""
-    loc = getattr(pipe, "Location", None)
+def _endpoints(el):
+    """(XYZ, XYZ) endpoints of the centreline (Revit ft), or (None,
+    None) when neither Location.Curve nor connectors are usable."""
+    loc = getattr(el, "Location", None)
     if loc is not None and hasattr(loc, "Curve") and loc.Curve is not None:
         c = loc.Curve
         return c.GetEndPoint(0), c.GetEndPoint(1)
-    conns = list(get_connectors(pipe))
+    conns = list(get_connectors(el))
     if len(conns) >= 2:
         return conns[0].Origin, conns[1].Origin
     return None, None
 
-# Build a per-pipe record list. Each entry has everything needed to
-# auto-place that pipe's label. We don't collapse to a modal label any
-# more - one label per pipe so a selection of N pipes produces N
-# annotations.
-records = []     # list of dicts: {label, anchor, leader_end, leader_side}
 
-offset_mm = get_annotate_pipe_offset_mm()
-offset_ft = mm2ft(offset_mm)
+def _dia_mm(el):
+    """The size to label: a conduit's TRADE size (what a schedule
+    calls it), a pipe's outside diameter as before."""
+    if not is_pipe:
+        try:
+            p = el.get_Parameter(
+                BuiltInParameter.RBS_CONDUIT_DIAMETER_PARAM)
+            if p is not None and p.HasValue:
+                v = ft2mm(p.AsDouble())
+                if v > 0:
+                    return v
+        except Exception:
+            pass
+    return get_od(el, list(get_connectors(el))) or 0.0
 
-for pipe in pipes:
-    p0, p1 = _pipe_endpoints(pipe)
+
+items = []
+skipped = 0
+for el in runs:
+    p0, p1 = _endpoints(el)
     if p0 is None or p1 is None:
+        skipped += 1
         continue
-
-    # XY run direction. Normalise sign so parallel pipes drawn in
-    # opposite start/end order still get labels on the SAME side of the
-    # run (otherwise the perpendicular would flip and labels would
-    # appear on alternating sides for visually-parallel pipes).
-    dx = p1.X - p0.X
-    dy = p1.Y - p0.Y
-    if dx < 0 or (dx == 0.0 and dy < 0):
-        dx, dy = -dx, -dy
-    mag = math.sqrt(dx * dx + dy * dy)
-    if mag < 1e-9:
-        continue   # zero-length pipe in XY (purely vertical or degenerate)
-    ux = dx / mag
-    uy = dy / mag
-    # Perpendicular = +90 deg CCW in XY. For a +X pipe this points +Y
-    # (label above); for a +Y pipe this points -X (label to the left).
-    px = -uy
-    py = ux
-
-    # Pipe midpoint and offset text anchor.
-    mx = (p0.X + p1.X) * 0.5
-    my = (p0.Y + p1.Y) * 0.5
-    mz = (p0.Z + p1.Z) * 0.5
-    ax = mx + px * offset_ft
-    ay = my + py * offset_ft
-
-    # Diameter -> int mm; skip pipes with no usable OD.
-    od = get_od(pipe, list(get_connectors(pipe))) or 0.0
-    if od <= 0:
+    d = A.normalise_dir(p1.X - p0.X, p1.Y - p0.Y)
+    if d is None:               # purely vertical or degenerate in plan
+        skipped += 1
         continue
-    dia_mm = int(round(od))
-
-    # Slope -> 1:X run-length (per-pipe, not modal).
-    s = abs(get_slope(pipe))
-    if s > 1e-9:
-        run = int(round(1.0 / s))
-    else:
-        run = 0
-
-    label = u"{}mm @ 1:{}".format(dia_mm, run)
-
-    # Leader side: text is at (mx+px*off, my+py*off), so the pipe sits
-    # in the -perp direction from the text. If px > 0 the pipe is to the
-    # LEFT of the text (leader exits LEFT); if px <= 0 it's to the RIGHT.
-    leader_side = _LEADER_LEFT if px > 0 else _LEADER_RIGHT
-
-    records.append({
-        "label":      label,
-        "anchor":     XYZ(ax, ay, mz),
-        "leader_end": XYZ(mx, my, mz),
-        "leader_side": leader_side,
+    dia = _dia_mm(el)
+    if dia <= 0:
+        skipped += 1
+        continue
+    items.append({
+        "dir": d,
+        "mid": (ft2mm((p0.X + p1.X) * 0.5), ft2mm((p0.Y + p1.Y) * 0.5),
+                ft2mm((p0.Z + p1.Z) * 0.5)),
+        "ends": ((ft2mm(p0.X), ft2mm(p0.Y), ft2mm(p0.Z)),
+                 (ft2mm(p1.X), ft2mm(p1.Y), ft2mm(p1.Z))),
+        "dia": dia,
+        "slope": abs(get_slope(el)) if is_pipe else 0.0,
     })
 
-if not records:
-    forms.alert("None of the selected pipes could be annotated\n"
-                "(no Outside Diameter, or no XY run direction).",
+if not items:
+    forms.alert("None of the selected {}s could be annotated\n"
+                "(no diameter, or no run direction in plan)."
+                .format(kind), exitscript=True)
+
+
+# ---------------------------------------------------------------------------
+# 2. GROUP INTO BANKS and build each one's parts
+# ---------------------------------------------------------------------------
+MAX_RUNS = 1500     # the bank grouping compares every pair
+
+
+def _is_same(i, j):
+    return A.same_bank(items[i], items[j])
+
+
+if len(items) > MAX_RUNS:
+    forms.alert("{} {}s selected - that is more than this tool groups "
+                "into banks at once ({}).\n\nSelect a smaller stretch "
+                "and run again.".format(len(items), kind, MAX_RUNS),
                 exitscript=True)
 
+banks = A.cluster(len(items), _is_same)
+
+offset_ft = mm2ft(get_annotate_pipe_offset_mm())
+records = []
+for members in banks:
+    first = items[members[0]]
+    ux, uy = first["dir"]
+    px, py = -uy, ux                       # +90 deg CCW in plan
+    ref = first["mid"]
+
+    cells, alongs = [], []
+    for i in members:
+        it = items[i]
+        dx = it["mid"][0] - ref[0]
+        dy = it["mid"][1] - ref[1]
+        cells.append((dx * px + dy * py, it["mid"][2] - ref[2]))
+        for e in it["ends"]:
+            alongs.append((e[0] - ref[0]) * ux + (e[1] - ref[1]) * uy)
+
+    # a run split into segments must count ONCE: cells closer than
+    # this are the same position in the bank
+    tol = max(10.0, 0.4 * min(items[i]["dia"] for i in members))
+    combo = A.combo_text(cells, tol)
+    dia = A.dia_text([items[i]["dia"] for i in members])
+    slope = (A.slope_text(max(items[i]["slope"] for i in members))
+             if is_pipe else "")
+
+    # anchor: mid-run along the bank, centred across it
+    along_mid = (min(alongs) + max(alongs)) / 2.0
+    across_mid = sum(c[0] for c in cells) / float(len(cells))
+    z_mid = sum(c[1] for c in cells) / float(len(cells)) + ref[2]
+    bx = ref[0] + ux * along_mid + px * across_mid
+    by = ref[1] + uy * along_mid + py * across_mid
+
+    records.append({
+        "values": {A.ITEM_COMBO: combo, A.ITEM_DIA: dia,
+                   A.ITEM_SLOPE: slope},
+        "point": XYZ(mm2ft(bx), mm2ft(by), mm2ft(z_mid)),
+        "perp": (px, py),
+        "n": len(members),
+    })
+
 
 # ---------------------------------------------------------------------------
-# 2. RESOLVE THE DEFAULT TEXTNOTETYPE
+# 3. DIALOG: prefix, text type, order + line breaks
 # ---------------------------------------------------------------------------
-text_type_id = doc.GetDefaultElementTypeId(ElementTypeGroup.TextNoteType)
-if text_type_id is None or text_type_id == ElementId.InvalidElementId:
-    any_type = list(FilteredElementCollector(doc).OfClass(TextNoteType))
-    if not any_type:
-        forms.alert("This document has no TextNoteType loaded - cannot place "
-                    "a text note.", exitscript=True)
-    text_type_id = any_type[0].Id
+text_types = []
+for tt in FilteredElementCollector(doc).OfClass(TextNoteType):
+    text_types.append((safe_name(tt), tt.Id))
+text_types.sort(key=lambda p: p[0])
+if not text_types:
+    forms.alert("This document has no TextNoteType loaded - cannot place "
+                "a text note.", exitscript=True)
+
+_default_tt = doc.GetDefaultElementTypeId(ElementTypeGroup.TextNoteType)
+
+
+class AnnotateWindow(forms.WPFWindow):
+
+    def __init__(self, settings, info):
+        forms.WPFWindow.__init__(self, XAML_PATH)
+        self.result = None
+        self._ready = False
+        self.TxtInfo.Text = info
+        prefix, ttype, order, breaks = A.annotate_settings(settings)
+        self.slots = [self.CmbSlot1, self.CmbSlot2, self.CmbSlot3,
+                      self.CmbSlot4]
+        self.breaks = [self.ChkBreak1, self.ChkBreak2, self.ChkBreak3]
+        for combo in self.slots:
+            combo.Items.Clear()
+            for _key, label in A.ITEM_LABELS:
+                combo.Items.Add(label)
+        self._label_of = dict(A.ITEM_LABELS)
+        self._key_of = dict((v, k) for k, v in A.ITEM_LABELS)
+        for combo, key in zip(self.slots, order):
+            combo.SelectedItem = self._label_of.get(key, "(none)")
+        for chk, on in zip(self.breaks, breaks):
+            chk.IsChecked = bool(on)
+        self.TxtPrefix.Text = prefix
+        self.CmbTextType.Items.Clear()
+        for nm, _tid in text_types:
+            self.CmbTextType.Items.Add(nm)
+        want = ttype
+        if not want and _default_tt is not None:
+            for nm, tid in text_types:
+                if tid == _default_tt:
+                    want = nm
+                    break
+        self.CmbTextType.SelectedIndex = 0
+        for i, (nm, _tid) in enumerate(text_types):
+            if nm == want:
+                self.CmbTextType.SelectedIndex = i
+                break
+        self._ready = True
+        self._preview()
+
+    def _order(self):
+        out = []
+        for combo in self.slots:
+            out.append(self._key_of.get(str(combo.SelectedItem or ""),
+                                        A.ITEM_NONE))
+        return out
+
+    def _break_flags(self):
+        return [bool(c.IsChecked) for c in self.breaks]
+
+    def _preview(self):
+        # the XAML's own handlers can fire while the window is still
+        # being built, before these fields exist
+        if not getattr(self, "_ready", False):
+            return
+        try:
+            demo = {A.ITEM_PREFIX: (self.TxtPrefix.Text or "").strip(),
+                    A.ITEM_COMBO: "2x2", A.ITEM_DIA: "150mm",
+                    A.ITEM_SLOPE: "1:150"}
+            txt = A.compose(demo, self._order(), self._break_flags())
+            self.TxtPreview.Text = txt or "(empty label)"
+        except Exception:
+            pass
+
+    def on_changed(self, sender, args):
+        self._preview()
+
+    def on_slot_changed(self, sender, args):
+        self._preview()
+
+    def on_go(self, sender, args):
+        order = self._order()
+        used = [k for k in order if k]
+        if not used:
+            self.StatusText.Text = ("Every slot is (none) - pick at least "
+                                    "one part for the label.")
+            return
+        if len(set(used)) != len(used):
+            self.StatusText.Text = ("Each part can only be used once - "
+                                    "set the repeat to (none).")
+            return
+        self.result = {
+            "prefix": (self.TxtPrefix.Text or "").strip(),
+            "text_type": str(self.CmbTextType.SelectedItem or ""),
+            "order": order,
+            "breaks": self._break_flags(),
+        }
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.Close()
+
+
+settings = load_settings()
+info = "{} {}(s) in {} bank(s){}.".format(
+    len(items), kind, len(banks),
+    " - {} skipped (no size / vertical)".format(skipped) if skipped else "")
+win = AnnotateWindow(settings, info)
+win.ShowDialog()
+if win.result is None:
+    script.exit()
+opt = win.result
+
+settings[A.SETTINGS_PREFIX] = opt["prefix"]
+settings[A.SETTINGS_TEXT_TYPE] = opt["text_type"]
+settings[A.SETTINGS_ORDER] = opt["order"]
+settings[A.SETTINGS_BREAKS] = opt["breaks"]
+try:
+    save_settings(settings)
+except Exception:
+    pass
+
+text_type_id = None
+for nm, tid in text_types:
+    if nm == opt["text_type"]:
+        text_type_id = tid
+        break
+if text_type_id is None:
+    text_type_id = text_types[0][1]
 
 
 # ---------------------------------------------------------------------------
-# 3. PLACE ALL LABELS IN ONE TRANSACTION
+# 4. PLACE ONE LABEL PER BANK, IN ONE TRANSACTION
 # ---------------------------------------------------------------------------
-t = Transaction(doc, "pyMEP: Annotate Pipes ({})".format(len(records)))
+labels = []
+for rec in records:
+    values = dict(rec["values"])
+    values[A.ITEM_PREFIX] = opt["prefix"]
+    text = A.compose(values, opt["order"], opt["breaks"])
+    if not text:
+        continue
+    px, py = rec["perp"]
+    pt = rec["point"]
+    labels.append({
+        "text": text,
+        "anchor": XYZ(pt.X + px * offset_ft, pt.Y + py * offset_ft, pt.Z),
+        "leader_end": pt,
+        # the run sits opposite the offset, so the leader exits the
+        # side of the text nearest to it
+        "leader_side": _LEADER_LEFT if px > 0 else _LEADER_RIGHT,
+    })
+
+if not labels:
+    forms.alert("Every label came out empty - check the order in the "
+                "dialog.", exitscript=True)
+
+t = Transaction(doc, "pyMEP: Annotate {}s ({})".format(kind, len(labels)))
 t.Start()
 placed = 0
 try:
-    for rec in records:
+    for rec in labels:
         note = TextNote.Create(
-            doc, view.Id, rec["anchor"], rec["label"], text_type_id)
+            doc, view.Id, rec["anchor"], rec["text"], text_type_id)
 
         # Anchor any leader at the vertical MIDDLE of the text.
         if _LeaderAttach is not None:
@@ -245,8 +459,8 @@ try:
             except Exception:
                 pass
 
-        # Leader from text mid-line to the pipe's midpoint. Per-leader
-        # failure is swallowed so one bad pipe doesn't roll back the lot.
+        # Leader from text mid-line back to the bank. Per-leader
+        # failure is swallowed so one bad bank doesn't roll back the lot.
         try:
             leader = note.AddLeader(rec["leader_side"])
             leader.End = rec["leader_end"]
@@ -260,8 +474,12 @@ except Exception as ex:
     t.RollBack()
     forms.alert("Failed during batch placement (placed {} of {} before "
                 "the error):\n\n{}: {}"
-                .format(placed, len(records), type(ex).__name__, ex),
+                .format(placed, len(labels), type(ex).__name__, ex),
                 exitscript=True)
+
+forms.alert("Annotated {} bank(s) of {}s from {} run(s){}."
+            .format(placed, kind, len(items),
+                    ", {} skipped".format(skipped) if skipped else ""))
 
 # Close the pyRevit output window if anything opened it.
 try:
