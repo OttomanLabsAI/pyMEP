@@ -10,7 +10,8 @@
 #      RADIANS, lengths in FEET - while Properties shows project units
 #      (degrees, mm). Copying a measured value into a plain number / text
 #      parameter therefore asks whether to write it AS SHOWN (degrees, mm -
-#      the default) or as the raw internal number; copying a plain number
+#      the default, rounded to 2 dp) or as the raw internal number; copying
+#      a plain number
 #      INTO a measured parameter asks whether that number is in the shown
 #      units (converted in) or already internal. Measured-to-measured of
 #      the same kind copies raw, which Revit displays correctly.
@@ -142,11 +143,16 @@ def _to_internal(value, unit):
     return DB.UnitUtils.ConvertToInternalUnits(float(value), unit)
 
 
+DISPLAY_DP = 2      # converted "as shown" values round to this
+
+
 def _num_text(v):
-    """A float as tidy text for a TEXT target: 45 not 45.000000,
-    22.5 not 22.499999999."""
+    """A float as tidy text for a TEXT target, to 2 dp with trailing
+    zeros dropped: 45 not 45.000000, 22.5 not 22.499999999, 12.34."""
     try:
-        txt = "{0:.6f}".format(float(v)).rstrip("0").rstrip(".")
+        txt = "{0:.{1}f}".format(float(v), DISPLAY_DP)
+        if "." in txt:
+            txt = txt.rstrip("0").rstrip(".")
         return txt if txt not in ("", "-", "-0") else "0"
     except Exception:
         return str(v)
@@ -391,7 +397,10 @@ def _convert(st, val):
         return st, val
     try:
         if unit_mode == "display":
-            return DB.StorageType.Double, _to_display(val, src_unit)
+            # as shown in Properties, rounded to 2 dp - a plain
+            # number / text target wants 22.5, not 22.499999999
+            return (DB.StorageType.Double,
+                    round(_to_display(val, src_unit), DISPLAY_DP))
         if unit_mode == "to_internal":
             return DB.StorageType.Double, _to_internal(val, tgt_unit)
     except Exception:
