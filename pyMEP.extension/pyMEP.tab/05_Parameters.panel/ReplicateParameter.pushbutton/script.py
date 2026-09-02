@@ -1,14 +1,22 @@
 # -*- coding: utf-8 -*-
 # IronPython 2.7 - pyRevit
-# Setup > Copy Param Value
+# Parameters > Replicate Parameter
 #
 # Workflow:
 #   1. Pick a family TYPE from a searchable list (only its instances are used).
 #   2. Pick a SOURCE parameter from a searchable list of that type's parameters.
 #   3. Pick a TARGET parameter from a searchable list (writable instance params).
-#   4. For every instance of that type, read the source value and write it to
-#      the target. Storage types must be compatible; mismatches are reported,
-#      not forced.
+#   4. UNITS: Revit stores measured values in internal units - angles in
+#      RADIANS, lengths in FEET - while Properties shows project units
+#      (degrees, mm). Copying a measured value into a plain number / text
+#      parameter therefore asks whether to write it AS SHOWN (degrees, mm -
+#      the default) or as the raw internal number; copying a plain number
+#      INTO a measured parameter asks whether that number is in the shown
+#      units (converted in) or already internal. Measured-to-measured of
+#      the same kind copies raw, which Revit displays correctly.
+#   5. For every instance of that type, read the source value and write it
+#      to the target. Storage types must be compatible; mismatches are
+#      reported, not forced.
 
 from pyrevit import revit, DB, forms, script
 
@@ -39,6 +47,14 @@ def _param_value_repr(p):
             v = p.AsString()
             return v if v is not None else ""
         if st == DB.StorageType.Double:
+            # what Properties shows (degrees, mm) - the raw number is
+            # radians / feet and misleads
+            try:
+                vs = p.AsValueString()
+                if vs:
+                    return vs
+            except Exception:
+                pass
             return "{0:.4f}".format(p.AsDouble())
         if st == DB.StorageType.Integer:
             return str(p.AsInteger())
@@ -64,6 +80,78 @@ def _read_value(p):
     return st, None
 
 
+def _spec_of(p):
+    """A comparable handle for the parameter's data type (spec), or
+    None - two measured parameters of the SAME spec copy raw."""
+    d = p.Definition
+    for getter in ("GetDataType", "GetSpecTypeId"):      # 2022+ / 2021
+        try:
+            fn = getattr(d, getter, None)
+            if fn is not None:
+                sp = fn()
+                if sp is not None and sp.TypeId:
+                    return ("forge", sp.TypeId)
+        except Exception:
+            pass
+    try:                                                 # <= 2020
+        return ("legacy", str(d.ParameterType))
+    except Exception:
+        return None
+
+
+def _display_unit(p):
+    """The unit Properties SHOWS this parameter in (degrees, mm, ...),
+    or None when it is unitless - a plain number, text or integer."""
+    try:
+        if p.StorageType != DB.StorageType.Double:
+            return None
+    except Exception:
+        return None
+    try:                                    # Revit 2021+
+        u = p.GetUnitTypeId()
+        if u is not None and u.TypeId:
+            return u
+    except Exception:
+        pass
+    try:                                    # Revit <= 2020
+        dut = p.DisplayUnitType
+        if str(dut) not in ("DUT_UNDEFINED", "DUT_GENERAL",
+                            "DUT_CUSTOM", "DUT_FIXED"):
+            return dut
+    except Exception:
+        pass
+    return None
+
+
+def _unit_label(unit):
+    try:
+        return DB.LabelUtils.GetLabelForUnit(unit)      # ForgeTypeId
+    except Exception:
+        pass
+    try:
+        return DB.LabelUtils.GetLabelFor(unit)          # DisplayUnitType
+    except Exception:
+        return "project units"
+
+
+def _to_display(value, unit):
+    return DB.UnitUtils.ConvertFromInternalUnits(float(value), unit)
+
+
+def _to_internal(value, unit):
+    return DB.UnitUtils.ConvertToInternalUnits(float(value), unit)
+
+
+def _num_text(v):
+    """A float as tidy text for a TEXT target: 45 not 45.000000,
+    22.5 not 22.499999999."""
+    try:
+        txt = "{0:.6f}".format(float(v)).rstrip("0").rstrip(".")
+        return txt if txt not in ("", "-", "-0") else "0"
+    except Exception:
+        return str(v)
+
+
 def _write_value(p, st, value):
     # Writes value into p; returns True on success. Storage types must match.
     if p.IsReadOnly:
@@ -72,15 +160,22 @@ def _write_value(p, st, value):
         # Allow a couple of safe coercions.
         try:
             if p.StorageType == DB.StorageType.String:
-                p.Set("" if value is None else str(value))
+                if value is None:
+                    p.Set("")
+                elif isinstance(value, float):
+                    p.Set(_num_text(value))
+                else:
+                    p.Set(str(value))
                 return True, None
             if (p.StorageType == DB.StorageType.Double
-                    and st == DB.StorageType.Integer):
+                    and st in (DB.StorageType.Integer,
+                               DB.StorageType.String)):
                 p.Set(float(value))
                 return True, None
             if (p.StorageType == DB.StorageType.Integer
-                    and st == DB.StorageType.Double):
-                p.Set(int(round(value)))
+                    and st in (DB.StorageType.Double,
+                               DB.StorageType.String)):
+                p.Set(int(round(float(value))))
                 return True, None
         except Exception as ex:
             return False, "type mismatch ({0})".format(ex)
@@ -228,6 +323,91 @@ tgt_name = tgt_label_to_name[picked_tgt]
 
 
 # ---------------------------------------------------------------------------
+# 3b) UNITS - degrees or radians, mm or feet?
+# ---------------------------------------------------------------------------
+# Revit keeps measured values in INTERNAL units (angles in radians,
+# lengths in feet); Properties shows PROJECT units (degrees, mm). A
+# measured value copied into a plain number / text parameter would
+# land as radians unless converted, so ask - as shown is the default.
+_src_p = sample_params[src_name]
+_tgt_p = sample_params[tgt_name]
+src_unit = _display_unit(_src_p)
+tgt_unit = _display_unit(_tgt_p)
+_src_spec, _tgt_spec = _spec_of(_src_p), _spec_of(_tgt_p)
+same_measure = (src_unit is not None and tgt_unit is not None and
+                _src_spec is not None and _src_spec == _tgt_spec)
+
+unit_mode = "raw"           # raw | display | to_internal
+unit_note = ""
+if src_unit is not None and not same_measure:
+    lbl = _unit_label(src_unit)
+    kind = {DB.StorageType.String: "TEXT",
+            DB.StorageType.Integer: "whole-number",
+            DB.StorageType.Double: "plain number"}.get(
+                _tgt_p.StorageType, "plain")
+    choice = forms.alert(
+        "'{0}' is a MEASURED value - Properties shows it in {1}, but "
+        "Revit stores it internally in other units (angles in radians, "
+        "lengths in feet).\n\n'{2}' is a {3} parameter. Which number "
+        "should it receive?".format(src_name, lbl, tgt_name, kind),
+        title="Units",
+        options=["As shown ({0})".format(lbl),
+                 "Raw internal value", "Cancel"])
+    if not choice or choice == "Cancel":
+        script.exit()
+    if choice.startswith("As shown"):
+        unit_mode = "display"
+        unit_note = "converted to {0} (as shown in Properties)".format(lbl)
+    else:
+        unit_note = "raw internal value (radians / feet)"
+elif tgt_unit is not None and src_unit is None and \
+        _src_p.StorageType in (DB.StorageType.Double,
+                               DB.StorageType.Integer,
+                               DB.StorageType.String):
+    lbl = _unit_label(tgt_unit)
+    choice = forms.alert(
+        "'{0}' is a MEASURED parameter shown in {1}; '{2}' is a plain "
+        "value.\n\nIs that plain value written in {1} (it will be "
+        "converted into Revit's internal units), or is it already an "
+        "internal value (radians / feet)?".format(tgt_name, lbl,
+                                                  src_name),
+        title="Units",
+        options=["It is in {0}".format(lbl),
+                 "Already internal", "Cancel"])
+    if not choice or choice == "Cancel":
+        script.exit()
+    if choice.startswith("It is in"):
+        unit_mode = "to_internal"
+        unit_note = "read as {0}, converted to internal units".format(lbl)
+    else:
+        unit_note = "taken as an internal value"
+elif same_measure:
+    unit_note = "same kind of measure - copied as is"
+
+
+def _convert(st, val):
+    """(storage type to write as, value) after the units decision."""
+    if val is None:
+        return st, val
+    try:
+        if unit_mode == "display":
+            return DB.StorageType.Double, _to_display(val, src_unit)
+        if unit_mode == "to_internal":
+            return DB.StorageType.Double, _to_internal(val, tgt_unit)
+    except Exception:
+        return st, val
+    return st, val
+
+
+def _write_disp(st, val):
+    if val is None:
+        return ""
+    if st == DB.StorageType.Double:
+        return _num_text(val)
+    return str(val)
+
+
+# ---------------------------------------------------------------------------
 # 4) Build plan + preview
 # ---------------------------------------------------------------------------
 plan = []
@@ -240,13 +420,15 @@ for fi in instances:
         skipped.append((fi.Id.IntegerValue, "missing source or target param"))
         continue
     st, val = _read_value(sp)
+    wst, wval = _convert(st, val)
     plan.append({
         "inst": fi,
         "src_param": sp,
         "tgt_param": tp,
-        "st": st,
-        "val": val,
+        "st": wst,
+        "val": wval,
         "src_disp": _param_value_repr(sp),
+        "write_disp": _write_disp(wst, wval),
         "tgt_old": _param_value_repr(tp),
     })
 
@@ -257,13 +439,17 @@ out.print_md("### Copy parameter preview")
 out.print_md("**Family type:** {0}".format(_type_label(fam_choice["symbol"])))
 out.print_md("**Copy:** `{0}`  ->  `{1}`  on {2} instance(s)".format(
     src_name, tgt_name, len(plan)))
+if unit_note:
+    out.print_md("**Units:** {0}".format(unit_note))
 
 rows = []
 for r in plan[:200]:
-    rows.append([str(r["inst"].Id.IntegerValue), r["src_disp"], r["tgt_old"]])
+    rows.append([str(r["inst"].Id.IntegerValue), r["src_disp"],
+                 r["write_disp"], r["tgt_old"]])
 out.print_table(
     table_data=rows,
-    columns=["Element Id", "Source value (copy)", "Target value (current)"]
+    columns=["Element Id", "Source (as shown)", "Value to write",
+             "Target value (current)"]
 )
 if len(plan) > 200:
     out.print_md("_Showing first 200 of {0}._".format(len(plan)))
@@ -272,8 +458,9 @@ if skipped:
         len(skipped)))
 
 if not forms.alert(
-        "Copy '{0}' into '{1}' for {2} instance(s)?".format(
-            src_name, tgt_name, len(plan)),
+        "Copy '{0}' into '{1}' for {2} instance(s)?{3}".format(
+            src_name, tgt_name, len(plan),
+            "\n\nUnits: {0}.".format(unit_note) if unit_note else ""),
         yes=True, no=True):
     script.exit()
 
