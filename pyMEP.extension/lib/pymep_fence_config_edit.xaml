@@ -310,31 +310,56 @@
 
             <GroupBox Header="Terrain">
                 <StackPanel>
-                    <RadioButton x:Name="RbTerrainAuto"
-                                 GroupName="TerrainMode"
-                                 IsChecked="True"
-                                 Content="AUTO - use the topo(s) the lines sit over (default)"/>
-                    <RadioButton x:Name="RbTerrainPick"
-                                 GroupName="TerrainMode"
-                                 Margin="0,6,0,0"
-                                 Content="pick the terrain when the button runs"/>
-                    <RadioButton x:Name="RbTerrainNamed"
-                                 GroupName="TerrainMode"
-                                 Margin="0,6,0,0"
-                                 Content="always these terrain element(s):"
-                                 Checked="on_terrain_mode"
-                                 Unchecked="on_terrain_mode"/>
-                    <StackPanel x:Name="PnlTerrains"
-                                Margin="18,6,0,0">
-                        <TextBox x:Name="TxtTerrainSearch"
-                                 TextChanged="on_terrain_search"/>
-                        <ListBox x:Name="LstTerrains" Height="96"
-                                 Margin="0,6,0,0"
-                                 SelectionMode="Multiple"
-                                 SelectionChanged="on_terrain_pick"/>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center"
+                                   Margin="0,0,10,0"
+                                   Text="Align to"/>
+                        <RadioButton x:Name="RbAlignTopo"
+                                     GroupName="AlignTo"
+                                     IsChecked="True"
+                                     VerticalAlignment="Center"
+                                     Content="TOPO"
+                                     Checked="on_align_to"
+                                     Unchecked="on_align_to"/>
+                        <RadioButton x:Name="RbAlignFloors"
+                                     GroupName="AlignTo"
+                                     Margin="18,0,0,0"
+                                     VerticalAlignment="Center"
+                                     Content="FLOORS of type:"/>
+                    </StackPanel>
+                    <ComboBox x:Name="CmbFloorType" Height="24"
+                              Margin="18,6,0,0"/>
+                    <CheckBox x:Name="ChkLinkTerrain"
+                              Margin="0,8,0,0"
+                              Content="include LINKED files - the terrain may live in a loaded link"/>
+                    <Separator Margin="0,8,0,6"/>
+                    <StackPanel x:Name="PnlTopoModes">
+                        <RadioButton x:Name="RbTerrainAuto"
+                                     GroupName="TerrainMode"
+                                     IsChecked="True"
+                                     Content="AUTO - use the topo(s) the lines sit over (default)"/>
+                        <RadioButton x:Name="RbTerrainPick"
+                                     GroupName="TerrainMode"
+                                     Margin="0,6,0,0"
+                                     Content="pick the terrain when the button runs"/>
+                        <RadioButton x:Name="RbTerrainNamed"
+                                     GroupName="TerrainMode"
+                                     Margin="0,6,0,0"
+                                     Content="always these terrain element(s):"
+                                     Checked="on_terrain_mode"
+                                     Unchecked="on_terrain_mode"/>
+                        <StackPanel x:Name="PnlTerrains"
+                                    Margin="18,6,0,0">
+                            <TextBox x:Name="TxtTerrainSearch"
+                                     TextChanged="on_terrain_search"/>
+                            <ListBox x:Name="LstTerrains" Height="96"
+                                     Margin="0,6,0,0"
+                                     SelectionMode="Multiple"
+                                     SelectionChanged="on_terrain_pick"/>
+                        </StackPanel>
                     </StackPanel>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Where the fence drapes to. AUTO (the default) finds every toposolid / topography whose footprint the lines touch. The named list (toposolids, topographies, floors, roofs - type above to filter, click to tick several) matches elements by NAME, so it survives between models. When AUTO finds nothing or a named terrain is missing, the button falls back to asking for a pick. Fence Network takes the terrain from the highest-priority configuration among the picked lines."/>
+                               Text="Where the fence drapes to. ALIGN TO TOPO (default) uses toposolids / topographies through the modes below: AUTO finds every topo the lines sit over, the named list matches elements by NAME so it survives between models, and pick asks when the button runs. ALIGN TO FLOORS drapes onto every floor of the CHOSEN TYPE under the lines instead. INCLUDE LINKED FILES searches loaded links too (and lets the pick reach into them). When nothing is found the button falls back to asking for a pick. Fence Network takes the terrain from the highest-priority configuration among the picked lines."/>
                 </StackPanel>
             </GroupBox>
 

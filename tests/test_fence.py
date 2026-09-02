@@ -136,6 +136,9 @@ class ConfigStore(unittest.TestCase):
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
                           "terrains": [],
+                          "align_to": "topo",
+                          "floor_type": "",
+                          "link_terrain": False,
                           "same_end_posts": True,
                           "same_end_foundations": True,
                           "post_col_size": "",
@@ -195,6 +198,9 @@ class ConfigStore(unittest.TestCase):
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
                           "terrains": [],
+                          "align_to": "topo",
+                          "floor_type": "",
+                          "link_terrain": False,
                           "same_end_posts": True,
                           "same_end_foundations": True,
                           "post_col_size": "",
@@ -222,6 +228,9 @@ class EffectiveConfig(unittest.TestCase):
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
                           "terrains": [],
+                          "align_to": "topo",
+                          "floor_type": "",
+                          "link_terrain": False,
                           "same_end_posts": True,
                           "same_end_foundations": True,
                           "post_col_size": "",
@@ -257,6 +266,9 @@ class EffectiveConfig(unittest.TestCase):
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
                           "terrains": [],
+                          "align_to": "topo",
+                          "floor_type": "",
+                          "link_terrain": False,
                           "same_end_posts": True,
                           "same_end_foundations": True,
                           "post_col_size": "",
@@ -294,6 +306,9 @@ class EffectiveConfig(unittest.TestCase):
                           "northing_param": "NORTHINGS",
                           "terrain_mode": "auto",
                           "terrains": [],
+                          "align_to": "topo",
+                          "floor_type": "",
+                          "link_terrain": False,
                           "same_end_posts": True,
                           "same_end_foundations": True,
                           "post_col_size": "",
@@ -940,6 +955,53 @@ class PairStations(unittest.TestCase):
                              "instances": self.INST})
         self.assertIn("Fence 3", lbl)
         self.assertIn("3 post(s)", lbl)
+
+
+class TerrainAlign(unittest.TestCase):
+    """The align-to / floor-type / linked-files terrain settings."""
+
+    def test_defaults(self):
+        c = F.get_configs({})[F.DEFAULT_NAME]
+        self.assertEqual(c["align_to"], F.ALIGN_TOPO)
+        self.assertEqual(c["floor_type"], "")
+        self.assertFalse(c["link_terrain"])
+
+    def test_upsert_and_normalise(self):
+        s = {}
+        F.upsert_config(s, "X", 2000, True, post="P : T",
+                        align_to=F.ALIGN_FLOORS,
+                        floor_type=" Footpath 150 ",
+                        link_terrain=True)
+        c = F.get_configs(s)["X"]
+        self.assertEqual(c["align_to"], F.ALIGN_FLOORS)
+        self.assertEqual(c["floor_type"], "Footpath 150")
+        self.assertTrue(c["link_terrain"])
+
+    def test_junk_align_falls_back_to_topo(self):
+        s = {"fence_configs": {"X": {"spacing_mm": 1000,
+                                     "align_to": "nonsense",
+                                     "link_terrain": 1}}}
+        c = F.get_configs(s)["X"]
+        self.assertEqual(c["align_to"], F.ALIGN_TOPO)
+        self.assertTrue(c["link_terrain"])
+
+    def test_effective_config_snapshot_carries_align(self):
+        snap = {"spacing_mm": 1500, "align_to": "floors",
+                "floor_type": "Path", "link_terrain": True}
+        out = F.effective_config({}, "gone", snap)
+        self.assertEqual(out["align_to"], F.ALIGN_FLOORS)
+        self.assertEqual(out["floor_type"], "Path")
+        self.assertTrue(out["link_terrain"])
+
+    def test_saved_config_wins_over_snapshot(self):
+        s = {}
+        F.upsert_config(s, "X", 2000, True, post="P : T",
+                        align_to=F.ALIGN_FLOORS, floor_type="New")
+        out = F.effective_config(s, "X",
+                                 {"align_to": "topo",
+                                  "floor_type": "Old", "post": "P"})
+        self.assertEqual(out["align_to"], F.ALIGN_FLOORS)
+        self.assertEqual(out["floor_type"], "New")
 
 
 if __name__ == "__main__":

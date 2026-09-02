@@ -60,6 +60,11 @@ TERRAIN_PICK = "pick"
 TERRAIN_NAMED = "named"
 TERRAIN_AUTO = "auto"
 
+# what the fence drapes onto: real TOPO (toposolid / topography - the
+# default) or every FLOOR of one chosen floor type
+ALIGN_TOPO = "topo"
+ALIGN_FLOORS = "floors"
+
 DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "rotation_deg": 0.0, "post": "", "foundation": "",
                   "same_ends": True, "end_post": "",
@@ -71,6 +76,9 @@ DEFAULT_CONFIG = {"spacing_mm": 2000.0, "endpoints": True,
                   "northing_param": NORTHING_PARAM,
                   "terrain_mode": TERRAIN_AUTO,
                   "terrains": [],
+                  "align_to": ALIGN_TOPO,
+                  "floor_type": "",
+                  "link_terrain": False,
                   "same_end_posts": True,
                   "same_end_foundations": True}
 for _k in DIM_KEYS:
@@ -80,6 +88,11 @@ for _k in DIM_KEYS:
 def _terrain_mode(v):
     v = str(v or "").strip().lower()
     return v if v in (TERRAIN_NAMED, TERRAIN_PICK) else TERRAIN_AUTO
+
+
+def _align_to(v):
+    v = str(v or "").strip().lower()
+    return ALIGN_FLOORS if v == ALIGN_FLOORS else ALIGN_TOPO
 
 
 def _terrain_list(v):
@@ -446,6 +459,12 @@ def get_configs(settings):
                                       c.get("terrain_mode")),
                                   "terrains": _terrain_list(
                                       c.get("terrains")),
+                                  "align_to": _align_to(
+                                      c.get("align_to")),
+                                  "floor_type":
+                                      str(c.get("floor_type") or ""),
+                                  "link_terrain": bool(
+                                      c.get("link_terrain", False)),
                                   "same_end_posts": bool(
                                       c.get("same_end_posts",
                                             c.get("same_ends",
@@ -471,7 +490,8 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                   easting_param="", northing_param="",
                   terrain_mode=TERRAIN_AUTO, terrains=None,
                   same_end_posts=None, same_end_foundations=None,
-                  dims=None):
+                  dims=None, align_to=ALIGN_TOPO, floor_type="",
+                  link_terrain=False):
     """Create or update config ``name`` from the dialog fields;
     returns the configs dict. Raises ValueError with the reason the
     dialog should show. ``rotation_deg`` is the EXTRA rotation on top
@@ -523,6 +543,9 @@ def upsert_config(settings, name, spacing_mm, endpoints,
                       NORTHING_PARAM,
                   "terrain_mode": _terrain_mode(terrain_mode),
                   "terrains": _terrain_list(terrains),
+                  "align_to": _align_to(align_to),
+                  "floor_type": str(floor_type or "").strip(),
+                  "link_terrain": bool(link_terrain),
                   "same_end_posts": bool(
                       same_ends if same_end_posts is None
                       else same_end_posts),
@@ -607,6 +630,10 @@ def effective_config(settings, name, snapshot):
             "terrain_mode": _terrain_mode(
                 snapshot.get("terrain_mode")),
             "terrains": _terrain_list(snapshot.get("terrains")),
+            "align_to": _align_to(snapshot.get("align_to")),
+            "floor_type": str(snapshot.get("floor_type") or ""),
+            "link_terrain": bool(snapshot.get("link_terrain",
+                                              False)),
             "same_end_posts": bool(
                 snapshot.get("same_end_posts",
                              snapshot.get("same_ends", True))),

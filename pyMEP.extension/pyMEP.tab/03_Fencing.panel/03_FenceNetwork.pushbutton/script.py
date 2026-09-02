@@ -159,15 +159,14 @@ def main():
             log("- terrain from config '{}': {}".format(
                 t_cfg, t_note))
     if not terrains:
-        try:
-            terrains = [doc.GetElement(uidoc.Selection.PickObject(
-                ObjectType.Element, TerrainFilter(),
-                "Pick the TERRAIN (toposolid / topography / floor "
-                "/ roof)").ElementId)]
-        except Exception:
+        _links_ok = any(bool(c.get("link_terrain"))
+                        for c in cfgs.values())
+        _t = FR.pick_terrain(uidoc, doc, links=_links_ok)
+        if _t is None:
             log("No terrain picked - nothing modelled.")
             log.close()
             script.exit()
+        terrains = [_t]
 
     # mapping preview - what will happen, before anything is placed
     lines_txt = []
@@ -317,7 +316,8 @@ def main():
             rec = {
                 "kind": "network",
                 "terrain_uid": terrains[0].UniqueId,
-                "terrain_uids": [t.UniqueId for t in terrains],
+                "terrain_uids": [FR.terrain_uid(t)
+                                 for t in terrains],
                 "lines": [{"uid": el.UniqueId,
                            "style": FR.line_style_name(el)}
                           for el in lines],

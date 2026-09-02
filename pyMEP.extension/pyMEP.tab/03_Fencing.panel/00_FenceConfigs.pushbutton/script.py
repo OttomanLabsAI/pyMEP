@@ -56,11 +56,16 @@ def _row_text(name, cfg, style_names=None):
             cfg["end_foundation"] or "none")
     if cfg.get("panel"):
         txt += u"  |  panel: {}".format(cfg["panel"])
-    if cfg.get("terrain_mode") == F.TERRAIN_PICK:
+    if cfg.get("align_to") == F.ALIGN_FLOORS:
+        txt += u"  |  align: floors '{}'".format(
+            cfg.get("floor_type") or "?")
+    elif cfg.get("terrain_mode") == F.TERRAIN_PICK:
         txt += u"  |  topo: pick at run"
     elif cfg.get("terrain_mode") == F.TERRAIN_NAMED:
         txt += u"  |  topo: {}".format(
             u", ".join(cfg.get("terrains") or []) or "?")
+    if cfg.get("link_terrain"):
+        txt += u" +links"
     if cfg.get("line_style"):
         stale = style_names is not None and \
             cfg["line_style"] not in style_names
@@ -77,8 +82,10 @@ class ConfigEditWindow(forms.WPFWindow):
     on cancel - the caller persists."""
 
     def __init__(self, title, name, cfg, post_labels, found_labels,
-                 style_names, panel_labels, terrain_labels):
+                 style_names, panel_labels, terrain_labels,
+                 floor_labels=None):
         forms.WPFWindow.__init__(self, XAML_EDIT)
+        self.floor_labels = list(floor_labels or [])
         self.result = None
         self.post_labels = post_labels
         self.found_labels = found_labels
@@ -156,6 +163,24 @@ class ConfigEditWindow(forms.WPFWindow):
             F.TERRAIN_PICK, F.TERRAIN_NAMED)
         self._fill_terrains("")
         self.on_terrain_mode(None, None)
+        # align to + linked files
+        floors = str(cfg.get("align_to") or "") == F.ALIGN_FLOORS
+        self.RbAlignFloors.IsChecked = floors
+        self.RbAlignTopo.IsChecked = not floors
+        self.CmbFloorType.Items.Clear()
+        ft_stored = str(cfg.get("floor_type") or "")
+        ft_all = list(self.floor_labels)
+        if ft_stored and ft_stored not in ft_all:
+            ft_all.append(ft_stored)
+        for nm in ft_all:
+            self.CmbFloorType.Items.Add(nm)
+        if ft_stored:
+            self.CmbFloorType.SelectedItem = ft_stored
+        elif self.CmbFloorType.Items.Count:
+            self.CmbFloorType.SelectedIndex = 0
+        self.ChkLinkTerrain.IsChecked = bool(
+            cfg.get("link_terrain"))
+        self.on_align_to(None, None)
         # RED marks any pick that is NOT in this model any more
         self.style_names = list(style_names)
         for combo, labels in (
@@ -418,6 +443,17 @@ class ConfigEditWindow(forms.WPFWindow):
         except Exception:
             pass
 
+    def on_align_to(self, sender, args):
+        """FLOORS hides the topo modes (they mean nothing for a
+        floor-type drape) and shows the type dropdown; TOPO the
+        reverse."""
+        try:
+            floors = bool(self.RbAlignFloors.IsChecked)
+            self._show(self.CmbFloorType, floors)
+            self._show(self.PnlTopoModes, not floors)
+        except Exception:
+            pass
+
     # ---- save / cancel -----------------------------------------------
     def on_save(self, sender, args):
         name = (self.TxtName.Text or "").strip()
@@ -464,7 +500,17 @@ class ConfigEditWindow(forms.WPFWindow):
             terrain_mode = F.TERRAIN_PICK
         terrains = [n for n in self.terrain_labels
                     if n in self._terr_sel]
-        if terrain_mode == F.TERRAIN_NAMED and not terrains:
+        align_to = (F.ALIGN_FLOORS
+                    if bool(self.RbAlignFloors.IsChecked)
+                    else F.ALIGN_TOPO)
+        floor_type = str(self.CmbFloorType.SelectedItem or "").strip()
+        if align_to == F.ALIGN_FLOORS and not floor_type:
+            self.StatusText.Text = ("ALIGN TO FLOORS needs a floor "
+                                    "type - pick one, or align to "
+                                    "topo.")
+            return
+        if align_to != F.ALIGN_FLOORS and \
+                terrain_mode == F.TERRAIN_NAMED and not terrains:
             self.StatusText.Text = ("Tick at least one terrain "
                                     "element - or choose another "
                                     "terrain option.")
@@ -492,6 +538,10 @@ class ConfigEditWindow(forms.WPFWindow):
                            (self.TxtNorthParam.Text or "").strip(),
                        "terrain_mode": terrain_mode,
                        "terrains": terrains,
+                       "align_to": align_to,
+                       "floor_type": floor_type,
+                       "link_terrain":
+                           bool(self.ChkLinkTerrain.IsChecked),
                        "dims": {
                            "post_col_size":
                                self._picked(self.CmbColSize),
@@ -537,8 +587,10 @@ class ConfigsWindow(forms.WPFWindow):
     """The list window: rows + Add new / Edit / Remove."""
 
     def __init__(self, settings, post_labels, found_labels,
-                 style_names, panel_labels, terrain_labels):
+                 style_names, panel_labels, terrain_labels,
+                 floor_labels=None):
         forms.WPFWindow.__init__(self, XAML_LIST)
+        self.floor_labels = list(floor_labels or [])
         self.settings = settings
         self.post_labels = post_labels
         self.found_labels = found_labels
@@ -671,7 +723,8 @@ class ConfigsWindow(forms.WPFWindow):
         win = ConfigEditWindow(title, name, cfg, self.post_labels,
                                self.found_labels, self.style_names,
                                self.panel_labels,
-                               self.terrain_labels)
+                               self.terrain_labels,
+                               self.floor_labels)
         win.ShowDialog()
         r = win.result
         if r is None:
@@ -693,7 +746,10 @@ class ConfigsWindow(forms.WPFWindow):
                             r["easting_param"], r["northing_param"],
                             r["terrain_mode"], r["terrains"],
                             r["same_end_posts"],
-                            r["same_end_foundations"], r["dims"])
+                            r["same_end_foundations"], r["dims"],
+                            align_to=r["align_to"],
+                            floor_type=r["floor_type"],
+                            link_terrain=r["link_terrain"])
         except ValueError as ex:
             self.StatusText.Text = str(ex)
             return
@@ -817,8 +873,10 @@ style_names = sorted(set(
 panel_labels = [lbl for lbl, _fs
                 in FR.placeable_symbols(doc, F.PANEL_CATEGORIES)]
 terrain_labels = sorted(set(
-    FR.element_name(el) for el in FR.terrain_elements(doc)))
+    FR.element_name(FR.terrain_el(t))
+    for t in FR.terrain_elements(doc, links=True)))
+floor_labels = FR.floor_type_names(doc)
 ConfigsWindow(load_settings(), post_labels, found_labels,
               style_names, panel_labels,
-              terrain_labels).ShowDialog()
+              terrain_labels, floor_labels).ShowDialog()
 script.exit()

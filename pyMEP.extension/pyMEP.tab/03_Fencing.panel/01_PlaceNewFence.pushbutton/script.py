@@ -147,6 +147,9 @@ class FenceWindow(forms.WPFWindow):
             "northing_param": cfg["northing_param"],
             "terrain_mode": cfg["terrain_mode"],
             "terrains": cfg["terrains"],
+            "align_to": cfg.get("align_to") or F.ALIGN_TOPO,
+            "floor_type": cfg.get("floor_type") or "",
+            "link_terrain": bool(cfg.get("link_terrain")),
             "justify": self.justify(),
             "dims": dict((k, cfg[k]) for k in F.DIM_KEYS),
             "config": str(self.CmbConfig.SelectedItem or ""),
@@ -305,9 +308,8 @@ def main():
     if t_note:
         log("- " + t_note)
     if not terrains:
-        terrain = pick_one(TerrainFilter(),
-                           "Pick the TERRAIN (toposolid / "
-                           "topography / floor / roof)")
+        terrain = FR.pick_terrain(uidoc, doc,
+                                  links=bool(opt.get("link_terrain")))
         if terrain is None:
             log("No terrain picked - nothing placed.")
             log.close()
@@ -341,14 +343,13 @@ def main():
         forms.alert("No 3D view found in the model - create one and "
                     "re-run.", exitscript=True)
 
-    ri = FR.make_intersector(view3d)
+    ri = FR.make_intersector(view3d,
+                             links=FR.any_linked(terrains))
     ray_z = FR.ray_start_z(terrains + [line_el])
-    terrain_id = set(FR.id_value(t.Id) for t in terrains)
+    terrain_id = FR.terrain_keys(terrains)
     log("Ray-casting in 3D view **{}** onto **{}**.".format(
         view3d.Name, ", ".join(
-            "{} (id {})".format(FR.element_name(t),
-                                FR.id_value(t.Id))
-            for t in terrains)))
+            FR.terrain_display(t) for t in terrains)))
     levels = FR.sorted_levels(doc)
 
     _cfg_for_dims = dict(opt.get("dims") or {})
@@ -403,8 +404,9 @@ def main():
                                 "project_files")
             rec = {
                 "line_uid": line_el.UniqueId,
-                "terrain_uid": terrains[0].UniqueId,
-                "terrain_uids": [t.UniqueId for t in terrains],
+                "terrain_uid": FR.terrain_uid(terrains[0]),
+                "terrain_uids": [FR.terrain_uid(t)
+                                 for t in terrains],
                 "family": opt["post"] if post_symbol is not None
                 else "",
                 "spacing_mm": opt["spacing_mm"],

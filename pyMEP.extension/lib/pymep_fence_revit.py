@@ -287,9 +287,14 @@ def find_view3d(doc):
     return None
 
 
-def make_intersector(view3d):
+def make_intersector(view3d, links=False):
     ri = ReferenceIntersector(view3d)
     ri.TargetType = FindReferenceTarget.Face
+    if links:
+        try:
+            ri.FindReferencesInRevitLinks = True
+        except Exception:
+            pass
     return ri
 
 
@@ -305,13 +310,14 @@ def tessellate(line_el):
 def ray_start_z(elements):
     """Just above the given elements' bounding boxes -
     ReferenceIntersector silently misses when the origin is
-    kilometres from the geometry."""
+    kilometres from the geometry. Accepts host elements AND
+    (link instance, element) terrain pairs."""
     tops = []
     for el in elements:
         try:
-            bb = el.get_BoundingBox(None)
+            bb = _t_bbox(el)
             if bb is not None:
-                tops.append(bb.Max.Z)
+                tops.append(bb[1][2])
         except Exception:
             pass
     return (max(tops) + 10.0) if tops else 30000.0
@@ -320,10 +326,14 @@ def ray_start_z(elements):
 def topmost_hit(doc, ri, origin, terrain_id):
     """The terrain's TOP surface under a straight-down ray - smallest
     proximity among hits on the terrain element(s) only.
-    ``terrain_id`` is one element id or a set/list of them (a config
-    may drape over MULTIPLE topos)."""
-    if isinstance(terrain_id, (set, frozenset, list, tuple)):
+    ``terrain_id`` is one KEY or a set/list of them: a host element id,
+    or a (link instance id, linked element id) PAIR for terrain living
+    in a loaded link (the intersector must then be built with
+    links=True)."""
+    if isinstance(terrain_id, (set, frozenset, list)):
         ids = terrain_id
+    elif isinstance(terrain_id, tuple):
+        ids = (terrain_id,)          # one link-terrain key
     else:
         ids = (terrain_id,)
     refs = ri.Find(origin, XYZ(0, 0, -1))
@@ -336,14 +346,117 @@ def topmost_hit(doc, ri, origin, terrain_id):
         ref = rc.GetReference()
         el = doc.GetElement(ref.ElementId)
         if isinstance(el, RevitLinkInstance):
-            continue
-        if id_value(ref.ElementId) not in ids:
+            key = (id_value(ref.ElementId),
+                   id_value(ref.LinkedElementId))
+        else:
+            key = id_value(ref.ElementId)
+        if key not in ids:
             continue
         if best is None or rc.Proximity < best.Proximity:
             best = rc
     if best is None:
         return None
     return best.GetReference().GlobalPoint
+
+
+# ---------------------------------------------------------------------------
+# terrain items - a HOST element, or a (RevitLinkInstance, element)
+# pair for terrain living in a loaded link. Every consumer goes
+# through these helpers so the two walk the same paths.
+# ---------------------------------------------------------------------------
+def terrain_el(t):
+    """The terrain element itself, wherever it lives."""
+    return t[1] if isinstance(t, tuple) else t
+
+
+def terrain_link(t):
+    """The RevitLinkInstance carrying a linked terrain, else None."""
+    return t[0] if isinstance(t, tuple) else None
+
+
+def terrain_key(t):
+    """The topmost_hit key: a host element id, or a (link instance
+    id, linked element id) pair."""
+    if isinstance(t, tuple):
+        return (id_value(t[0].Id), id_value(t[1].Id))
+    return id_value(t.Id)
+
+
+def terrain_keys(terrains):
+    return set(terrain_key(t) for t in terrains)
+
+
+def any_linked(terrains):
+    """True when any terrain lives in a link - the intersector then
+    needs links=True."""
+    return any(isinstance(t, tuple) for t in terrains)
+
+
+def terrain_uid(t):
+    """The registry uid: a host UniqueId, or 'linkUid::elementUid'
+    for linked terrain - terrain_by_uid resolves both."""
+    if isinstance(t, tuple):
+        return "{}::{}".format(t[0].UniqueId, t[1].UniqueId)
+    return t.UniqueId
+
+
+def terrain_by_uid(doc, uid):
+    """The terrain item a stored uid means, or None when it (or its
+    link) is gone / unloaded."""
+    uid = str(uid or "")
+    if "::" in uid:
+        li_uid, el_uid = uid.split("::", 1)
+        try:
+            li = doc.GetElement(li_uid)
+        except Exception:
+            li = None
+        if isinstance(li, RevitLinkInstance):
+            ldoc = li.GetLinkDocument()
+            if ldoc is not None:
+                el = ldoc.GetElement(el_uid)
+                if el is not None:
+                    return (li, el)
+        return None
+    try:
+        return doc.GetElement(uid)
+    except Exception:
+        return None
+
+
+def terrain_display(t):
+    """The name shown for a terrain item - linked ones carry their
+    link's title so the report says where they live."""
+    nm = element_name(terrain_el(t))
+    li = terrain_link(t)
+    if li is not None:
+        try:
+            nm = u"{} ({})".format(nm, li.GetLinkDocument().Title)
+        except Exception:
+            nm = u"{} (link)".format(nm)
+    return nm
+
+
+def _t_bbox(t):
+    """((min x,y,z), (max x,y,z)) in HOST coordinates - a linked
+    element's box goes through its link's transform (axis-aligned
+    envelope of the transformed corners)."""
+    el = terrain_el(t)
+    bb = el.get_BoundingBox(None)
+    if bb is None:
+        return None
+    if not isinstance(t, tuple):
+        return ((bb.Min.X, bb.Min.Y, bb.Min.Z),
+                (bb.Max.X, bb.Max.Y, bb.Max.Z))
+    tf = t[0].GetTotalTransform()
+    xs, ys, zs = [], [], []
+    for x in (bb.Min.X, bb.Max.X):
+        for y in (bb.Min.Y, bb.Max.Y):
+            for z in (bb.Min.Z, bb.Max.Z):
+                q = tf.OfPoint(XYZ(x, y, z))
+                xs.append(q.X)
+                ys.append(q.Y)
+                zs.append(q.Z)
+    return ((min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs)))
 
 
 # everything a fence may drape onto; AUTO terrain only considers the
@@ -366,84 +479,223 @@ def terrain_cat_ids(names=TERRAIN_CAT_NAMES):
     return out
 
 
-def terrain_elements(doc, names=TERRAIN_CAT_NAMES):
-    """Every model element of the terrain categories."""
+def terrain_elements(doc, names=TERRAIN_CAT_NAMES, links=False):
+    """Every element of the terrain categories: host elements, plus -
+    with ``links`` - (link instance, element) pairs from every LOADED
+    link."""
     out = []
-    for n in names:
-        if not hasattr(BuiltInCategory, n):
-            continue
+    docs = [(None, doc)]
+    if links:
         try:
-            for el in FilteredElementCollector(doc).OfCategory(
-                    getattr(BuiltInCategory, n)) \
-                    .WhereElementIsNotElementType():
-                out.append(el)
+            for li in FilteredElementCollector(doc).OfClass(
+                    RevitLinkInstance):
+                ldoc = li.GetLinkDocument()
+                if ldoc is not None:
+                    docs.append((li, ldoc))
         except Exception:
-            continue
+            pass
+    for li, d in docs:
+        for n in names:
+            if not hasattr(BuiltInCategory, n):
+                continue
+            try:
+                for el in FilteredElementCollector(d).OfCategory(
+                        getattr(BuiltInCategory, n)) \
+                        .WhereElementIsNotElementType():
+                    out.append(el if li is None else (li, el))
+            except Exception:
+                continue
     return out
 
 
-def terrains_by_name(doc, names):
+def terrains_by_name(doc, names, links=False):
     """The terrain-category elements whose NAME matches any of the
     stored config names (case-insensitive) - every element carrying
-    the name matches, so 'the topo called X' can be several pieces.
-    Returns (elements, missing_names)."""
+    the name matches, so 'the topo called X' can be several pieces,
+    in the host model and (with ``links``) in loaded links too.
+    Returns (items, missing_names)."""
     want = dict((str(n).strip().lower(), str(n)) for n in names or []
                 if str(n).strip())
     found, hit = [], set()
-    for el in terrain_elements(doc):
-        key = element_name(el).strip().lower()
+    for t in terrain_elements(doc, links=links):
+        key = element_name(terrain_el(t)).strip().lower()
         if key in want:
-            found.append(el)
+            found.append(t)
             hit.add(key)
     missing = [want[k] for k in want if k not in hit]
     return found, missing
 
 
-def _el_bbox2d(el):
+def _el_bbox2d(t):
     try:
-        bb = el.get_BoundingBox(None)
+        bb = _t_bbox(t)
         if bb is None:
             return None
-        return (bb.Min.X, bb.Min.Y, bb.Max.X, bb.Max.Y)
+        return (bb[0][0], bb[0][1], bb[1][0], bb[1][1])
     except Exception:
         return None
 
 
-def auto_terrains(doc, polys):
+def auto_terrains(doc, polys, links=False):
     """AUTO terrain: every Toposolid / Topography element whose plan
     footprint overlaps the lines' footprint (bounding boxes, with a
-    small margin). Over-inclusion is harmless - the ray-cast only
-    ever lands on the surfaces that are really under a station."""
+    small margin), searching loaded links too when ``links``.
+    Over-inclusion is harmless - the ray-cast only ever lands on the
+    surfaces that are really under a station."""
     lines_bb = F.bbox2d(polys)
     if lines_bb is None:
         return []
     margin = mm2ft(AUTO_TERRAIN_MARGIN_MM)
     out = []
-    for el in terrain_elements(doc, AUTO_TERRAIN_CAT_NAMES):
-        if F.boxes_overlap_2d(lines_bb, _el_bbox2d(el), margin):
-            out.append(el)
+    for t in terrain_elements(doc, AUTO_TERRAIN_CAT_NAMES, links):
+        if F.boxes_overlap_2d(lines_bb, _el_bbox2d(t), margin):
+            out.append(t)
     return out
 
 
+def floors_of_type(doc, type_name, polys, links=False):
+    """ALIGN TO FLOORS: every floor whose TYPE name matches
+    ``type_name`` (case-insensitive) and whose plan footprint
+    overlaps the lines - host model plus loaded links when
+    ``links``. ``polys`` None skips the footprint test."""
+    want = str(type_name or "").strip().lower()
+    if not want:
+        return []
+    lines_bb = F.bbox2d(polys) if polys else None
+    margin = mm2ft(AUTO_TERRAIN_MARGIN_MM)
+    out = []
+    for t in terrain_elements(doc, ("OST_Floors",), links):
+        el = terrain_el(t)
+        try:
+            tel = el.Document.GetElement(el.GetTypeId())
+            nm = element_name(tel).strip().lower()
+        except Exception:
+            continue
+        if nm != want:
+            continue
+        if lines_bb is not None and not F.boxes_overlap_2d(
+                lines_bb, _el_bbox2d(t), margin):
+            continue
+        out.append(t)
+    return out
+
+
+def floor_type_names(doc, links=True):
+    """Every floor TYPE name in the host model and loaded links -
+    the editor's ALIGN TO FLOORS dropdown."""
+    names = set()
+    docs = [doc]
+    if links:
+        try:
+            for li in FilteredElementCollector(doc).OfClass(
+                    RevitLinkInstance):
+                ldoc = li.GetLinkDocument()
+                if ldoc is not None:
+                    docs.append(ldoc)
+        except Exception:
+            pass
+    for d in docs:
+        try:
+            for ft in FilteredElementCollector(d).OfCategory(
+                    BuiltInCategory.OST_Floors).WhereElementIsElementType():
+                nm = element_name(ft).strip()
+                if nm:
+                    names.add(nm)
+        except Exception:
+            pass
+    return sorted(names)
+
+
+def pick_terrain(uidoc, doc, links=False):
+    """Pick ONE terrain item in the view. With ``links`` the pick
+    starts INSIDE loaded links (ESC drops through to a host pick);
+    without it, host only. Returns a terrain item or None."""
+    from Autodesk.Revit.UI.Selection import (ObjectType,
+                                             ISelectionFilter)
+    cats = terrain_cat_ids()
+
+    class _Host(ISelectionFilter):
+        def AllowElement(self, e):
+            try:
+                return id_value(e.Category.Id) in cats
+            except Exception:
+                return False
+
+        def AllowReference(self, r, p):
+            return False
+
+    class _Linked(ISelectionFilter):
+        def AllowElement(self, e):
+            return True              # the reference decides
+
+        def AllowReference(self, r, p):
+            try:
+                li = doc.GetElement(r.ElementId)
+                if not isinstance(li, RevitLinkInstance):
+                    return False
+                el = li.GetLinkDocument().GetElement(
+                    r.LinkedElementId)
+                return id_value(el.Category.Id) in cats
+            except Exception:
+                return False
+
+    if links:
+        try:
+            r = uidoc.Selection.PickObject(
+                ObjectType.LinkedElement, _Linked(),
+                "Pick the TERRAIN inside a LINK - or press ESC to "
+                "pick in this model instead")
+            li = doc.GetElement(r.ElementId)
+            el = li.GetLinkDocument().GetElement(r.LinkedElementId)
+            if el is not None:
+                return (li, el)
+        except Exception:
+            pass
+    try:
+        r = uidoc.Selection.PickObject(
+            ObjectType.Element, _Host(),
+            "Pick the TERRAIN (toposolid / topography / floor / "
+            "roof)")
+        return doc.GetElement(r.ElementId)
+    except Exception:
+        return None
+
+
 def resolve_terrains(doc, cfg, polys):
-    """The terrain elements a config asks for: (elements, note).
-    Empty elements means the CALLER should fall back to picking -
-    the note says why (also logged when elements were found)."""
+    """The terrain items a config asks for: (items, note). Empty
+    items means the CALLER should fall back to picking - the note
+    says why (also logged when items were found). Honours the
+    config's ALIGN TO (topo / floors of one type) and its INCLUDE
+    LINKED FILES switch."""
+    links = bool(cfg.get("link_terrain"))
+    lk = " incl. links" if links else ""
+    if str(cfg.get("align_to") or "").strip().lower() == \
+            F.ALIGN_FLOORS:
+        ft = str(cfg.get("floor_type") or "").strip()
+        if not ft:
+            return [], ("ALIGN TO FLOORS is set but no floor type "
+                        "is chosen - pick the terrain instead")
+        els = floors_of_type(doc, ft, polys, links)
+        if not els:
+            return [], ("no '{}' floors under the lines{} - pick "
+                        "the terrain instead".format(ft, lk))
+        return els, "floors of type '{}': {} piece(s){}".format(
+            ft, len(els), lk)
     mode = str(cfg.get("terrain_mode") or "").strip().lower()
     if mode == F.TERRAIN_AUTO:
-        els = auto_terrains(doc, polys)
+        els = auto_terrains(doc, polys, links)
         if not els:
             return [], ("AUTO terrain found no topo under the "
-                        "lines - pick it instead")
-        return els, "AUTO terrain: {}".format(", ".join(
-            sorted(set(element_name(e) for e in els))))
+                        "lines{} - pick it instead".format(lk))
+        return els, "AUTO terrain{}: {}".format(lk, ", ".join(
+            sorted(set(terrain_display(e) for e in els))))
     if mode == F.TERRAIN_NAMED:
         names = cfg.get("terrains") or []
         if not names:
             return [], ("the config names no terrain - pick it "
                         "instead")
-        els, missing = terrains_by_name(doc, names)
-        note = "config terrain: {}".format(", ".join(
+        els, missing = terrains_by_name(doc, names, links)
+        note = "config terrain{}: {}".format(lk, ", ".join(
             str(n) for n in names))
         if missing:
             note += " (NOT in the model: {})".format(", ".join(
@@ -1156,11 +1408,11 @@ def model_network(doc, line_els, terrain, cfgs, view3d, say=None,
         if say:
             say(msg)
 
-    ri = make_intersector(view3d)
     levels = sorted_levels(doc)
     terrains = list(terrain) if isinstance(
-        terrain, (list, tuple)) else [terrain]
-    terrain_id = set(id_value(t.Id) for t in terrains)
+        terrain, list) else [terrain]
+    ri = make_intersector(view3d, links=any_linked(terrains))
+    terrain_id = terrain_keys(terrains)
     ray_z = ray_start_z(terrains + list(line_els))
     tol = mm2ft(NODE_TOL_MM)
 

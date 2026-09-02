@@ -100,7 +100,7 @@ def _terrains_of(rec):
         ([rec.get("terrain_uid")] if rec.get("terrain_uid") else [])
     out = []
     for uid in uids:
-        el = _by_uid(uid)
+        el = FR.terrain_by_uid(doc, uid)
         if el is not None:
             out.append(el)
     return out
@@ -385,7 +385,8 @@ if view3d is None:
     log.close()
     forms.alert("No 3D view found in the model - create one and "
                 "re-run.", exitscript=True)
-ri = FR.make_intersector(view3d)
+ri = FR.make_intersector(view3d, links=any(
+    FR.any_linked(r.get("terrains") or []) for r in picked))
 levels = FR.sorted_levels(doc)
 log("Ray-casting in 3D view **{}**.".format(view3d.Name))
 
@@ -517,7 +518,7 @@ try:
             continue
 
         ray_z = FR.ray_start_z(terrains + [line_el])
-        terrain_id = set(FR.id_value(t.Id) for t in terrains)
+        terrain_id = FR.terrain_keys(terrains)
         extra_rot = math.radians(eff["rotation_deg"])
         cfg_notes = _config_notes(rec, eff)
 
