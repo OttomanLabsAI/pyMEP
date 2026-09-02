@@ -10,8 +10,9 @@
 #      RADIANS, lengths in FEET - while Properties shows project units
 #      (degrees, mm). Copying a measured value into a plain number / text
 #      parameter therefore asks whether to write it AS SHOWN (degrees, mm -
-#      the default, rounded to 2 dp) or as the raw internal number; copying
-#      a plain number
+#      the default; angles snap to the standard bend series 11.25 / 22.5 /
+#      45 / 90 and 5-degree steps, other values round to 2 dp) or as the raw
+#      internal number; copying a plain number
 #      INTO a measured parameter asks whether that number is in the shown
 #      units (converted in) or already internal. Measured-to-measured of
 #      the same kind copies raw, which Revit displays correctly.
@@ -144,6 +145,36 @@ def _to_internal(value, unit):
 
 
 DISPLAY_DP = 2      # converted "as shown" values round to this
+
+# ANGLES snap to the standard bend series - multiples of 11.25 deg
+# (11.25, 22.5, 33.75, 45, ... 90) - and to whole 5 deg steps, when
+# the converted value sits within this of one. Radians -> degrees
+# lands at 22.499999999999996, which must read 22.5, not 22.5 to 2 dp
+# by luck; a value genuinely off the series stays as it is.
+ANGLE_SNAP_STEPS = (11.25, 5.0)
+ANGLE_SNAP_TOL = 0.01
+
+
+def _is_angle_unit(unit):
+    """True when a display unit is an angle in degrees."""
+    try:
+        tid = unit.TypeId                     # ForgeTypeId (2021+)
+    except Exception:
+        tid = str(unit)                       # DisplayUnitType (<=2020)
+    return "degree" in str(tid).lower()
+
+
+def _snap_std_angle(v):
+    """A degrees value snapped onto the standard bend angles when it
+    is within ANGLE_SNAP_TOL of one (11.25, 22.5, 45, 90 ...) -
+    exactly, so it prints with its natural decimals - else the value
+    rounded to DISPLAY_DP."""
+    v = float(v)
+    for step in ANGLE_SNAP_STEPS:
+        cand = round(v / step) * step
+        if abs(v - cand) <= ANGLE_SNAP_TOL:
+            return cand
+    return round(v, DISPLAY_DP)
 
 
 def _num_text(v):
@@ -397,10 +428,13 @@ def _convert(st, val):
         return st, val
     try:
         if unit_mode == "display":
-            # as shown in Properties, rounded to 2 dp - a plain
-            # number / text target wants 22.5, not 22.499999999
-            return (DB.StorageType.Double,
-                    round(_to_display(val, src_unit), DISPLAY_DP))
+            # as shown in Properties: angles snap onto the standard
+            # bend series (11.25 / 22.5 / 45 / 90 print exactly so),
+            # everything else rounds to 2 dp
+            shown = _to_display(val, src_unit)
+            if _is_angle_unit(src_unit):
+                return DB.StorageType.Double, _snap_std_angle(shown)
+            return DB.StorageType.Double, round(shown, DISPLAY_DP)
         if unit_mode == "to_internal":
             return DB.StorageType.Double, _to_internal(val, tgt_unit)
     except Exception:
