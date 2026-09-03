@@ -159,3 +159,22 @@ def letters_needed(plans, letters=SIDE_LETTERS):
         if len(sides) > most:
             most = len(sides)
     return tuple(letters[:most])
+
+
+def pair_segments(points):
+    """The runs a fitting stands for: every pair of its connector points
+    (an elbow gives one, a tee three, a cross six). A single point comes
+    back as a zero-length run so a cap sitting on the plane still counts.
+    Fittings are judged this way rather than by bounding box, because a
+    chamber whose family happens to be a fitting category has a footprint
+    that would otherwise 'cut' every side of its own sections."""
+    pts = list(points or [])
+    if not pts:
+        return []
+    if len(pts) == 1:
+        return [(pts[0], pts[0])]
+    out = []
+    for i in range(len(pts) - 1):
+        for j in range(i + 1, len(pts)):
+            out.append((pts[i], pts[j]))
+    return out

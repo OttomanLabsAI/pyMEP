@@ -19,8 +19,14 @@ For each chosen chamber:
     the chamber's plan rotation): +X, +Y, -X, -Y.
   * With the pipework check on, each side's section plane is tested against
     every pipe, conduit, duct, cable tray and their fittings in the model
-    and its loaded links. A side whose plane nothing crosses (within the
-    crop width / height) would show an empty vault wall, so it is dropped.
+    and its loaded links. Runs are tested on their centreline; fittings on
+    the runs between their CONNECTORS (never on their bounding box). The
+    chambers being sectioned, every other instance of their family types
+    and anything nested in them are left out of the test - a chamber whose
+    family is a fitting or accessory category is not pipework, and its
+    footprint would otherwise 'cut' every one of its own sides. A side
+    whose plane nothing crosses (within the crop width / height) would
+    show an empty vault wall, so it is dropped.
     If NO side cuts anything (empty chamber, or no MEP in the model at all)
     all four sides are kept and the report says so.
   * The surviving sections are named "{Mark} SIDE A", "{Mark} SIDE B", ... in
@@ -633,32 +639,68 @@ def _run_points(el, tf):
     return [_t(p) for p in pts]
 
 
-def _world_box(el, tf):
-    # World AABB of a fitting; a linked box is re-boxed after transforming
-    # its corners (conservative, which errs toward keeping the section).
+def _connector_points(el, tf):
+    # Connector origins of a fitting / accessory in WORLD feet, plus the
+    # largest connector radius. (None, 0) when it has no connectors.
+    cm = None
     try:
-        bb = el.get_BoundingBox(None)
+        mm = el.MEPModel
+        cm = mm.ConnectorManager if mm is not None else None
     except Exception:
-        bb = None
-    if bb is None:
-        return None
-    if tf is None:
-        return (_t(bb.Min), _t(bb.Max))
-    lo = [None, None, None]
-    hi = [None, None, None]
-    for x in (bb.Min.X, bb.Max.X):
-        for y in (bb.Min.Y, bb.Max.Y):
-            for z in (bb.Min.Z, bb.Max.Z):
-                w = tf.OfPoint(XYZ(x, y, z))
-                for k, v in enumerate((w.X, w.Y, w.Z)):
-                    if lo[k] is None or v < lo[k]:
-                        lo[k] = v
-                    if hi[k] is None or v > hi[k]:
-                        hi[k] = v
-    return (tuple(lo), tuple(hi))
+        cm = None
+    if cm is None:
+        return None, 0.0
+    try:
+        conns = list(cm.Connectors)
+    except Exception:
+        return None, 0.0
+    pts = []
+    radius = 0.0
+    for c in conns:
+        try:
+            o = c.Origin
+        except Exception:
+            continue
+        if o is None:
+            continue
+        if tf is not None:
+            o = tf.OfPoint(o)
+        pts.append(_t(o))
+        r = 0.0
+        try:
+            r = c.Radius
+        except Exception:
+            r = 0.0
+        if not r:
+            try:
+                r = max(c.Width, c.Height) * 0.5
+            except Exception:
+                r = 0.0
+        if r and r > radius:
+            radius = r
+    return pts, radius
 
 
-def _collect_mep(src_doc, tf, runs, boxes):
+def _is_excluded(el, skip_ids):
+    # The chambers themselves, and anything nested in them, are never
+    # pipework - whatever category their family uses.
+    if not skip_ids:
+        return False
+    try:
+        if el.Id.IntegerValue in skip_ids:
+            return True
+    except Exception:
+        pass
+    try:
+        sup = el.SuperComponent
+        if sup is not None and sup.Id.IntegerValue in skip_ids:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _collect_mep(src_doc, tf, runs, skip_ids, tally):
     for name in RUN_CATS:
         bic = getattr(BuiltInCategory, name, None)
         if bic is None:
@@ -669,9 +711,13 @@ def _collect_mep(src_doc, tf, runs, boxes):
         except Exception:
             continue
         for el in els:
+            if _is_excluded(el, skip_ids):
+                tally["excluded"] += 1
+                continue
             pts = _run_points(el, tf)
             if pts and len(pts) >= 2:
                 runs.append((pts, _radius_ft(el)))
+                tally["runs"] += 1
     for name in FITTING_CATS:
         bic = getattr(BuiltInCategory, name, None)
         if bic is None:
@@ -682,18 +728,26 @@ def _collect_mep(src_doc, tf, runs, boxes):
         except Exception:
             continue
         for el in els:
-            box = _world_box(el, tf)
-            if box is not None:
-                boxes.append(box)
+            if _is_excluded(el, skip_ids):
+                tally["excluded"] += 1
+                continue
+            pts, radius = _connector_points(el, tf)
+            if not pts:
+                tally["no_conn"] += 1
+                continue
+            for p0, p1 in SC.pair_segments(pts):
+                runs.append(([p0, p1], radius))
+            tally["fittings"] += 1
 
 
-def _mep_geometry():
-    # Pipework runs (centreline points + radius) and fitting boxes in world
-    # feet, from the host model and every LOADED link. Returns
-    # (runs, boxes, number of links that contributed).
+def _mep_geometry(skip_ids):
+    # Pipework runs (centreline points + radius) in world feet from the
+    # host model and every LOADED link; fittings contribute the runs
+    # between their connectors. Returns (runs, tally, links that
+    # contributed).
     runs = []
-    boxes = []
-    _collect_mep(doc, None, runs, boxes)
+    tally = {"runs": 0, "fittings": 0, "no_conn": 0, "excluded": 0}
+    _collect_mep(doc, None, runs, skip_ids, tally)
     linked = 0
     try:
         link_insts = list(FilteredElementCollector(doc)
@@ -711,11 +765,11 @@ def _mep_geometry():
             tf = li.GetTotalTransform()
         except Exception:
             continue
-        before = len(runs) + len(boxes)
-        _collect_mep(ldoc, tf, runs, boxes)
-        if len(runs) + len(boxes) > before:
+        before = len(runs)
+        _collect_mep(ldoc, tf, runs, set(), tally)
+        if len(runs) > before:
             linked += 1
-    return runs, boxes, linked
+    return runs, tally, linked
 
 
 def _side_frame(side_idx, centre, angle, half_lx, half_ly):
@@ -769,8 +823,8 @@ def _section_box(frame):
     return box
 
 
-def _count_cuts(frame, runs, boxes):
-    # How many pipework elements this side's section plane cuts.
+def _count_cuts(frame, runs):
+    # How many pipework runs this side's section plane cuts.
     sc_frame = (_t(frame["origin"]), _t(frame["right"]), _t(frame["up"]),
                 _t(frame["look"]))
     hw, hh = frame["half_w"], frame["half_h"]
@@ -778,14 +832,26 @@ def _count_cuts(frame, runs, boxes):
     for pts, radius in runs:
         if SC.polyline_cut(sc_frame, pts, hw, hh, radius):
             n += 1
-    for bmin, bmax in boxes:
-        if SC.box_cut(sc_frame, bmin, bmax, hw, hh):
-            n += 1
     return n
 
 
-mep_runs, mep_boxes, mep_links = _mep_geometry()
-have_mep = bool(mep_runs or mep_boxes)
+# The chambers being sectioned - and every other placed instance of their
+# family types - are never pipework, whatever category the family uses.
+skip_ids = set()
+_target_typeids = set()
+for _inst in target_chambers:
+    skip_ids.add(_inst.Id.IntegerValue)
+    try:
+        _target_typeids.add(_inst.GetTypeId().IntegerValue)
+    except Exception:
+        pass
+for _tid, _insts in inst_by_typeid.items():
+    if _tid in _target_typeids:
+        for _fi in _insts:
+            skip_ids.add(_fi.Id.IntegerValue)
+
+mep_runs, mep_tally, mep_links = _mep_geometry(skip_ids)
+have_mep = bool(mep_runs)
 
 # Resolve each chamber's geometry and side plan; skip any without a location.
 chamber_jobs = []
@@ -808,7 +874,7 @@ for inst in target_chambers:
     frames = [_side_frame(i, centre, angle, half_lx, half_ly)
               for i in range(len(SIDE_LETTERS))]
     if have_mep:
-        counts = [_count_cuts(f, mep_runs, mep_boxes) for f in frames]
+        counts = [_count_cuts(f, mep_runs) for f in frames]
     else:
         counts = [0] * len(frames)      # nothing to test: keep every side
     if cut_only:
@@ -870,14 +936,27 @@ try:
                 continue
             base = "{0} SIDE {1}".format(job["stem"], letter)
             name = _unique_name(base, view_names)
-            try:
-                sec.Name = name
-                view_names.add(name)
-            except Exception as ex:
+            # Rename, falling back through _2, _3... if Revit still says
+            # the name is taken (a clash our view list did not see).
+            renamed = False
+            last_ex = None
+            for cand in [name] + ["{0}_{1}".format(name, i)
+                                  for i in range(2, 7)]:
+                try:
+                    sec.Name = cand
+                except Exception as ex:
+                    last_ex = ex
+                    continue
+                name = cand
+                view_names.add(cand)
+                renamed = True
+                break
+            if not renamed:
                 # Keep the auto-generated name; report the failure as an
                 # error instead of stuffing the exception into the name.
                 errors.append((job["stem"], letter,
-                               "rename to '{0}' failed: {1}".format(name, ex)))
+                               "rename to '{0}' failed: {1}".format(
+                                   name, last_ex)))
                 try:
                     name = sec.Name
                 except Exception:
@@ -949,10 +1028,17 @@ out.print_md("**Offset:** {0:.0f} mm  |  **Height:** {1:.0f} mm  |  "
              "planned  |  **Associations stored:** {5}".format(
                  offset_mm, height_mm, depth_mm, len(created),
                  planned_total, assoc_stored))
-_mep_note = "**Pipework checked:** {0} run(s), {1} fitting(s)".format(
-    len(mep_runs), len(mep_boxes))
+_mep_note = ("**Pipework checked:** {0} run(s), {1} fitting(s) by their "
+             "connectors".format(mep_tally["runs"], mep_tally["fittings"]))
+if mep_tally["no_conn"]:
+    _mep_note += " ({0} without connectors ignored)".format(
+        mep_tally["no_conn"])
 if mep_links:
-    _mep_note += " including {0} linked model(s)".format(mep_links)
+    _mep_note += ", including {0} linked model(s)".format(mep_links)
+if mep_tally["excluded"]:
+    _mep_note += ("; {0} element(s) left out as chambers of the sectioned "
+                  "family type(s) or nested in them".format(
+                      mep_tally["excluded"]))
 if not cut_only:
     _mep_note += ("  -  the pipework check is OFF, so every side was "
                   "created (counts shown for information).")
@@ -979,6 +1065,17 @@ for stem, idx, letter, cuts, name in created:
 out.print_table(table_data=rows,
                 columns=["Chamber", "Section", "Chamber side",
                          "Pipework cut", "Section type", "Section view"])
+
+# Cuts counted on EVERY side, created or not, so a wrong keep / drop can
+# be read straight off the report.
+if have_mep:
+    out.print_md("**Cuts per chamber side** (side letter = chamber side, "
+                 "before re-lettering):")
+    for job in chamber_jobs:
+        out.print_md("- {0}: {1}".format(job["stem"], ", ".join(
+            "{0} ({1}) = {2}".format(SIDE_LETTERS[i], SIDE_LABELS[i],
+                                     job["counts"][i])
+            for i in range(len(SIDE_LETTERS)))))
 
 # Sides not created because nothing crosses their plane.
 dropped = []

@@ -135,6 +135,32 @@ class BoxCut(unittest.TestCase):
         self.assertTrue(SC.box_cut(FA, (10, -1, -1), (12, 1, 1), HW, HH))
 
 
+class PairSegments(unittest.TestCase):
+    def test_counts(self):
+        self.assertEqual(SC.pair_segments([]), [])
+        self.assertEqual(SC.pair_segments([(1, 2, 3)]), [((1, 2, 3), (1, 2, 3))])
+        self.assertEqual(len(SC.pair_segments([1, 2])), 1)
+        self.assertEqual(len(SC.pair_segments([1, 2, 3])), 3)
+        self.assertEqual(len(SC.pair_segments([1, 2, 3, 4])), 6)
+
+    def test_elbow_on_the_plane_counts_but_chamber_stubs_do_not(self):
+        # an elbow just outside the plane: connectors either side of x = 10
+        elbow = SC.pair_segments([(9.5, 0, 0), (10.5, 0.2, 0)])
+        self.assertTrue(any(SC.segment_cut(FA, a, b, HW, HH) for a, b in elbow))
+        # a chamber modelled as a fitting: connectors on its four faces,
+        # all well inside the plane - no pair reaches x = 10
+        stubs = SC.pair_segments([(2, 0, 0), (-2, 0, 0), (0, 2, 0), (0, -2, 0)])
+        self.assertFalse(any(SC.segment_cut(FA, a, b, HW, HH) for a, b in stubs))
+
+    def test_cap_on_plane(self):
+        cap = SC.pair_segments([(10.0, 0.5, 0.0)])
+        self.assertTrue(all(SC.segment_cut(FA, a, b, HW, HH) for a, b in cap))
+        cap2 = SC.pair_segments([(10.4, 0.5, 0.0)])
+        self.assertFalse(any(SC.segment_cut(FA, a, b, HW, HH) for a, b in cap2))
+        self.assertTrue(any(SC.segment_cut(FA, a, b, HW, HH, radius=0.5)
+                            for a, b in cap2))
+
+
 class PlanSides(unittest.TestCase):
     def test_two_sides_cut(self):
         sides, all_kept = SC.plan_sides([3, 0, 2, 0])
