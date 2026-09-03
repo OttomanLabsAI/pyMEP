@@ -5,20 +5,22 @@ For each chamber (current selection, or a family type you pick):
   0. NAME = the chamber's instance parameter "Mark", nothing else. A chamber
      with a blank Mark is NOT processed - it is listed as skipped in the
      preview and the report so it can be populated and re-run.
-  1. ENSURE a scope box: if a scope box named after the Mark already exists
-     AND sits over the chamber in plan, the chamber is skipped; if it exists
-     but sits somewhere else the box is left alone, no plan is made for it
-     and it is reported as misplaced. Otherwise the seed scope box is copied,
+  1. ENSURE a scope box named after the Mark: if one exists and sits over
+     the chamber in plan it is used as is; if it exists but sits somewhere
+     else (a copy that never got moved, a chamber that moved) it is MOVED
+     over the chamber in plan; otherwise the seed scope box is copied,
      moved IN PLAN to the chamber centre (it keeps the seed's vertical
      extent, so it stays visible in this plan view), rotated to the
      chamber's rotation and renamed.
-  2. Then EVERY chamber scope box in the project (excluding the seed) that
-     has no plan view of the same name gets one: the active plan is
-     duplicated, renamed to the scope box name and the scope box applied.
-     The apply is CHECKED: if Revit refuses the box (typically because the
-     box is not visible in this plan), the duplicate is removed and the
-     refusal reported, so no view is ever left showing the wrong crop.
-     This backfills plans for boxes made in earlier runs too.
+  2. ENSURE a plan view named after the Mark with that scope box applied -
+     only for the chambers being processed (nothing else in the project is
+     touched). The plan is a duplicate of the active plan, or a FRESH plan
+     on the active plan's level (carrying its view template) when the
+     active plan is a callout, a dependent or an assembly view: duplicates
+     of those cannot take a scope box at all. The apply is CHECKED and the
+     other method is tried before giving up; a view that cannot take its
+     box is removed and the reason reported, so no view is ever left
+     showing the wrong crop.
 
 IMPORTANT - Revit API limitation: there is NO API to create a scope box from
 nothing; scope boxes can only be COPIED from an existing one. So one seed
@@ -38,8 +40,8 @@ clr.AddReference("RevitAPI")
 clr.AddReference("RevitAPIUI")
 
 from Autodesk.Revit.DB import (
-    Transaction, ViewType, View, ViewDuplicateOption,
-    XYZ, Line, ElementTransformUtils, ElementId,
+    Transaction, ViewType, View, ViewDuplicateOption, ViewPlan,
+    ViewFamilyType, ViewFamily, XYZ, Line, ElementTransformUtils, ElementId,
     FilteredElementCollector, FamilyInstance, BuiltInParameter,
     BuiltInCategory, Element,
 )
@@ -194,35 +196,142 @@ def _box_over_point(sb, pt):
             bb.Min.Y - PLACE_TOL_FT <= pt.Y <= bb.Max.Y + PLACE_TOL_FT)
 
 
-def _apply_scope_box(v, sb):
-    # Attach the scope box to the view and CHECK it took. Returns
-    # (ok, reason). Revit's Set returns False - no exception - when the box
-    # can't be applied, most often because the box is not visible in the
-    # view (its vertical extent misses the view's level / cut plane).
+def _valid_id(eid):
+    return eid is not None and eid != ElementId.InvalidElementId
+
+
+def _source_kind(v):
+    # What sort of plan the active view is. Callouts, dependents and
+    # assembly views cannot carry a scope box - nor can their duplicates.
+    try:
+        if v.IsCallout:
+            return "callout"
+    except Exception:
+        pass
+    try:
+        p = v.get_Parameter(BuiltInParameter.SECTION_PARENT_VIEW_NAME)
+        if p is not None and (p.AsString() or "").strip():
+            return "callout"
+    except Exception:
+        pass
+    try:
+        if _valid_id(v.GetPrimaryViewId()):
+            return "dependent view"
+    except Exception:
+        pass
+    try:
+        if v.IsAssemblyView:
+            return "assembly view"
+    except Exception:
+        pass
+    return "plain plan"
+
+
+def _diag_view(v):
+    # Why a view might not take a scope box, for the report.
+    bits = [_source_kind(v)]
+    try:
+        tid = v.ViewTemplateId
+        if _valid_id(tid):
+            bits.append("template '{0}'".format(_elem_name(doc.GetElement(tid))))
+    except Exception:
+        pass
     try:
         p = v.get_Parameter(BuiltInParameter.VIEWER_VOLUME_OF_INTEREST_CROP)
+        if p is not None:
+            eid = p.AsElementId()
+            if _valid_id(eid):
+                bits.append("scope box '{0}' already on it".format(
+                    _elem_name(doc.GetElement(eid))))
     except Exception:
-        p = None
+        pass
+    try:
+        bits.append("crop {0}".format("on" if v.CropBoxActive else "off"))
+    except Exception:
+        pass
+    return ", ".join(bits)
+
+
+def _scope_param(v):
+    try:
+        return v.get_Parameter(BuiltInParameter.VIEWER_VOLUME_OF_INTEREST_CROP)
+    except Exception:
+        return None
+
+
+def _try_set_box(v, sb):
+    # One attempt. None on success, else a short reason. "read-only" is
+    # special-cased by the caller.
+    p = _scope_param(v)
     if p is None:
-        return False, "the view has no Scope Box parameter"
+        return "the view has no Scope Box parameter"
     if p.IsReadOnly:
-        return False, ("the Scope Box parameter is read-only on this view "
-                       "(view template or dependent view?)")
+        return "read-only"
     try:
         done = p.Set(sb.Id)
     except Exception as ex:
-        return False, "Revit refused the scope box: {0}".format(ex)
+        return "Revit refused the scope box: {0}".format(ex)
     if not done:
-        return False, ("Revit refused the scope box - it is probably not "
-                       "visible in this plan (its vertical extent misses the "
-                       "view's level / cut plane)")
+        return ("Revit refused the scope box - it is probably not visible in "
+                "this plan (its vertical extent misses the view's level / "
+                "cut plane)")
     try:
         got = p.AsElementId()
-        if got is None or got.IntegerValue != sb.Id.IntegerValue:
-            return False, "the view did not keep the scope box"
+        if not _valid_id(got) or got.IntegerValue != sb.Id.IntegerValue:
+            return "the view did not keep the scope box"
     except Exception:
         pass
-    return True, ""
+    return None
+
+
+def _apply_scope_box(v, sb):
+    # Attach the scope box to the view and CHECK it took. Returns (ok, note)
+    # - the note says which extra step was needed, or why it failed.
+    # Revit's Set returns False (no exception) when a box can't be applied,
+    # and reports the parameter read-only on views that can't carry one.
+    why = _try_set_box(v, sb)
+    if why is None:
+        return True, ""
+    if why == "read-only":
+        try:
+            doc.Regenerate()
+        except Exception:
+            pass
+        why = _try_set_box(v, sb)
+        if why is None:
+            return True, "after regenerate"
+    if why == "read-only":
+        # A view template can lock parameters: detach, set, re-attach.
+        tid = None
+        try:
+            tid = v.ViewTemplateId
+        except Exception:
+            tid = None
+        if _valid_id(tid):
+            try:
+                v.ViewTemplateId = ElementId.InvalidElementId
+                why2 = _try_set_box(v, sb)
+            except Exception as ex:
+                why2 = "detaching the template failed: {0}".format(ex)
+            try:
+                v.ViewTemplateId = tid
+            except Exception:
+                pass
+            if why2 is None:
+                p = _scope_param(v)
+                try:
+                    got = p.AsElementId() if p is not None else None
+                except Exception:
+                    got = None
+                if _valid_id(got) and got.IntegerValue == sb.Id.IntegerValue:
+                    return True, "template detached and re-applied"
+                why = "the view template resets the scope box"
+            else:
+                why = why2
+    if why == "read-only":
+        why = ("the Scope Box parameter is read-only on this view "
+               "({0})".format(_diag_view(v)))
+    return False, why
 
 
 # ---------------------------------------------------------------------------
@@ -351,44 +460,12 @@ if not target_instances:
 
 
 # ---------------------------------------------------------------------------
-# 3. Existing names: scope boxes (all) + chamber boxes eligible for plans.
-#    Backfill is restricted to boxes whose name matches the (sanitized) Mark
-#    of an instance of the chosen family type - collected over ALL placed
-#    instances of that type, not just this run's chambers, so boxes made in
-#    earlier runs still backfill but unrelated scope boxes are never touched.
+# 3. Jobs: one per chamber Mark. Chambers without a Mark are NOT processed.
 # ---------------------------------------------------------------------------
-target_typeids = set()
-for inst in target_instances:
-    try:
-        tid = inst.GetTypeId()
-        if tid is not None and tid != ElementId.InvalidElementId:
-            target_typeids.add(tid.IntegerValue)
-    except Exception:
-        pass
-
-allowed_box_names = set()
-inst_by_box_name = {}    # sanitized Mark -> chamber instance (for placement)
-for fi in FilteredElementCollector(doc).OfClass(FamilyInstance)\
-        .WhereElementIsNotElementType().ToElements():
-    try:
-        tid = fi.GetTypeId()
-        if tid is None or tid.IntegerValue not in target_typeids:
-            continue
-    except Exception:
-        continue
-    mk = _get_mark(fi)
-    if not mk:
-        continue         # blank Mark: never a box name
-    nm = _sanitize(mk)
-    allowed_box_names.add(nm)
-    inst_by_box_name.setdefault(nm, fi)
-
-# Chambers without a Mark are NOT processed - listed and warned instead.
 no_mark = []             # (ident, instance)
 marked_instances = []
 for inst in target_instances:
-    mk = _get_mark(inst)
-    if mk:
+    if _get_mark(inst):
         marked_instances.append(inst)
     else:
         no_mark.append(("Id {0} ({1})".format(
@@ -400,27 +477,9 @@ if not marked_instances:
                 .format(len(target_instances)), exitscript=True)
 target_instances = marked_instances
 
-sb_names = set()
-boxes_for_plans = {}     # scope box name -> element
-misplaced = {}           # scope box name -> chamber ident it should sit over
+sb_by_name = {}
 for sb in scope_boxes:
-    nm = _elem_name(sb)
-    sb_names.add(nm)
-    if sb.Id.IntegerValue == seed.Id.IntegerValue:
-        continue
-    if nm.strip().lower() == SEED_PREFERRED_NAME:
-        continue
-    if nm not in allowed_box_names:
-        continue     # not a chamber box of the chosen type - never backfill
-    # An existing box of the right name must actually sit over its chamber;
-    # otherwise a plan made from it would show the wrong place.
-    owner = inst_by_box_name.get(nm)
-    if owner is not None:
-        over = _box_over_point(sb, _world_centre(owner))
-        if over is False:
-            misplaced[nm] = _get_mark(owner) or nm
-            continue
-    boxes_for_plans[nm] = sb
+    sb_by_name.setdefault(_elem_name(sb), sb)
 
 view_names = set()
 for v in FilteredElementCollector(doc).OfClass(View):
@@ -429,35 +488,62 @@ for v in FilteredElementCollector(doc).OfClass(View):
     except Exception:
         pass
 
+jobs = []                # one per distinct Mark
+dup_marks = []           # (mark, instance) sharing a Mark with an earlier job
+seen_bases = set()
+for inst in target_instances:
+    mark = _get_mark(inst)
+    base = _sanitize(mark)
+    if base in seen_bases:
+        dup_marks.append((mark, inst))
+        continue
+    seen_bases.add(base)
+    job = {"inst": inst, "mark": mark, "base": base,
+           "centre": _world_centre(inst), "box": None, "box_note": "-",
+           "view_note": "-"}
+    sb = sb_by_name.get(base)
+    if sb is None or sb.Id.IntegerValue == seed.Id.IntegerValue:
+        job["box_state"] = "create"
+    else:
+        job["box"] = sb
+        over = _box_over_point(sb, job["centre"])
+        job["box_state"] = "misplaced" if over is False else "exists"
+    job["view_state"] = "exists" if base in view_names else "create"
+    jobs.append(job)
+
+planned_boxes = [j["base"] for j in jobs if j["box_state"] == "create"]
+moving_boxes = [j["base"] for j in jobs if j["box_state"] == "misplaced"]
+planned_views = [j["base"] for j in jobs if j["view_state"] == "create"]
+
+# How the plan views will be made. Duplicating a callout / dependent /
+# assembly view gives another view of the same kind, which cannot carry a
+# scope box, so those get FRESH plans on the active plan's level instead.
+src_kind = _source_kind(view)
+src_locked = False
+try:
+    _sp = _scope_param(view)
+    src_locked = bool(_sp is not None and _sp.IsReadOnly)
+except Exception:
+    src_locked = False
+prefer_fresh = (src_kind != "plain plan") or src_locked
+src_level = None
+try:
+    src_level = view.GenLevel
+except Exception:
+    src_level = None
+
 
 # ---------------------------------------------------------------------------
 # 3b. Preview + confirm BEFORE anything is created.
 # ---------------------------------------------------------------------------
-planned_boxes = []       # scope boxes this run will create (by name)
-for inst in target_instances:
-    base = _sanitize(_get_mark(inst))
-    if base not in sb_names and base not in planned_boxes:
-        planned_boxes.append(base)
-
-planned_views = []       # plan views this run will create (by name)
-for nm in sorted(set(list(boxes_for_plans.keys()) + planned_boxes),
-                 key=lambda s: s.lower()):
-    if nm not in view_names:
-        planned_views.append(nm)
-
-if not planned_boxes and not planned_views:
+if not planned_boxes and not planned_views and not moving_boxes:
     extra = ""
     if no_mark:
         extra += ("\n\n{0} chamber(s) were skipped because their Mark is "
                   "blank.".format(len(no_mark)))
-    if misplaced:
-        extra += ("\n\n{0} existing scope box(es) are named after a chamber "
-                  "but do not sit over it: {1}. Move, rename or delete them, "
-                  "then run again.".format(
-                      len(misplaced), ", ".join(sorted(misplaced))))
     forms.alert("Nothing to do.\n\n"
-                "Every chamber with a Mark already has a scope box, and "
-                "every chamber scope box already has a plan view." + extra,
+                "Every chamber with a Mark already has a scope box over it "
+                "and a plan view of the same name." + extra,
                 exitscript=True)
 
 
@@ -470,19 +556,31 @@ def _name_list(names, cap=15):
 _msg = ["This will create:", ""]
 _msg.append("Scope boxes: {0}".format(len(planned_boxes)))
 _msg.extend(_name_list(planned_boxes))
+if moving_boxes:
+    _msg.append("")
+    _msg.append("Existing scope boxes MOVED onto their chamber: {0}".format(
+        len(moving_boxes)))
+    _msg.extend(_name_list(moving_boxes))
 _msg.append("")
 _msg.append("Plan views: {0}".format(len(planned_views)))
 _msg.extend(_name_list(planned_views))
+if prefer_fresh:
+    _msg.append("")
+    _msg.append("The active view is a {0}, which cannot carry a scope box, "
+                "so the plan views are created FRESH on level '{1}' (with "
+                "the active view's template) instead of duplicated.".format(
+                    src_kind,
+                    _elem_name(src_level) if src_level is not None else "?"))
 if no_mark:
     _msg.append("")
     _msg.append("SKIPPED - blank Mark (populate it and re-run): {0}".format(
         len(no_mark)))
     _msg.extend(_name_list([ident for ident, _i in no_mark]))
-if misplaced:
+if dup_marks:
     _msg.append("")
-    _msg.append("MISPLACED - existing box does not sit over its chamber "
-                "(no plan made): {0}".format(len(misplaced)))
-    _msg.extend(_name_list(sorted(misplaced)))
+    _msg.append("Duplicate Marks (one box + plan per Mark): {0}".format(
+        len(dup_marks)))
+    _msg.extend(_name_list(sorted(set(m for m, _i in dup_marks))))
 _msg.append("")
 _msg.append("Proceed?")
 if not forms.alert("\n".join(_msg), yes=True, no=True):
@@ -490,56 +588,180 @@ if not forms.alert("\n".join(_msg), yes=True, no=True):
 
 
 # ---------------------------------------------------------------------------
-# 4. One transaction: (a) ensure a scope box per chamber, then (b) create a
-#    plan view for every chamber scope box that lacks one (by name).
+# 4. Plan-view makers: duplicate of the active plan, or a fresh plan on its
+#    level. Both get the box applied and CHECKED; the caller tries the other
+#    when one cannot take it.
 # ---------------------------------------------------------------------------
-created_sb = 0
-existing_sb = 0
-created_views = 0
-apply_failed = 0
-chamber_entries = []     # (ident, box name or None, scope box note)
-plan_status = {}         # scope box name -> plan view result text
+plan_vft_by_family = {}      # ViewFamily -> [ViewFamilyType id]
+for _vft in FilteredElementCollector(doc).OfClass(ViewFamilyType):
+    try:
+        plan_vft_by_family.setdefault(_vft.ViewFamily, []).append(_vft.Id)
+    except Exception:
+        continue
 
+
+def _duplicate_plan():
+    try:
+        new_id = view.Duplicate(ViewDuplicateOption.Duplicate)
+        nv = doc.GetElement(new_id)
+    except Exception as ex:
+        return None, "duplicate failed: {0}".format(ex)
+    if nv is None:
+        return None, "duplicate returned nothing"
+    return nv, ""
+
+
+def _fresh_plan():
+    if view.ViewType == ViewType.AreaPlan:
+        return None, "area plans cannot be created fresh"
+    if src_level is None:
+        return None, "the active view has no level to create a plan on"
+    candidates = []
+    fam = None
+    try:
+        own = doc.GetElement(view.GetTypeId())
+        fam = own.ViewFamily
+        candidates.append(own.Id)
+    except Exception:
+        pass
+    if fam is not None:
+        for vid in plan_vft_by_family.get(fam, []):
+            if vid not in candidates:
+                candidates.append(vid)
+    # A detail callout has no plan family type of its own: fall back to
+    # any Floor Plan type so a plan can still be made on the level.
+    for vid in plan_vft_by_family.get(ViewFamily.FloorPlan, []):
+        if vid not in candidates:
+            candidates.append(vid)
+    last = "no plan view family type found"
+    for vid in candidates:
+        try:
+            nv = ViewPlan.Create(doc, vid, src_level.Id)
+        except Exception as ex:
+            last = "ViewPlan.Create failed: {0}".format(ex)
+            continue
+        if nv is None:
+            continue
+        # Carry the active plan's look across: its template, else scale
+        # and detail level.
+        try:
+            tid = view.ViewTemplateId
+            if _valid_id(tid):
+                nv.ViewTemplateId = tid
+            else:
+                try:
+                    nv.Scale = view.Scale
+                except Exception:
+                    pass
+                try:
+                    nv.DetailLevel = view.DetailLevel
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return nv, ""
+    return None, last
+
+
+def _delete_quietly(el, name=None):
+    try:
+        doc.Delete(el.Id)
+    except Exception:
+        pass
+    if name:
+        view_names.discard(name)
+
+
+def _make_plan(name, sb):
+    # (view, how, reasons): a named plan view with the scope box on it, or
+    # None with every attempt's reason.
+    methods = [("fresh plan", _fresh_plan), ("duplicate", _duplicate_plan)]
+    if not prefer_fresh:
+        methods.reverse()
+    tried = []
+    for label, maker in methods:
+        nv, err = maker()
+        if nv is None:
+            tried.append("{0}: {1}".format(label, err))
+            continue
+        try:
+            nv.Name = name
+            view_names.add(name)
+        except Exception as ex:
+            _delete_quietly(nv)
+            tried.append("{0}: rename failed ({1})".format(label, ex))
+            continue
+        ok, note = _apply_scope_box(nv, sb)
+        if ok:
+            try:
+                nv.CropBoxActive = True
+                nv.CropBoxVisible = True
+            except Exception:
+                pass
+            how = label
+            if label == "fresh plan" and src_level is not None:
+                how = "fresh plan on '{0}'".format(_elem_name(src_level))
+            if note:
+                how += ", " + note
+            return nv, how, ""
+        _delete_quietly(nv, name)
+        tried.append("{0}: {1}".format(label, note))
+    return None, "", "; ".join(tried)
+
+
+# ---------------------------------------------------------------------------
+# 5. One transaction: (a) a scope box per chamber, (b) a plan view per box.
+# ---------------------------------------------------------------------------
 seed_centre = _scopebox_centre(seed)
 if seed_centre is None:
     forms.alert("The seed scope box '{0}' has no readable bounding box, so "
                 "copies can't be positioned. Pick another seed.".format(
                     _elem_name(seed)), exitscript=True)
 
+created_sb = 0
+moved_sb = 0
+existing_sb = 0
+created_views = 0
+view_failed = 0
+
 t = Transaction(doc, "pyMEP: Chamber plans ({0} chamber(s))".format(
-    len(target_instances)))
+    len(jobs)))
 t.Start()
 try:
-    # --- (a) Ensure a scope box per chamber ---
-    for inst in target_instances:
-        mark = _get_mark(inst)
-        ident = mark
-        base = _sanitize(mark)
-
-        # Skip chambers that already have a matching box by Mark name.
-        if base in sb_names:
-            if base in misplaced:
-                chamber_entries.append(
-                    (ident, None,
-                     "MISPLACED: box '{0}' exists but does not sit over this "
-                     "chamber - left alone, no plan made".format(base)))
-                continue
-            existing_sb += 1
-            chamber_entries.append(
-                (ident, base if base in boxes_for_plans else None,
-                 "already exists: " + base))
+    # --- (a) a scope box per chamber ---
+    for job in jobs:
+        base = job["base"]
+        centre = job["centre"]
+        if centre is None:
+            job["box"] = None
+            job["box_note"] = "no centre"
             continue
 
-        pose = _chamber_pose(inst)
+        if job["box_state"] == "exists":
+            existing_sb += 1
+            job["box_note"] = "exists: " + base
+            continue
+
+        if job["box_state"] == "misplaced":
+            sb = job["box"]
+            try:
+                sb_c = _scopebox_centre(sb)
+                move = XYZ(centre.X - sb_c.X, centre.Y - sb_c.Y, 0.0)
+                ElementTransformUtils.MoveElement(doc, sb.Id, move)
+                moved_sb += 1
+                job["box_note"] = "moved onto chamber ({0:.1f} m): {1}".format(
+                    (move.X ** 2 + move.Y ** 2) ** 0.5 * 0.3048, base)
+            except Exception as ex:
+                job["box"] = None
+                job["box_note"] = ("misplaced and the move failed - left "
+                                   "alone ({0})".format(ex))
+            continue
+
+        pose = _chamber_pose(job["inst"])
         if pose is None:
-            chamber_entries.append((ident, None, "no location point"))
+            job["box_note"] = "no location point"
             continue
         _origin_pt, angle = pose
-
-        centre = _world_centre(inst)
-        if centre is None:
-            chamber_entries.append((ident, None, "no centre"))
-            continue
 
         # Copy the seed scope box.
         try:
@@ -547,11 +769,10 @@ try:
                 doc, seed.Id, XYZ(0, 0, 0))
             new_sb = doc.GetElement(list(ids)[0]) if ids else None
         except Exception as ex:
-            chamber_entries.append(
-                (ident, None, "copy scopebox failed: {0}".format(ex)))
+            job["box_note"] = "copy scopebox failed: {0}".format(ex)
             continue
         if new_sb is None:
-            chamber_entries.append((ident, None, "copy returned nothing"))
+            job["box_note"] = "copy returned nothing"
             continue
 
         notes = []
@@ -582,87 +803,43 @@ try:
             notes.append("rotate failed: {0}".format(ex))
 
         # Rename it to the chamber Mark. If the rename fails, do NOT keep
-        # the auto-named copy: it would produce un-previewed plan views and
-        # duplicate boxes on re-runs. Delete it inside this transaction and
-        # skip registration entirely.
+        # the auto-named copy: it would produce duplicate boxes on re-runs.
         try:
             new_sb.Name = base
         except Exception as ex:
-            try:
-                doc.Delete(new_sb.Id)
-            except Exception:
-                pass
-            chamber_entries.append(
-                (ident, None,
-                 "rename failed - box removed ({0})".format(ex)))
+            _delete_quietly(new_sb)
+            job["box_note"] = "rename failed - box removed ({0})".format(ex)
             continue
 
-        sb_names.add(base)
-        boxes_for_plans[base] = new_sb
+        job["box"] = new_sb
         created_sb += 1
         note = "created: " + base
         if notes:
             note += "  (" + "; ".join(notes) + ")"
-        chamber_entries.append((ident, base, note))
+        job["box_note"] = note
 
-    # Make sure the new boxes' geometry is current before views use them.
+    # Make sure the boxes' geometry is current before views use them.
     try:
         doc.Regenerate()
     except Exception:
         pass
 
-    # --- (b) Backfill: a plan view for every chamber scope box lacking one ---
-    for nm in sorted(boxes_for_plans.keys(), key=lambda s: s.lower()):
-        sb = boxes_for_plans[nm]
-        target_name = _sanitize(nm)
-        if target_name in view_names:
-            plan_status[nm] = "view exists"
+    # --- (b) a plan view per box ---
+    for job in jobs:
+        if job["box"] is None:
+            job["view_note"] = "-"
             continue
-
-        try:
-            new_id = view.Duplicate(ViewDuplicateOption.Duplicate)
-            new_view = doc.GetElement(new_id)
-        except Exception as ex:
-            plan_status[nm] = "duplicate failed: {0}".format(ex)
+        if job["view_state"] == "exists":
+            job["view_note"] = "view exists"
             continue
-        if new_view is None:
-            plan_status[nm] = "duplicate returned null"
+        nv, how, reasons = _make_plan(job["base"], job["box"])
+        if nv is None:
+            job["view_note"] = "NOT created - " + reasons
+            view_failed += 1
             continue
-
-        try:
-            new_view.Name = target_name
-            view_names.add(target_name)
-        except Exception as ex:
-            # Never keep a stray 'Copy of ...' view - it breaks idempotency
-            # and piles up on re-runs. Remove it inside this transaction.
-            try:
-                doc.Delete(new_view.Id)
-            except Exception:
-                pass
-            plan_status[nm] = "rename failed - view removed ({0})".format(ex)
-            continue
-
-        # Apply the scope box to the view (crops + orients to it) and CHECK
-        # it took. A view left without its box would just show the active
-        # plan's crop under the chamber's name, so remove it instead.
-        ok, why = _apply_scope_box(new_view, sb)
-        if not ok:
-            try:
-                doc.Delete(new_view.Id)
-                view_names.discard(target_name)
-            except Exception:
-                pass
-            plan_status[nm] = ("scope box NOT applied - view removed "
-                               "({0})".format(why))
-            apply_failed += 1
-            continue
-        try:
-            new_view.CropBoxActive = True
-            new_view.CropBoxVisible = True
-        except Exception:
-            pass
-        plan_status[nm] = "created"
         created_views += 1
+        job["view_note"] = "created" + (
+            " ({0})".format(how) if how and how != "duplicate" else "")
 
     t.Commit()
 except Exception as ex:
@@ -671,40 +848,33 @@ except Exception as ex:
 
 
 # ---------------------------------------------------------------------------
-# 5. Report (one table: chambers first, then backfilled boxes)
+# 6. Report
 # ---------------------------------------------------------------------------
 out.print_md("### Chamber plans")
-out.print_md("**Target:** {0}  |  **Seed scope box:** {1}".format(
-    picked_type_label, _elem_name(seed)))
-out.print_md("**Scope boxes created:** {0}  |  **Already existed:** {1}  |  "
-             "**Plan views created:** {2}  |  **Skipped (blank Mark):** {3}"
-             .format(created_sb, existing_sb, created_views, len(no_mark)))
-if apply_failed:
-    out.print_md("**{0} plan view(s) NOT created - Revit refused the scope "
-                 "box.** The usual cause is a box that is not visible in "
-                 "this plan: its vertical extent must include this view's "
-                 "level / cut plane. New boxes keep the SEED box's vertical "
-                 "extent, so stretch the seed (or an existing box) to cover "
-                 "this level and run again.".format(apply_failed))
-if misplaced:
-    out.print_md("**{0} existing scope box(es) do not sit over their "
-                 "chamber - left alone, no plan made:** {1}. Move, rename "
-                 "or delete them, then run again.".format(
-                     len(misplaced), ", ".join(sorted(misplaced))))
+out.print_md("**Target:** {0}  |  **Seed scope box:** {1}  |  "
+             "**Active view:** {2} ({3}{4})".format(
+                 picked_type_label, _elem_name(seed), _elem_name(view),
+                 src_kind, ", scope box locked" if src_locked else ""))
+out.print_md("**Scope boxes created:** {0}  |  **Moved onto chamber:** {1}  |  "
+             "**Already in place:** {2}  |  **Plan views created:** {3}  |  "
+             "**Plan views failed:** {4}  |  **Skipped (blank Mark):** {5}"
+             .format(created_sb, moved_sb, existing_sb, created_views,
+                     view_failed, len(no_mark)))
+if view_failed:
+    out.print_md("**{0} plan view(s) could not take their scope box** - each "
+                 "row says what was tried. 'read-only' means that kind of "
+                 "view cannot carry a scope box (callouts, dependents, "
+                 "assembly views); 'refused' means the box is not visible "
+                 "in this plan, so its vertical extent must be stretched to "
+                 "cover this view's level. New boxes keep the SEED box's "
+                 "vertical extent.".format(view_failed))
 
 rows = []
-covered = set()
-for ident, box_name, note in chamber_entries:
-    if box_name is not None:
-        covered.add(box_name)
-        vnote = plan_status.get(box_name, "-")
-    else:
-        vnote = "-"
-    rows.append([ident, note, vnote])
-for nm in sorted(boxes_for_plans.keys(), key=lambda s: s.lower()):
-    if nm in covered:
-        continue
-    rows.append(["(backfill)", nm, plan_status.get(nm, "-")])
+for job in jobs:
+    rows.append([job["mark"], job["box_note"], job["view_note"]])
+for mark, inst in dup_marks:
+    rows.append([mark, "duplicate Mark - shares the box above",
+                 "shares the plan above"])
 for ident, _inst in no_mark:
     rows.append([ident, "SKIPPED - blank Mark", "-"])
 out.print_table(table_data=rows,
