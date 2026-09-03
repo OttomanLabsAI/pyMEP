@@ -1,22 +1,28 @@
 # -*- coding: utf-8 -*-
-"""Create Chamber Sections - pick one or more chamber family instances and build
-FOUR section views around each (one per side), each looking inward toward the
-chamber centre and aligned to the chamber's rotation.
+"""Create Chamber Sections - pick chamber family instances in ONE dialog and
+build a section view on each side that cuts pipework, each looking inward
+toward the chamber centre and aligned to the chamber's rotation.
+
+The dialog (pymep_chamber_sections.xaml) asks for everything at once:
+  * WHICH chambers: the current selection, or a chamber family type (with a
+    search box) and a tick list of its placed instances by Mark.
+  * The section box in mm: OFFSET from the chamber centre to each section
+    plane, HEIGHT (centred on the chamber centre elevation) and DEPTH (far
+    clip measured from the plane inward). The width follows the chamber
+    footprint plus a 500 mm margin each side.
+  * The section view type: one for every side, or one per final side letter.
+  * Whether to run the PIPEWORK CHECK (on by default).
+Everything is remembered in Settings for the next run.
 
 For each chosen chamber:
-  * Four sections are created on the chamber's four LOCAL sides (so they follow
+  * Candidate sections sit on the chamber's four LOCAL sides (so they follow
     the chamber's plan rotation): +X, +Y, -X, -Y.
-  * Each section plane sits `offset` (mm) out from the chamber centre and looks
-    back through the chamber.
-  * The cut box width spans the chamber footprint (+ a margin); the height and
-    depth are the values you give (height centred on the chamber centre
-    elevation, depth measured from the section plane inward).
-  * Only sides that actually CUT pipework are created: each side's section
-    plane is tested against every pipe, conduit, duct, cable tray and their
-    fittings in the model and its loaded links. A side whose plane nothing
-    crosses (within the crop width / height) would show an empty vault wall,
-    so it is dropped. If NO side cuts anything (empty chamber, or no MEP in
-    the model at all) all four sides are kept and the report says so.
+  * With the pipework check on, each side's section plane is tested against
+    every pipe, conduit, duct, cable tray and their fittings in the model
+    and its loaded links. A side whose plane nothing crosses (within the
+    crop width / height) would show an empty vault wall, so it is dropped.
+    If NO side cuts anything (empty chamber, or no MEP in the model at all)
+    all four sides are kept and the report says so.
   * The surviving sections are named "{Mark} SIDE A", "{Mark} SIDE B", ... in
     side order, so the letters always run A, B, C without gaps. If the
     chamber has no Mark, the ElementId is used as the stem. (This matches the
@@ -25,17 +31,6 @@ For each chosen chamber:
     (the same association records Match Sections saves), so Update Positions
     can re-place the sections after the chamber moves or rotates. No separate
     associate step is needed.
-
-Prompts:
-  1. The chamber family TYPE (searchable) - if exactly one instance of that type
-     exists it is used; otherwise you tick the chambers to section by Mark
-     (multi-select). If chambers are pre-selected you are offered the selection
-     instead.
-  2. Offset from the centre point to each section plane, in mm.
-  3. Section height, in mm.
-  4. Section depth (total view depth / far clip from the plane), in mm.
-  5. Section view type: first whether every side uses the same type, then
-     either one type for all or one per (surviving) side letter.
 
 A Section ViewFamilyType must exist in the project (every template has one).
 
@@ -46,6 +41,7 @@ __title__  = "Create\nChamber Sections"
 __author__ = "Glent Group"
 
 import math
+import os
 import sys
 
 # Reload pymep_* lib modules so the script picks up the latest helpers.
@@ -66,10 +62,15 @@ from Autodesk.Revit.DB import (
 from pyrevit import revit, forms, script
 
 import pymep_section_cut as SC
+import pymep_chamber_sections as CS
+from pymep_config import load_settings, save_settings
 
 doc = revit.doc
 uidoc = revit.uidoc
 out = script.get_output()
+
+XAML_PATH = os.path.join(os.path.dirname(os.path.abspath(CS.__file__)),
+                         "pymep_chamber_sections.xaml")
 
 MM_PER_FOOT = 304.8
 SIDE_LETTERS = ("A", "B", "C", "D")
@@ -77,6 +78,9 @@ SIDE_LETTERS = ("A", "B", "C", "D")
 # Local outward directions for the four sides, BEFORE the chamber's rotation is
 # applied. Index lines up with SIDE_LETTERS: A=+X, B=+Y, C=-X, D=-Y.
 SIDE_OUTWARD = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))
+
+# Plan-view label of each local side, for the report.
+SIDE_LABELS = ("+X", "+Y", "-X", "-Y")
 
 
 # ---------------------------------------------------------------------------
@@ -210,20 +214,8 @@ def _sanitize(name):
     return "".join("_" if ch in bad else ch for ch in name).strip()
 
 
-def _ask_mm(prompt, title, default):
-    s = forms.ask_for_string(default=default, prompt=prompt, title=title)
-    if s is None:
-        script.exit()
-    s = s.strip()
-    try:
-        return float(s)
-    except Exception:
-        forms.alert("Enter a number in mm.", exitscript=True)
-
-
 # ---------------------------------------------------------------------------
-# 1. Collect the Section ViewFamilyTypes (CreateSection needs one; the user
-#    picks which after the offset/height prompts).
+# 1. Section ViewFamilyTypes (CreateSection needs one)
 # ---------------------------------------------------------------------------
 section_vfts = []
 for vft in FilteredElementCollector(doc).OfClass(ViewFamilyType):
@@ -238,9 +230,19 @@ if not section_vfts:
                 "Add a Section view family type, then run again.",
                 exitscript=True)
 
+vft_options = []
+for vft in section_vfts:
+    vft_options.append({"label": _elem_name(vft), "vft": vft})
+vft_options.sort(key=lambda d: d["label"].lower())
+vft_labels = [d["label"] for d in vft_options]
+vft_by_label = {}
+for d in vft_options:
+    vft_by_label[d["label"]] = d["vft"]
+
 
 # ---------------------------------------------------------------------------
-# 2. Pick the target chamber: selection (ask) or a single instance of a type
+# 2. Chamber candidates: the selection, and every placed point-based family
+#    type (for the dialog's type list)
 # ---------------------------------------------------------------------------
 def _selected_point_instances():
     out_list = []
@@ -256,7 +258,6 @@ def _selected_point_instances():
     return out_list
 
 
-# Index every placed point-based instance by its type id (for the type picker).
 inst_by_typeid = {}
 sym_by_typeid = {}
 for fi in FilteredElementCollector(doc).OfClass(FamilyInstance)\
@@ -277,101 +278,291 @@ if not inst_by_typeid:
                 exitscript=True)
 
 sel_insts = _selected_point_instances()
-target_chambers = []
-picked_type_label = ""
 
-if sel_insts:
-    use_sel = forms.alert(
-        "{0} family instance(s) selected.\n\n"
-        "Create sections around the SELECTED chamber(s)?\n\n"
-        "Yes = use selection.  No = pick a family type instead.".format(
-            len(sel_insts)),
-        yes=True, no=True)
-    if use_sel:
-        target_chambers = sel_insts
-        if len(sel_insts) == 1:
-            sym = doc.GetElement(sel_insts[0].GetTypeId())
-            picked_type_label = _type_label(sym) if sym is not None \
-                else "(selection)"
+type_options = []
+for key, insts in inst_by_typeid.items():
+    sym = sym_by_typeid.get(key)
+    if sym is None:
+        continue
+    type_options.append({
+        "label": "{0}   ({1} placed)".format(_type_label(sym), len(insts)),
+        "typeid": key,
+        "insts": insts,
+    })
+type_options.sort(key=lambda d: d["label"].lower())
+
+
+# ---------------------------------------------------------------------------
+# 3. The dialog
+# ---------------------------------------------------------------------------
+class SectionsWindow(forms.WPFWindow):
+
+    def __init__(self, types, selected, type_labels, remembered):
+        forms.WPFWindow.__init__(self, XAML_PATH)
+        self.result = None
+        self._ready = False
+        self._filling = False
+        self._types = types
+        self._visible = []            # indexes into _types shown in LstTypes
+        self._boxes = []              # (CheckBox, FamilyInstance)
+        self._sel = list(selected)
+
+        n_sel = len(self._sel)
+        if n_sel:
+            self.RbSelection.Content = (
+                "use the {0} selected chamber(s)".format(n_sel))
+            self.RbSelection.IsChecked = True
         else:
-            picked_type_label = "(selection)"
+            self.RbSelection.Content = (
+                "use the selected chambers (nothing is selected)")
+            self.RbSelection.IsEnabled = False
+            self.RbType.IsChecked = True
 
-if not target_chambers:
-    # Pick a family TYPE (searchable), then resolve to one or more instances.
-    type_options = []
-    for key, insts in inst_by_typeid.items():
-        sym = sym_by_typeid.get(key)
-        if sym is None:
-            continue
-        type_options.append({
-            "label": "{0}   ({1} placed)".format(_type_label(sym), len(insts)),
-            "typeid": key,
-        })
-    type_options.sort(key=lambda d: d["label"].lower())
+        for cmb in (self.CmbTypeAll,) + self._side_combos():
+            cmb.Items.Clear()
+            for lb in type_labels:
+                cmb.Items.Add(lb)
+        self._select(self.CmbTypeAll, remembered["type"])
+        for letter, cmb in zip(SIDE_LETTERS, self._side_combos()):
+            self._select(cmb, remembered["side_types"].get(letter)
+                         or remembered["type"])
+        self.ChkSameType.IsChecked = bool(remembered["same"])
+        self.ChkCutOnly.IsChecked = bool(remembered["cut_only"])
+        self.TxtOffset.Text = CS.mm_text(remembered["offset"])
+        self.TxtHeight.Text = CS.mm_text(remembered["height"])
+        self.TxtDepth.Text = CS.mm_text(remembered["depth"])
 
-    picked = forms.SelectFromList.show(
-        [d["label"] for d in type_options],
-        title="Select chamber family TYPE (type to search)",
-        button_name="Use this family type",
-        multiselect=False)
-    if not picked:
-        script.exit()
+        self._fill_types()
+        self._ready = True
+        self._sync()
 
-    typeid = None
-    for d in type_options:
-        if d["label"] == picked:
-            typeid = d["typeid"]
-            picked_type_label = picked
-            break
+    # -- section type combos -------------------------------------------------
+    def _side_combos(self):
+        return (self.CmbTypeA, self.CmbTypeB, self.CmbTypeC, self.CmbTypeD)
 
-    insts = inst_by_typeid.get(typeid, [])
-    if len(insts) == 1:
-        target_chambers = [insts[0]]
-    else:
-        # More than one instance: TICK the chambers to section (multi-select).
-        # Labels are made unique (Mark + ElementId) so duplicate/blank Marks
-        # still map each tick to one specific instance.
-        mark_options = []
-        for fi in insts:
+    @staticmethod
+    def _select(cmb, label):
+        try:
+            if label and cmb.Items.Contains(label):
+                cmb.SelectedItem = label
+            elif cmb.Items.Count:
+                cmb.SelectedIndex = 0
+        except Exception:
+            pass
+
+    # -- family type list ----------------------------------------------------
+    def _current_type(self):
+        try:
+            idx = self.LstTypes.SelectedIndex
+        except Exception:
+            return None
+        if idx < 0 or idx >= len(self._visible):
+            return None
+        return self._types[self._visible[idx]]
+
+    def _fill_types(self):
+        query = ""
+        try:
+            query = self.TxtTypeFilter.Text or ""
+        except Exception:
+            pass
+        keep = CS.filter_labels([d["label"] for d in self._types], query)
+        current = None
+        cur = self._current_type()
+        if cur is not None:
+            current = self._types.index(cur)
+        self._filling = True
+        try:
+            self._visible = keep
+            self.LstTypes.Items.Clear()
+            for i in keep:
+                self.LstTypes.Items.Add(self._types[i]["label"])
+            if current in keep:
+                self.LstTypes.SelectedIndex = keep.index(current)
+            elif len(keep) == 1:
+                self.LstTypes.SelectedIndex = 0
+        finally:
+            self._filling = False
+        self._fill_chambers(self._current_type())
+
+    def _fill_chambers(self, tdict):
+        from System.Windows.Controls import CheckBox
+        from System.Windows import Thickness
+        self.PnlChambers.Children.Clear()
+        self._boxes = []
+        rows = []
+        for fi in (tdict["insts"] if tdict else []):
             mk = _get_mark(fi)
-            base = mk if mk else "<no mark>"
-            label = "{0}   (Id {1})".format(base, fi.Id.IntegerValue)
-            mark_options.append({"label": label, "inst": fi})
-        mark_options.sort(key=lambda d: d["label"].lower())
-        picked_marks = forms.SelectFromList.show(
-            [d["label"] for d in mark_options],
-            title="Tick the chamber(s) to section",
-            button_name="Create sections for ticked chambers",
-            multiselect=True)
-        if not picked_marks:
-            script.exit()
-        if not isinstance(picked_marks, list):
-            picked_marks = [picked_marks]
-        chosen = set(picked_marks)
-        for d in mark_options:
-            if d["label"] in chosen:
-                target_chambers.append(d["inst"])
+            rows.append(("{0}   (Id {1})".format(mk if mk else "<no mark>",
+                                                  fi.Id.IntegerValue), fi))
+        rows.sort(key=lambda r: r[0].lower())
+        for label, fi in rows:
+            cb = CheckBox()
+            cb.Content = label
+            cb.IsChecked = (len(rows) == 1)
+            cb.Margin = Thickness(0, 2, 0, 2)
+            cb.Checked += self._on_box
+            cb.Unchecked += self._on_box
+            self.PnlChambers.Children.Add(cb)
+            self._boxes.append((cb, fi))
+        self._sync()
 
-if not target_chambers:
-    forms.alert("No chamber selected.", exitscript=True)
+    def _ticked(self):
+        return [fi for cb, fi in self._boxes if cb.IsChecked]
+
+    def _set_all(self, on):
+        for cb, _fi in self._boxes:
+            cb.IsChecked = on
+        self._sync()
+
+    # -- state -> UI -----------------------------------------------------------
+    def _sync(self):
+        if not getattr(self, "_ready", False):
+            return
+        try:
+            from System.Windows import Visibility
+            by_type = bool(self.RbType.IsChecked)
+            self.PnlType.IsEnabled = by_type
+            same = bool(self.ChkSameType.IsChecked)
+            self.CmbTypeAll.Visibility = (Visibility.Visible if same
+                                          else Visibility.Collapsed)
+            self.PnlPerSide.Visibility = (Visibility.Collapsed if same
+                                          else Visibility.Visible)
+            if by_type:
+                total = len(self._boxes)
+                if total:
+                    self.TxtChamberCount.Text = (
+                        "{0} of {1} chamber(s) ticked.".format(
+                            len(self._ticked()), total))
+                else:
+                    self.TxtChamberCount.Text = (
+                        "Pick a chamber family type above.")
+            else:
+                self.TxtChamberCount.Text = (
+                    "Sections go around the {0} selected chamber(s).".format(
+                        len(self._sel)))
+            self.StatusText.Text = ""
+        except Exception:
+            pass
+
+    # -- handlers ----------------------------------------------------------------
+    def on_source_changed(self, sender, args):
+        self._sync()
+
+    def on_type_filter(self, sender, args):
+        if not getattr(self, "_ready", False):
+            return
+        self._fill_types()
+
+    def on_type_selected(self, sender, args):
+        if not getattr(self, "_ready", False) or self._filling:
+            return
+        self._fill_chambers(self._current_type())
+
+    def on_tick_all(self, sender, args):
+        self._set_all(True)
+
+    def on_tick_none(self, sender, args):
+        self._set_all(False)
+
+    def on_same_changed(self, sender, args):
+        self._sync()
+
+    def _on_box(self, sender, args):
+        self._sync()
+
+    def on_go(self, sender, args):
+        # Chambers
+        if self.RbSelection.IsChecked and self._sel:
+            chambers = list(self._sel)
+            if len(chambers) == 1:
+                sym = doc.GetElement(chambers[0].GetTypeId())
+                source = _type_label(sym) if sym is not None else "(selection)"
+            else:
+                source = "(selection)"
+        else:
+            tdict = self._current_type()
+            if tdict is None:
+                self.StatusText.Text = "Pick a chamber family type."
+                return
+            chambers = self._ticked()
+            if not chambers:
+                self.StatusText.Text = "Tick at least one chamber to section."
+                return
+            source = tdict["label"]
+        # Box (mm)
+        vals = {}
+        for key, box, label in (("offset", self.TxtOffset, "Offset"),
+                                ("height", self.TxtHeight, "Height"),
+                                ("depth", self.TxtDepth, "Depth")):
+            v = CS.parse_mm(box.Text)
+            if v is None:
+                self.StatusText.Text = (
+                    "{0} must be a positive number of mm.".format(label))
+                return
+            vals[key] = v
+        # Section types, by FINAL letter
+        same = bool(self.ChkSameType.IsChecked)
+        types = {}
+        if same:
+            lb = self.CmbTypeAll.SelectedItem
+            if not lb:
+                self.StatusText.Text = "Pick a section type."
+                return
+            for letter in SIDE_LETTERS:
+                types[letter] = lb
+        else:
+            for letter, cmb in zip(SIDE_LETTERS, self._side_combos()):
+                lb = cmb.SelectedItem
+                if not lb:
+                    self.StatusText.Text = (
+                        "Pick a section type for SIDE {0}.".format(letter))
+                    return
+                types[letter] = lb
+        self.result = {
+            "chambers": chambers, "source": source,
+            "offset": vals["offset"], "height": vals["height"],
+            "depth": vals["depth"], "same": same, "types": types,
+            "cut_only": bool(self.ChkCutOnly.IsChecked),
+        }
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.Close()
 
 
-# ---------------------------------------------------------------------------
-# 3. Prompts: offset, height and depth (mm)
-# ---------------------------------------------------------------------------
-offset_mm = _ask_mm(
-    "Offset from the chamber CENTRE to each section plane, in mm.\n"
-    "(How far out from the centre each of the four sections sits.)",
-    "Section offset", "1500")
-height_mm = _ask_mm(
-    "Section HEIGHT, in mm.\n"
-    "(Total vertical extent of each section, centred on the chamber centre.)",
-    "Section height", "3000")
-depth_mm = _ask_mm(
-    "Section DEPTH, in mm.\n"
-    "(Total view depth / far clip, measured from the section plane inward.\n"
-    "Make it larger than the offset so the cut reaches through the chamber.)",
-    "Section depth", "3000")
+_settings = load_settings()
+win = SectionsWindow(type_options, sel_insts, vft_labels,
+                     CS.section_settings(_settings))
+win.ShowDialog()
+if not win.result:
+    script.exit()
+
+target_chambers = win.result["chambers"]
+picked_type_label = win.result["source"]
+offset_mm = win.result["offset"]
+height_mm = win.result["height"]
+depth_mm = win.result["depth"]
+cut_only = win.result["cut_only"]
+same_type = win.result["same"]
+# side_vfts maps each FINAL side letter to the chosen ViewFamilyType.
+side_vfts = {}
+for letter in SIDE_LETTERS:
+    side_vfts[letter] = vft_by_label[win.result["types"][letter]]
+
+try:
+    _settings[CS.SETTINGS_SECTION_OFFSET] = offset_mm
+    _settings[CS.SETTINGS_SECTION_HEIGHT] = height_mm
+    _settings[CS.SETTINGS_SECTION_DEPTH] = depth_mm
+    _settings[CS.SETTINGS_SECTION_SAME_TYPE] = same_type
+    _settings[CS.SETTINGS_SECTION_CUT_ONLY] = cut_only
+    _settings[CS.SETTINGS_SECTION_SIDE_TYPES] = dict(win.result["types"])
+    if same_type:
+        _settings[CS.SETTINGS_SECTION_TYPE] = win.result["types"]["A"]
+    save_settings(_settings)
+except Exception:
+    pass
 
 offset_ft = offset_mm / MM_PER_FOOT
 height_ft = height_mm / MM_PER_FOOT
@@ -384,11 +575,8 @@ depth_ft = depth_mm / MM_PER_FOOT
 #     is not created; the surviving sides are lettered A, B, C... in order.
 # ---------------------------------------------------------------------------
 # Width margin each side of the chamber footprint (depth comes from the
-# user-supplied section depth prompt).
+# dialog's section depth).
 WIDTH_MARGIN_FT = 500.0 / MM_PER_FOOT      # 500 mm each side
-
-# Plan-view label of each local side, for the report.
-SIDE_LABELS = ("+X", "+Y", "-X", "-Y")
 
 # MEP runs tested against each section plane, and the fittings tested by
 # bounding box. Names are resolved with getattr so a category missing from
@@ -572,7 +760,7 @@ def _section_box(frame):
     t.BasisZ = frame["look"]
 
     # Local box: X = width (across), Y = height (world Z), Z = depth (look).
-    # Far clip = the user-supplied section depth, measured from the plane inward
+    # Far clip = the dialog's section depth, measured from the plane inward
     # (CreateSection sets far clip = Max.Z - Min.Z, and Min.Z is 0 here).
     box = BoundingBoxXYZ()
     box.Transform = t
@@ -623,7 +811,13 @@ for inst in target_chambers:
         counts = [_count_cuts(f, mep_runs, mep_boxes) for f in frames]
     else:
         counts = [0] * len(frames)      # nothing to test: keep every side
-    sides, all_kept = SC.plan_sides(counts)
+    if cut_only:
+        sides, all_kept = SC.plan_sides(counts)
+    else:
+        # Check off: every side under its own letter.
+        sides = [(i, SIDE_LETTERS[i], SIDE_LETTERS[i])
+                 for i in range(len(frames))]
+        all_kept = False
     chamber_jobs.append({
         "inst": inst, "centre": centre, "angle": angle,
         "half_lx": half_lx, "half_ly": half_ly,
@@ -637,65 +831,9 @@ if not chamber_jobs:
                 exitscript=True)
 
 planned_total = sum(len(j["sides"]) for j in chamber_jobs)
-
-
-# ---------------------------------------------------------------------------
-# 3c. Prompt: which Section type(s) to create the views with (last prompt).
-#     First ask whether every side uses the same type; if not, pick one per
-#     FINAL side letter (only the letters some chamber will actually get).
-#     Always shown, even when only one Section type exists.
-# ---------------------------------------------------------------------------
-vft_options = []
-for vft in section_vfts:
-    vft_options.append({"label": _elem_name(vft), "vft": vft})
-vft_options.sort(key=lambda d: d["label"].lower())
-
-vft_labels = [d["label"] for d in vft_options]
-vft_by_label = {}
-for d in vft_options:
-    vft_by_label[d["label"]] = d["vft"]
-
-
-def _pick_section_type(title):
-    picked = forms.SelectFromList.show(
-        vft_labels,
-        title=title,
-        button_name="Use this section type",
-        multiselect=False)
-    if not picked:
-        script.exit()
-    return vft_by_label.get(picked)
-
-
 needed_letters = SC.letters_needed([j["sides"] for j in chamber_jobs])
 if not needed_letters:
     needed_letters = tuple(SIDE_LETTERS)
-
-# side_vfts maps each FINAL side letter to the chosen ViewFamilyType.
-side_vfts = {}
-if len(needed_letters) == 1:
-    same_for_all = True
-else:
-    same_for_all = forms.alert(
-        "Use the SAME section type for every side?\n\n"
-        "Yes = pick one type for all sides.\n"
-        "No  = pick a section type per side ({0}).".format(
-            ", ".join(needed_letters)),
-        yes=True, no=True)
-if same_for_all:
-    chosen = _pick_section_type("Select the SECTION type for ALL sides")
-    if chosen is None:
-        forms.alert("No section type selected.", exitscript=True)
-    for letter in needed_letters:
-        side_vfts[letter] = chosen
-else:
-    for letter in needed_letters:
-        chosen = _pick_section_type(
-            "Select the SECTION type for SIDE {0}".format(letter))
-        if chosen is None:
-            forms.alert("No section type selected for SIDE {0}.".format(letter),
-                        exitscript=True)
-        side_vfts[letter] = chosen
 
 
 # ---------------------------------------------------------------------------
@@ -815,7 +953,10 @@ _mep_note = "**Pipework checked:** {0} run(s), {1} fitting(s)".format(
     len(mep_runs), len(mep_boxes))
 if mep_links:
     _mep_note += " including {0} linked model(s)".format(mep_links)
-if not have_mep:
+if not cut_only:
+    _mep_note += ("  -  the pipework check is OFF, so every side was "
+                  "created (counts shown for information).")
+elif not have_mep:
     _mep_note += ("  -  no pipes, conduits, ducts or cable trays found in the "
                   "model or its loaded links, so the cut check was skipped and "
                   "every side was kept.")
@@ -842,15 +983,16 @@ out.print_table(table_data=rows,
 # Sides not created because nothing crosses their plane.
 dropped = []
 empty_chambers = []
-for job in chamber_jobs:
-    if job["all_kept"]:
-        if have_mep:
-            empty_chambers.append(job["stem"])
-        continue
-    kept_idx = set(s[0] for s in job["sides"])
-    for i in range(len(SIDE_LETTERS)):
-        if i not in kept_idx:
-            dropped.append((job["stem"], i))
+if cut_only:
+    for job in chamber_jobs:
+        if job["all_kept"]:
+            if have_mep:
+                empty_chambers.append(job["stem"])
+            continue
+        kept_idx = set(s[0] for s in job["sides"])
+        for i in range(len(SIDE_LETTERS)):
+            if i not in kept_idx:
+                dropped.append((job["stem"], i))
 if dropped:
     out.print_md("**{0} side(s) not created - no pipework crosses the "
                  "section plane:**".format(len(dropped)))

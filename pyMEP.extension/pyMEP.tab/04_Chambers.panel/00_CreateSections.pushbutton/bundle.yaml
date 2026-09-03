@@ -2,12 +2,11 @@ title: |-
   Create
   Sections
 tooltip: >-
-  Pick chamber family instances and create section views around each - one
-  per side, each looking inward toward the chamber centre and aligned to the
-  chamber's rotation. Only sides whose section plane actually cuts pipework
-  (pipes, conduits, ducts, cable trays or their fittings, in the model or its
-  loaded links) are created; the survivors are named "{Mark} SIDE A", "SIDE B",
-  ... in order from the chamber's Mark. Asks for the offset, height and depth
-  (mm) and the section type(s). Each section's placement relative to its
-  chamber is stored automatically, so Update Positions can re-place it after
-  the chamber moves - no separate associate step needed. Run in any view.
+  One dialog: pick the chambers (current selection, or a family type with a
+  search box and a tick list by Mark), the section offset / height / depth in
+  mm and the section type(s), then create a section view on each chamber side
+  that actually cuts pipework (pipes, conduits, ducts, cable trays or their
+  fittings, in the model or its loaded links). Survivors are named
+  "{Mark} SIDE A", "SIDE B", ... in order. Each section's placement relative
+  to its chamber is stored automatically, so Update Positions can re-place it
+  after the chamber moves. Values are remembered in Settings. Run in any view.
