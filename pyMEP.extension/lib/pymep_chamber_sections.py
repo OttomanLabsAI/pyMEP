@@ -4,7 +4,22 @@ imports) so the CPython suite tests them: the remembered settings behind
 the dialog, the mm field parser and the family-type search filter.
 
 The dialog itself (pymep_chamber_sections.xaml) is driven from the
-Create Sections button; everything here is what it reads and writes."""
+Create Sections button; everything here is what it reads and writes.
+
+Also home to the chamber NAMING rule shared by Chamber Plans, Create
+Sections, Match Sections and Sheet Setup: a chamber's scope box, plan and
+sections are named after its KEY - the Mark up to the first slash. The
+"/Z1" style tail is a zone guide, not identity, and never reaches a name."""
+
+
+def chamber_key(mark):
+    """'LV1' for a Mark 'LV1/Z1'; a Mark without a slash is its own key;
+    blank or None -> empty string."""
+    if not mark:
+        return u""
+    text = u"{0}".format(mark).strip()
+    head = text.split(u"/", 1)[0].strip()
+    return head or text
 
 SETTINGS_SECTION_OFFSET = "chamber_section_offset_mm"
 SETTINGS_SECTION_HEIGHT = "chamber_section_height_mm"

@@ -66,6 +66,16 @@ class SectionSettings(unittest.TestCase):
         self.assertEqual(s["type"], "")
 
 
+class ChamberKey(unittest.TestCase):
+    def test_key(self):
+        self.assertEqual(CS.chamber_key("LV1/Z1"), "LV1")
+        self.assertEqual(CS.chamber_key(" LV12 / Z3 "), "LV12")
+        self.assertEqual(CS.chamber_key("MH-7"), "MH-7")
+        self.assertEqual(CS.chamber_key("/Z1"), "/Z1")
+        self.assertEqual(CS.chamber_key(""), "")
+        self.assertEqual(CS.chamber_key(None), "")
+
+
 class ParseMm(unittest.TestCase):
     def test_plain_numbers(self):
         self.assertEqual(CS.parse_mm("1500"), 1500.0)

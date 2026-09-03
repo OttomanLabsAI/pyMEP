@@ -17,7 +17,8 @@ One shared dialog sequence:
 Each section is then matched to its nearest chamber by XY centre (greedy,
 closest pairing first); each chamber takes at most one SIDE A and one SIDE B
 section. You then choose what to do with the matches:
-  * Rename + Associate - rename each section "{chamber Mark} SIDE {A/B}" AND
+  * Rename + Associate - rename each section "{chamber KEY} SIDE {A/B}" (the
+    key is the Mark before any "/zone" tail: LV1 for LV1/Z1) AND
     store its placement relative to the chamber (offset in the chamber's
     local rotated frame plus relative rotation) to the per-project JSON that
     Update Positions reads.
@@ -39,6 +40,9 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
     del sys.modules[_mod]
 
 from pyrevit import revit, DB, forms, script
+
+# Chamber names use the Mark's KEY (before any '/zone' tail).
+from pymep_chamber_sections import chamber_key
 
 import pymep_chamber_links as links
 
@@ -472,7 +476,7 @@ for sec, inst, mark, side, dist_ft in pairs:
         continue
     plan.append({
         "view": sec,
-        "base": "{0} SIDE {1}".format(_sanitize(mark), side),
+        "base": "{0} SIDE {1}".format(_sanitize(chamber_key(mark)), side),
         "old": sec.Name,
         "mark": mark,
         "side": side,
