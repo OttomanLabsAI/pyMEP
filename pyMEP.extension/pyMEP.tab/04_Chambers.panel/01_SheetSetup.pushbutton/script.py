@@ -66,7 +66,13 @@ PLAN_TYPES = (ViewType.FloorPlan, ViewType.CeilingPlan,
 # ---------------------------------------------------------------------------
 # Pre-flight: a sheet must be open
 # ---------------------------------------------------------------------------
-sheet = doc.ActiveView
+# Sheets Full Pipeline drives this script headless: options arrive on the
+# sys module (which survives the pymep_* purge above), the outcome goes
+# back the same way.
+_PIPE = getattr(sys, "_pymep_pipeline", None) or {}
+_HEADLESS = _PIPE.get("sheet")
+
+sheet = _HEADLESS["sheet"] if _HEADLESS else doc.ActiveView
 if not isinstance(sheet, ViewSheet):
     forms.alert("Open the SHEET first.\n\n"
                 "Sheet Setup places chamber plans and sections on the "
@@ -351,14 +357,31 @@ class SheetWindow(forms.WPFWindow):
 
 
 _settings = load_settings()
-win = SheetWindow(rows, SS.sheet_settings(_settings),
-                  "Sheet {0}. One row per chamber: plan first, then its "
-                  "sections A, B, C...".format(_sheet_label(sheet)))
-win.ShowDialog()
-if not win.result:
-    script.exit()
-
-opt = win.result
+if _HEADLESS:
+    _rem = SS.sheet_settings(_settings)
+    _keys = [k for k in _HEADLESS["keys"] if k in groups]
+    _missing = [k for k in _HEADLESS["keys"] if k not in groups]
+    opt = {"keys": _keys,
+           "scale": _HEADLESS.get("scale") or _rem["scale"],
+           "gap": _rem["gap"], "left": _rem["left"], "top": _rem["top"],
+           "label": _rem["label"],
+           "plan_template": _rem["plan_template"],
+           "section_template": _rem["section_template"],
+           "viewport_type": _rem["viewport_type"]}
+    if not _keys:
+        forms.alert("Sheet {0}: none of the chambers {1} has a plan or "
+                    "section view yet - nothing to place.".format(
+                        _sheet_label(sheet), ", ".join(_HEADLESS["keys"])),
+                    exitscript=True)
+else:
+    _missing = []
+    win = SheetWindow(rows, SS.sheet_settings(_settings),
+                      "Sheet {0}. One row per chamber: plan first, then its "
+                      "sections A, B, C...".format(_sheet_label(sheet)))
+    win.ShowDialog()
+    if not win.result:
+        script.exit()
+    opt = win.result
 try:
     _settings[SS.SETTINGS_SHEET_SCALE] = opt["scale"]
     _settings[SS.SETTINGS_SHEET_GAP] = opt["gap"]
@@ -549,5 +572,12 @@ if scale_notes:
         out.print_md("- {0}: {1}".format(nm, why))
 out.print_table(table_data=[[k, n, note] for k, n, note in results],
                 columns=["Chamber", "View", "Result"])
+
+if _missing:
+    out.print_md("- No plan or section view found for: {0}".format(
+        ", ".join(_missing)))
+if _HEADLESS:
+    _PIPE["out_sheet"] = {"placed": placed_total, "skipped": skipped_total,
+                          "below": below, "missing": _missing}
 
 # Keep the output window open.

@@ -99,7 +99,13 @@ from pymep_config import load_settings, save_settings
 
 doc = revit.doc
 uidoc = revit.uidoc
-view = doc.ActiveView
+# Sheets Full Pipeline drives this script headless: it leaves its options
+# on the sys module (which survives the pymep_* purge above) and reads the
+# outcome back from the same place.
+_PIPE = getattr(sys, "_pymep_pipeline", None) or {}
+_HEADLESS = _PIPE.get("plans")
+
+view = _HEADLESS["view"] if _HEADLESS else doc.ActiveView
 out = script.get_output()
 
 XAML_PATH = os.path.join(os.path.dirname(os.path.abspath(CS.__file__)),
@@ -562,14 +568,8 @@ for el in FilteredElementCollector(doc)\
         .WhereElementIsNotElementType():
     scope_boxes.append(el)
 
-if not scope_boxes:
-    forms.alert("No scope box found in the project.\n\n"
-                "Revit's API cannot create a scope box from nothing - it can "
-                "only copy an existing one.\n\n"
-                "Please create ONE scope box anywhere (any size), then run "
-                "this again. The tool will copy it for each chamber and "
-                "position, rotate and rename each copy.", exitscript=True)
-
+# No scope box in the project only rules out the scope-box route; the
+# exact-crop route needs none.
 sb_by_name = {}
 for sb in scope_boxes:
     sb_by_name.setdefault(_elem_name(sb), sb)
@@ -859,7 +859,12 @@ class PlansWindow(forms.WPFWindow):
         if first is not None:
             self.CmbSeed.SelectedItem = first
 
-        if remembered["extents"] == EXTENTS_SCOPE:
+        if not seed_names:
+            self.RbExtScope.Content = (
+                "scope box: (no scope box in the project to copy - Revit "
+                "cannot create one from nothing)")
+            self.RbExtScope.IsEnabled = False
+        if remembered["extents"] == EXTENTS_SCOPE and seed_names:
             self.RbExtScope.IsChecked = True
         else:
             self.RbExtCrop.IsChecked = True
@@ -1116,15 +1121,39 @@ class PlansWindow(forms.WPFWindow):
 
 _settings = load_settings()
 sizing = size_settings(_settings)
-win = PlansWindow(type_options, sel_insts, plans_settings(_settings))
-win.ShowDialog()
-if not win.result:
-    script.exit()
+if _HEADLESS:
+    # Options from the pipeline; everything it does not say comes from the
+    # values this dialog last remembered.
+    _rem = plans_settings(_settings)
+    extents = _HEADLESS.get("extents") or _rem["extents"]
+    crop_size_mode = sizing["mode"]
+    crop_w_ft = _rem["width"] / FT
+    crop_d_ft = _rem["depth"] / FT
+    crop_param_x = sizing["px"]
+    crop_param_y = sizing["py"]
+    crop_clear_ft = sizing["clear"] / FT
+    _seed = None
+    if extents == EXTENTS_SCOPE:
+        _sn = pick_seed_name(seed_names, _rem["seed"])
+        _seed = sb_by_name.get(_sn) if _sn else None
+        if _seed is None:
+            extents = EXTENTS_CROP     # nothing to copy: exact crop instead
+    _tl = _HEADLESS.get("template") or _rem["template"]
+    if _tl not in template_choices:
+        _tl = PLANS_TEMPLATE_ACTIVE
+    _result = {"chambers": list(_HEADLESS["chambers"]),
+               "source": "(pipeline)", "seed": _seed, "template": _tl}
+else:
+    win = PlansWindow(type_options, sel_insts, plans_settings(_settings))
+    win.ShowDialog()
+    if not win.result:
+        script.exit()
+    _result = win.result
 
-seed = win.result["seed"]
-target_instances = win.result["chambers"]
-picked_type_label = win.result["source"]
-tmpl_label = win.result["template"]
+seed = _result["seed"]
+target_instances = _result["chambers"]
+picked_type_label = _result["source"]
+tmpl_label = _result["template"]
 if tmpl_label == PLANS_TEMPLATE_ACTIVE:
     tmpl_mode, tmpl_id = "active", None
 elif tmpl_label == PLANS_TEMPLATE_NONE:
@@ -1649,5 +1678,13 @@ for ident, _inst in no_mark:
     rows.append([ident, "SKIPPED - blank Mark", "-"])
 out.print_table(table_data=rows,
                 columns=["Chamber", "Scope box", "Plan view"])
+
+if _HEADLESS:
+    _PIPE["out_plans"] = {
+        "created": created_views, "failed": view_failed,
+        "existing": sum(1 for j in jobs if j["view_state"] == "exists"),
+        "no_mark": len(no_mark),
+        "names": [j["base"] for j in jobs],
+    }
 
 # Keep the output window open.

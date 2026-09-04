@@ -603,13 +603,41 @@ class SectionsWindow(forms.WPFWindow):
         self.Close()
 
 
+# Sheets Full Pipeline drives this script headless: options arrive on the
+# sys module (which survives the pymep_* purge above), the outcome goes
+# back the same way.
+_PIPE = getattr(sys, "_pymep_pipeline", None) or {}
+_HEADLESS = _PIPE.get("sections")
+
 _settings = load_settings()
 sizing = CS.size_settings(_settings)
-win = SectionsWindow(type_options, sel_insts, vft_labels,
-                     CS.section_settings(_settings))
-win.ShowDialog()
-if not win.result:
-    script.exit()
+if _HEADLESS:
+    _rem = CS.section_settings(_settings)
+    _types = {}
+    for _letter in SIDE_LETTERS:
+        _want = (_rem["type"] if _rem["same"]
+                 else (_rem["side_types"].get(_letter) or _rem["type"]))
+        _types[_letter] = _want if _want in vft_labels else vft_labels[0]
+    _result = {
+        "chambers": list(_HEADLESS["chambers"]), "source": "(pipeline)",
+        "offset": _rem["offset"], "height": _rem["height"],
+        "depth": _rem["depth"], "same": _rem["same"], "types": _types,
+        "cut_only": _rem["cut_only"], "size_mode": sizing["mode"],
+        "px": sizing["px"], "py": sizing["py"], "ph": sizing["ph"],
+        "clear": sizing["clear"],
+    }
+
+    class _Result(object):
+        pass
+
+    win = _Result()
+    win.result = _result
+else:
+    win = SectionsWindow(type_options, sel_insts, vft_labels,
+                         CS.section_settings(_settings))
+    win.ShowDialog()
+    if not win.result:
+        script.exit()
 
 target_chambers = win.result["chambers"]
 picked_type_label = win.result["source"]
@@ -1272,5 +1300,14 @@ if errors:
     out.print_md("**{0} section(s) failed:**".format(len(errors)))
     for stem, letter, msg in errors:
         out.print_md("- {0} SIDE {1}: {2}".format(stem, letter, msg))
+
+if _HEADLESS:
+    _PIPE["out_sections"] = {
+        "created": len(created), "failed": len(errors),
+        "planned": planned_total,
+        "view_ids": [sec.Id.IntegerValue for sec, _i, _m, _l, _ll in
+                     assoc_jobs],
+        "names": [name for _s, _i, _l, _c, name in created],
+    }
 
 # Keep the output window open.

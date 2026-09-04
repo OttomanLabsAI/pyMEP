@@ -146,6 +146,39 @@ class UprightRotation(unittest.TestCase):
                                math.radians(45))
 
 
+class Pipeline(unittest.TestCase):
+    def test_settings(self):
+        s = CS.pipeline_settings({})
+        self.assertEqual(s["number"], "P{n}")
+        self.assertEqual(s["name"], "CHAMBERS SHEET {n}")
+        self.assertEqual(s["start"], 1)
+        self.assertEqual(s["per_sheet"], 2)
+        self.assertEqual(s["titleblock"], "")
+        self.assertTrue(s["dims"])
+        s = CS.pipeline_settings({CS.SETTINGS_PIPE_NUMBER: "LV_Z2_P{n}",
+                                  CS.SETTINGS_PIPE_START: "7",
+                                  CS.SETTINGS_PIPE_PER_SHEET: 0,
+                                  CS.SETTINGS_PIPE_DIMS: False})
+        self.assertEqual(s["number"], "LV_Z2_P{n}")
+        self.assertEqual(s["start"], 7)
+        self.assertEqual(s["per_sheet"], 2)
+        self.assertFalse(s["dims"])
+
+    def test_sheet_text(self):
+        self.assertEqual(CS.sheet_text("LV_Z2_P{n}", 3), "LV_Z2_P3")
+        self.assertEqual(CS.sheet_text("S{nn}", 3), "S03")
+        self.assertEqual(CS.sheet_text("S{nnn}", 12), "S012")
+        self.assertEqual(CS.sheet_text("ZONE 2 SHEET", 4), "ZONE 2 SHEET 4")
+        self.assertEqual(CS.sheet_text("", 1), "1")
+        self.assertEqual(CS.sheet_text("{n}-{n}", 2), "2-2")
+
+    def test_chunks(self):
+        self.assertEqual(CS.chunks([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]])
+        self.assertEqual(CS.chunks([1, 2], 5), [[1, 2]])
+        self.assertEqual(CS.chunks([], 3), [])
+        self.assertEqual(CS.chunks([1, 2, 3], 0), [[1], [2], [3]])
+
+
 class DimSettings(unittest.TestCase):
     def test_remembered_and_default(self):
         self.assertEqual(CS.dim_settings({})["dim_type"], "RHD_2.5")

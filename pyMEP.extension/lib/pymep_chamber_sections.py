@@ -43,6 +43,17 @@ DEFAULT_SIZE_PARAM_Y = u"Length"
 DEFAULT_SIZE_PARAM_H = u"Height"
 DEFAULT_SIZE_CLEAR_MM = 500.0
 
+# Sheets Full Pipeline dialog
+SETTINGS_PIPE_NUMBER = "pipeline_sheet_number"
+SETTINGS_PIPE_NAME = "pipeline_sheet_name"
+SETTINGS_PIPE_START = "pipeline_sheet_start"
+SETTINGS_PIPE_PER_SHEET = "pipeline_per_sheet"
+SETTINGS_PIPE_TITLEBLOCK = "pipeline_titleblock"
+SETTINGS_PIPE_DIMS = "pipeline_dims"
+DEFAULT_PIPE_NUMBER = u"P{n}"
+DEFAULT_PIPE_NAME = u"CHAMBERS SHEET {n}"
+DEFAULT_PIPE_PER_SHEET = 2
+
 # Dimension Section dialog
 SETTINGS_DIM_TYPE = "dimension_section_dim_type"
 DEFAULT_DIM_TYPE_NAME = u"RHD_2.5"
@@ -104,6 +115,52 @@ def section_settings(settings):
         "same": bool(settings.get(SETTINGS_SECTION_SAME_TYPE, True)),
         "cut_only": bool(settings.get(SETTINGS_SECTION_CUT_ONLY, True)),
     }
+
+
+def pipeline_settings(settings):
+    """The Sheets Full Pipeline dialog's remembered values: number and
+    name patterns (with {n}), start number, chambers per sheet, title
+    block label and whether to dimension."""
+    settings = settings or {}
+    try:
+        start = int(settings.get(SETTINGS_PIPE_START) or 1)
+    except Exception:
+        start = 1
+    try:
+        per = int(settings.get(SETTINGS_PIPE_PER_SHEET)
+                  or DEFAULT_PIPE_PER_SHEET)
+    except Exception:
+        per = DEFAULT_PIPE_PER_SHEET
+    return {
+        "number": u"{0}".format(settings.get(SETTINGS_PIPE_NUMBER)
+                                or DEFAULT_PIPE_NUMBER),
+        "name": u"{0}".format(settings.get(SETTINGS_PIPE_NAME)
+                              or DEFAULT_PIPE_NAME),
+        "start": start if start >= 0 else 1,
+        "per_sheet": per if per >= 1 else DEFAULT_PIPE_PER_SHEET,
+        "titleblock": u"{0}".format(settings.get(SETTINGS_PIPE_TITLEBLOCK)
+                                    or u""),
+        "dims": bool(settings.get(SETTINGS_PIPE_DIMS, True)),
+    }
+
+
+def sheet_text(pattern, n):
+    """A sheet number / name from a pattern: every {n} becomes the number
+    ({nn} and {nnn} zero-pad to 2 and 3 digits). A pattern without any
+    token gets ' {n}' appended so successive sheets still differ."""
+    text = u"{0}".format(pattern or u"").strip()
+    if u"{n}" not in text and u"{nn}" not in text and u"{nnn}" not in text:
+        text = (text + u" {n}").strip()
+    return (text.replace(u"{nnn}", u"{0:03d}".format(int(n)))
+                .replace(u"{nn}", u"{0:02d}".format(int(n)))
+                .replace(u"{n}", u"{0}".format(int(n))))
+
+
+def chunks(items, size):
+    """items split into runs of `size` (the last may be shorter)."""
+    items = list(items or [])
+    size = max(1, int(size or 1))
+    return [items[i:i + size] for i in range(0, len(items), size)]
 
 
 def dim_settings(settings):

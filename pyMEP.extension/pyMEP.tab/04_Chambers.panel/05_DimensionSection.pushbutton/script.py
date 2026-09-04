@@ -359,6 +359,12 @@ def dimension_view(v, dim_type):
 # ---------------------------------------------------------------------------
 # 3. Which sections, and the dimension types on offer
 # ---------------------------------------------------------------------------
+# Sheets Full Pipeline drives this script headless: options arrive on the
+# sys module (which survives the pymep_* purge above), the outcome goes
+# back the same way.
+_PIPE = getattr(sys, "_pymep_pipeline", None) or {}
+_HEADLESS = _PIPE.get("dims")
+
 active = doc.ActiveView
 active_is_section = active is not None and active.ViewType == ViewType.Section
 
@@ -380,7 +386,7 @@ if isinstance(active, ViewSheet):
         placed = set()
     sheet_sections = [v for v in all_sections if v.Id.IntegerValue in placed]
 
-if not active_is_section and not all_sections:
+if not _HEADLESS and not active_is_section and not all_sections:
     forms.alert("No section views in this project.\n\n"
                 "Open a section, or make some with Create Sections, then "
                 "run again.", exitscript=True)
@@ -523,13 +529,19 @@ class DimWindow(forms.WPFWindow):
 
 
 _settings = load_settings()
-win = DimWindow(CS.dim_settings(_settings))
-win.ShowDialog()
-if not win.result:
-    script.exit()
-
-target_views = win.result["views"]
-dim_name = win.result["dim_type"]
+if _HEADLESS:
+    target_views = list(_HEADLESS["views"])
+    dim_name = _HEADLESS.get("dim_type") or CS.pick_dim_type_name(
+        dim_names, CS.dim_settings(_settings)["dim_type"])
+    if dim_name not in dim_types:
+        dim_name = CS.pick_dim_type_name(dim_names, dim_name)
+else:
+    win = DimWindow(CS.dim_settings(_settings))
+    win.ShowDialog()
+    if not win.result:
+        script.exit()
+    target_views = win.result["views"]
+    dim_name = win.result["dim_type"]
 dim_type = dim_types.get(dim_name) if dim_name else None
 try:
     if dim_name:
@@ -579,5 +591,8 @@ for r in results:
 out.print_table(table_data=rows,
                 columns=["Section", "Chamber", "Ducts", "Cols x rows",
                          "Column spacing", "Row spacing", "Notes"])
+
+if _HEADLESS:
+    _PIPE["out_dims"] = {"sections": len(results), "strings": made}
 
 # Keep the output window open (matches the other Chambers buttons).

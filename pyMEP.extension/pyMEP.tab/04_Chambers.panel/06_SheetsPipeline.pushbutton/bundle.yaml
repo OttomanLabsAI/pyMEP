@@ -1,0 +1,10 @@
+title: |-
+  Sheets Full
+  Pipeline
+tooltip: >-
+  One dialog, whole chamber drawing set: tick family types, search the Marks
+  and tick the chambers; the pipeline runs Chamber Plans, then Create
+  Sections, then makes numbered sheets ({n} in the number and name) with the
+  chosen number of chambers per sheet and places each chamber's plan and
+  sections in a row, then optionally dimensions the new sections. Plans,
+  sections and sheet layout use the settings those buttons last remembered.
