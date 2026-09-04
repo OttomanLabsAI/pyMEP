@@ -95,7 +95,7 @@
                                    Style="{StaticResource Hint}"
                                    Text=""/>
                         <TextBlock Style="{StaticResource Hint}"
-                                   Text="A chamber is known by the part of its Mark before the slash (LV1 for LV1/Z1). Every plan and section whose name carries that key is placed: the plan(s) first, then the sections in SIDE letter order. Views already on a sheet are skipped and reported."/>
+                                   Text="A chamber is known by its whole Mark (LV1/Z1). Every plan and section whose name carries that Mark is placed: the plan(s) first, then the sections in SIDE letter order. Views already on a sheet are skipped and reported."/>
                     </StackPanel>
                 </GroupBox>
 

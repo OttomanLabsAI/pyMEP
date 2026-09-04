@@ -8,18 +8,17 @@ Create Sections button; everything here is what it reads and writes.
 
 Also home to the chamber NAMING rule shared by Chamber Plans, Create
 Sections, Match Sections and Sheet Setup: a chamber's scope box, plan and
-sections are named after its KEY - the Mark up to the first slash. The
-"/Z1" style tail is a zone guide, not identity, and never reaches a name."""
+sections are named after its KEY, which is the WHOLE Mark, trimmed -
+"LV1/Z1" stays "LV1/Z1". The zone part matters: LV numbers repeat across
+zones, so the Mark before the slash alone would collide."""
 
 
 def chamber_key(mark):
-    """'LV1' for a Mark 'LV1/Z1'; a Mark without a slash is its own key;
-    blank or None -> empty string."""
+    """The naming key of a Mark: the whole Mark, trimmed ('LV1/Z1' ->
+    'LV1/Z1'); blank or None -> empty string."""
     if not mark:
         return u""
-    text = u"{0}".format(mark).strip()
-    head = text.split(u"/", 1)[0].strip()
-    return head or text
+    return u"{0}".format(mark).strip()
 
 SETTINGS_SECTION_OFFSET = "chamber_section_offset_mm"
 SETTINGS_SECTION_HEIGHT = "chamber_section_height_mm"

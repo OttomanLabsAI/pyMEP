@@ -2,9 +2,9 @@ title: |-
   Sheet
   Setup
 tooltip: >-
-  Run on an open SHEET. One dialog: tick the chambers (known by the key of
-  their Mark - LV1 for LV1/Z1), pick the scale and the spacing, and every
-  plan and section whose name carries that key is placed on the sheet in a
+  Run on an open SHEET. One dialog: tick the chambers (by Mark, e.g.
+  LV1/Z1), pick the scale, templates, viewport type and spacing, and every
+  plan and section whose name carries that Mark is placed on the sheet in a
   row - the plan first, then the sections A, B, C... - with the next chamber
   in the row below. The scale is set on the views first. Views already on a
   sheet are skipped and reported. Values are remembered in Settings.

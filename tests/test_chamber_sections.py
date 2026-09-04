@@ -67,11 +67,10 @@ class SectionSettings(unittest.TestCase):
 
 
 class ChamberKey(unittest.TestCase):
-    def test_key(self):
-        self.assertEqual(CS.chamber_key("LV1/Z1"), "LV1")
-        self.assertEqual(CS.chamber_key(" LV12 / Z3 "), "LV12")
+    def test_key_is_the_whole_mark(self):
+        self.assertEqual(CS.chamber_key("LV1/Z1"), "LV1/Z1")
+        self.assertEqual(CS.chamber_key(" LV12/Z3 "), "LV12/Z3")
         self.assertEqual(CS.chamber_key("MH-7"), "MH-7")
-        self.assertEqual(CS.chamber_key("/Z1"), "/Z1")
         self.assertEqual(CS.chamber_key(""), "")
         self.assertEqual(CS.chamber_key(None), "")
 

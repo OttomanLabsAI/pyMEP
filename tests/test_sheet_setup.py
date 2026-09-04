@@ -18,16 +18,8 @@ import pymep_sheet_setup as SS
 
 
 class Keys(unittest.TestCase):
-    def test_chamber_key(self):
-        self.assertEqual(SS.chamber_key("LV1/Z1"), "LV1")
-        self.assertEqual(SS.chamber_key(" LV12 / Z3 "), "LV12")
-        self.assertEqual(SS.chamber_key("MH-7"), "MH-7")
-        self.assertEqual(SS.chamber_key("/Z1"), "/Z1")
-        self.assertEqual(SS.chamber_key(""), "")
-        self.assertEqual(SS.chamber_key(None), "")
-
     def test_side_letter(self):
-        self.assertEqual(SS.side_letter("LV1/SIDE A"), "A")
+        self.assertEqual(SS.side_letter("LV1/Z1 SIDE A"), "A")
         self.assertEqual(SS.side_letter("LV1/Z1 SIDE C_2"), "C")
         self.assertEqual(SS.side_letter("LV1 SIDEB"), "B")
         for bad in (None, "", "Section 29", "LV1/Z1", "LV1 SIDE a",
@@ -35,67 +27,87 @@ class Keys(unittest.TestCase):
             self.assertIsNone(SS.side_letter(bad), bad)
 
     def test_key_from_section_name(self):
-        self.assertEqual(SS.key_from_section_name("LV1/Z1 SIDE A"), "LV1")
+        self.assertEqual(SS.key_from_section_name("LV1/Z1 SIDE A"), "LV1/Z1")
         self.assertEqual(SS.key_from_section_name("LV1/SIDE A"), "LV1")
-        self.assertEqual(SS.key_from_section_name("LV4/Z2 SIDE D_2"), "LV4")
+        self.assertEqual(SS.key_from_section_name("LV4/Z2 SIDE D_2"), "LV4/Z2")
         self.assertEqual(SS.key_from_section_name("MH-7 SIDE B"), "MH-7")
         self.assertIsNone(SS.key_from_section_name("Section 29"))
         self.assertIsNone(SS.key_from_section_name("SIDE A"))
 
     def test_has_key_is_whole_token(self):
+        self.assertTrue(SS.has_key("LV1/Z1", "LV1/Z1"))
+        self.assertTrue(SS.has_key("LV1/Z1 SIDE A", "LV1/Z1"))
+        self.assertTrue(SS.has_key("Plan lv1/z1", "LV1/Z1"))
         self.assertTrue(SS.has_key("LV1/Z1", "LV1"))
-        self.assertTrue(SS.has_key("LV1/SIDE A", "LV1"))
-        self.assertTrue(SS.has_key("LV1/Z1 SIDE B", "LV1"))
-        self.assertTrue(SS.has_key("lv1 plan", "LV1"))
-        self.assertTrue(SS.has_key("Chamber LV1", "LV1"))
-        self.assertFalse(SS.has_key("LV10/Z2", "LV1"))
-        self.assertFalse(SS.has_key("LV11/SIDE A", "LV1"))
-        self.assertFalse(SS.has_key("XLV1", "LV1"))
+        self.assertFalse(SS.has_key("LV1/Z10", "LV1/Z1"))
+        self.assertFalse(SS.has_key("LV11/Z1", "LV1/Z1"))
+        self.assertFalse(SS.has_key("XLV1/Z1", "LV1/Z1"))
         self.assertFalse(SS.has_key("Level 1", "LV1"))
         self.assertFalse(SS.has_key("LV1", ""))
+
+    def test_best_key_prefers_the_longest(self):
+        keys = {"LV1", "LV1/Z1", "LV1/Z2"}
+        self.assertEqual(SS.best_key("LV1/Z1 SIDE A", keys), "LV1/Z1")
+        self.assertEqual(SS.best_key("LV1/Z2", keys), "LV1/Z2")
+        self.assertEqual(SS.best_key("LV1/SIDE A", keys), "LV1")
+        self.assertIsNone(SS.best_key("LV1/Z3", {"LV1/Z1"}))
 
 
 class GroupChamberViews(unittest.TestCase):
     VIEWS = [
         ("Level 1", "plan"),
         ("LV1/Z1", "plan"),
-        ("LV1/SIDE C", "section"),
-        ("LV1/SIDE A", "section"),
+        ("LV1/Z1 SIDE C", "section"),
+        ("LV1/Z1 SIDE A", "section"),
         ("LV1/Z1 SIDE B", "section"),
-        ("LV10/Z2", "plan"),
-        ("LV10/Z2 SIDE A", "section"),
+        ("LV1/Z2", "plan"),                 # same LV number, other zone
+        ("LV1/Z2 SIDE A", "section"),
+        ("LV1/Z10", "plan"),
+        ("LV1/Z10 SIDE A", "section"),
         ("LV2/Z2 SIDE A", "section"),
         ("LV3/Z2", "plan"),
         ("Section 29", "section"),
     ]
 
-    def test_grouping(self):
+    def test_grouping_keeps_zones_apart(self):
         g = SS.group_chamber_views(self.VIEWS, known_marks=["LV3/Z2"])
-        self.assertEqual(sorted(g), ["LV1", "LV10", "LV2", "LV3"])
-        self.assertEqual(g["LV1"]["plans"], ["LV1/Z1"])
+        self.assertEqual(sorted(g), ["LV1/Z1", "LV1/Z10", "LV1/Z2", "LV2/Z2",
+                                     "LV3/Z2"])
+        self.assertEqual(g["LV1/Z1"]["plans"], ["LV1/Z1"])
+        self.assertEqual([n for _l, n in g["LV1/Z1"]["sections"]],
+                         ["LV1/Z1 SIDE A", "LV1/Z1 SIDE B", "LV1/Z1 SIDE C"])
+        self.assertEqual(g["LV1/Z2"]["plans"], ["LV1/Z2"])
+        self.assertEqual([n for _l, n in g["LV1/Z2"]["sections"]],
+                         ["LV1/Z2 SIDE A"])
+        self.assertEqual(g["LV1/Z10"]["plans"], ["LV1/Z10"])
+        self.assertEqual(g["LV2/Z2"]["plans"], [])
+        self.assertEqual(g["LV3/Z2"], {"plans": ["LV3/Z2"], "sections": []})
+
+    def test_bare_key_does_not_swallow_zoned_views(self):
+        views = self.VIEWS + [("LV1/SIDE D", "section")]
+        g = SS.group_chamber_views(views)
         self.assertEqual([n for _l, n in g["LV1"]["sections"]],
-                         ["LV1/SIDE A", "LV1/Z1 SIDE B", "LV1/SIDE C"])
-        self.assertEqual(g["LV10"]["plans"], ["LV10/Z2"])
-        self.assertEqual(g["LV2"]["plans"], [])
-        self.assertEqual(g["LV3"], {"plans": ["LV3/Z2"], "sections": []})
+                         ["LV1/SIDE D"])
+        self.assertEqual(g["LV1"]["plans"], [])
+        self.assertEqual(g["LV1/Z1"]["plans"], ["LV1/Z1"])
 
     def test_plain_plans_stay_out_without_known_marks(self):
         g = SS.group_chamber_views(self.VIEWS)
         self.assertNotIn("Level 1", g)
-        self.assertNotIn("LV3", g)
+        self.assertNotIn("LV3/Z2", g)
         self.assertNotIn("Section 29", [n for grp in g.values()
                                         for _l, n in grp["sections"]])
 
     def test_ordered_and_label(self):
         g = SS.group_chamber_views(self.VIEWS)
-        self.assertEqual(SS.ordered_views(g["LV1"]),
-                         ["LV1/Z1", "LV1/SIDE A", "LV1/Z1 SIDE B",
-                          "LV1/SIDE C"])
-        self.assertEqual(SS.ordered_views(g["LV2"]), ["LV2/Z2 SIDE A"])
-        self.assertEqual(SS.group_label("LV1", g["LV1"]),
-                         "LV1   (plan LV1/Z1 + 3 sections)")
-        self.assertEqual(SS.group_label("LV2", g["LV2"]),
-                         "LV2   (no plan + 1 section)")
+        self.assertEqual(SS.ordered_views(g["LV1/Z1"]),
+                         ["LV1/Z1", "LV1/Z1 SIDE A", "LV1/Z1 SIDE B",
+                          "LV1/Z1 SIDE C"])
+        self.assertEqual(SS.ordered_views(g["LV2/Z2"]), ["LV2/Z2 SIDE A"])
+        self.assertEqual(SS.group_label("LV1/Z1", g["LV1/Z1"]),
+                         "LV1/Z1   (plan LV1/Z1 + 3 sections)")
+        self.assertEqual(SS.group_label("LV2/Z2", g["LV2/Z2"]),
+                         "LV2/Z2   (no plan + 1 section)")
 
 
 class ParseScale(unittest.TestCase):

@@ -4,14 +4,15 @@ the CPython suite tests them: which views belong to which chamber Mark,
 the scale field parser, the remembered settings and the row layout that
 puts a chamber's plan and sections in a line on the sheet.
 
-Naming contract: a chamber is known by its KEY - the Mark up to the first
-slash ("LV1" for a Mark "LV1/Z1"; the "/Z1" is a zone guide). A view belongs
-to the chamber when its name carries the key as a whole token, so "LV1/Z1",
-"LV1/SIDE A" and "LV1/Z1 SIDE B" are all LV1's while "LV10/Z2" is not. On
-the sheet the plan view(s) go first, then the sections by their SIDE letter.
+Naming contract: a chamber is known by its whole Mark ("LV1/Z1" - LV
+numbers repeat across zones, so the zone part is identity). A view belongs
+to the chamber whose Mark its name carries as a whole token: "LV1/Z1",
+"LV1/Z1 SIDE A" and "Plan LV1/Z1" are LV1/Z1's, while "LV1/Z10" is not.
+When more than one Mark fits a name the longest wins, so a bare "LV1"
+never swallows "LV1/Z1". On the sheet the plan view(s) go first, then the
+sections by their SIDE letter.
 
 """
-
 import re
 
 SETTINGS_SHEET_SCALE = "sheet_setup_scale"
@@ -82,13 +83,24 @@ def has_key(name, key):
         start = i + 1
 
 
+def best_key(name, keys):
+    """The key (chamber Mark) a view name belongs to: the LONGEST key that
+    appears in the name as a whole token, or None."""
+    best = None
+    for key in keys:
+        if has_key(name, key) and (best is None or len(key) > len(best)):
+            best = key
+    return best
+
+
 def group_chamber_views(views, known_marks=None):
     """views: iterable of (name, kind) with kind 'plan' or 'section'.
-    Chamber keys come from known_marks (the model's chamber Marks) and
-    from every 'SIDE' section name. Returns
+    Chamber keys are the model's chamber Marks plus the stem of every
+    'SIDE' section name. Returns
         {key: {"plans": [plan names...], "sections": [(letter, name)...]}}
-    for the keys that own at least one view. Plans are matched by the key
-    token in their name, so plain project plans ('Level 1') stay out."""
+    for the keys that own at least one view. Each view goes to the longest
+    key its name carries as a whole token, so plain project plans
+    ('Level 1') stay out and 'LV1' never takes 'LV1/Z1' views."""
     keys = set()
     for m in known_marks or []:
         k = chamber_key(m)
@@ -105,22 +117,20 @@ def group_chamber_views(views, known_marks=None):
             if k:
                 keys.add(k)
     groups = {}
-    for key in keys:
-        plans = []
-        sections = []
-        for name, kind in names:
-            if not has_key(name, key):
-                continue
-            if kind == "plan":
-                plans.append(name)
-            elif kind == "section":
-                letter = side_letter(name)
-                if letter is not None:
-                    sections.append((letter, name))
-        if plans or sections:
-            plans.sort(key=lambda n: n.lower())
-            sections.sort(key=lambda t: (t[0], t[1].lower()))
-            groups[key] = {"plans": plans, "sections": sections}
+    for name, kind in names:
+        if kind == "section" and side_letter(name) is None:
+            continue
+        key = best_key(name, keys)
+        if key is None:
+            continue
+        g = groups.setdefault(key, {"plans": [], "sections": []})
+        if kind == "plan":
+            g["plans"].append(name)
+        else:
+            g["sections"].append((side_letter(name), name))
+    for g in groups.values():
+        g["plans"].sort(key=lambda n: n.lower())
+        g["sections"].sort(key=lambda t: (t[0], t[1].lower()))
     return groups
 
 

@@ -2,11 +2,11 @@
 """Chamber Plans - one button for chamber scope boxes AND their plan views.
 
 For each chamber (current selection, or a family type you pick):
-  0. NAME = the chamber's KEY: its instance parameter "Mark" up to the first
-     slash (LV1 for a Mark LV1/Z1 - the "/Z1" is a zone guide and never
-     reaches a name). Nothing else is read. A chamber with a blank Mark is
-     NOT processed - it is listed as skipped in the preview and the report
-     so it can be populated and re-run.
+  0. NAME = the chamber's instance parameter "Mark", whole ("LV1/Z1" - the
+     zone part is identity, LV numbers repeat across zones). Nothing else
+     is read. A chamber with a blank Mark is NOT processed - it is listed
+     as skipped in the preview and the report so it can be populated and
+     re-run.
   1. ENSURE a scope box named after the Mark: if one exists and sits over
      the chamber in plan it is used as is; if it exists but sits somewhere
      else (a copy that never got moved, a chamber that moved) it is MOVED
@@ -56,7 +56,7 @@ from Autodesk.Revit.DB import (
 
 from pyrevit import revit, forms, script
 
-# Chamber names use the Mark's KEY (before any '/zone' tail); the box
+# Chamber names use the whole Mark (chamber_key trims it); the box
 # rotation snaps the chamber face nearest 'up' to the top of the plan.
 from pymep_chamber_sections import (
     chamber_key, upright_rotation, wrap_angle, RIGHT_ANGLE,
@@ -551,7 +551,7 @@ dup_marks = []           # (mark, instance) sharing a Mark with an earlier job
 seen_bases = set()
 for inst in target_instances:
     mark = _get_mark(inst)
-    base = _sanitize(chamber_key(mark))   # KEY: Mark before any '/zone'
+    base = _sanitize(chamber_key(mark))   # the whole Mark, trimmed
     if base in seen_bases:
         dup_marks.append((mark, inst))
         continue

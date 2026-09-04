@@ -29,10 +29,10 @@ For each chosen chamber:
     show an empty vault wall, so it is dropped.
     If NO side cuts anything (empty chamber, or no MEP in the model at all)
     all four sides are kept and the report says so.
-  * The surviving sections are named "{Key} SIDE A", "{Key} SIDE B", ... in
-    side order, so the letters always run A, B, C without gaps. The KEY is
-    the chamber's Mark up to the first slash (LV1 for a Mark LV1/Z1 - the
-    zone tail never reaches a name). If the chamber has no Mark, the
+  * The surviving sections are named "{Mark} SIDE A", "{Mark} SIDE B", ...
+    in side order, so the letters always run A, B, C without gaps. The
+    whole Mark is used ("LV1/Z1 SIDE A" - the zone part is identity, LV
+    numbers repeat across zones). If the chamber has no Mark, the
     ElementId is used as the stem. (This matches the naming Match Sections
     and Chamber Plans produce.)
   * Each section's placement relative to its chamber is stored automatically
@@ -871,7 +871,7 @@ for inst in target_chambers:
                         "no centre"))
         continue
     mark = _get_mark(inst)
-    # Names use the chamber KEY: the Mark before any "/zone" tail.
+    # Names use the whole Mark (chamber_key trims it).
     stem = _sanitize(CS.chamber_key(mark)) if mark else "Id{0}".format(
         inst.Id.IntegerValue)
     half_lx, half_ly = _chamber_plan_halfspan(inst, angle)

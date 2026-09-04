@@ -2,12 +2,12 @@
 """Chamber Sheet Setup - lay chamber plans and sections out on the open sheet.
 
 Run it on a SHEET. One dialog asks:
-  * WHICH chambers - a tick list of chamber KEYS with a search box. A key is
-    the Mark up to the first slash (LV1 for a Mark LV1/Z1); a view belongs
-    to the chamber when its name carries the key as a whole token, so
-    "LV1", "LV1/Z1", "LV1 SIDE A" and "LV1/SIDE A" are all LV1's while
-    "LV10/Z2" is not. Keys come from the chamber Marks in the model and from
-    every "... SIDE X" section name. Each entry says what it owns.
+  * WHICH chambers - a tick list of chamber Marks with a search box. A view
+    belongs to the chamber whose whole Mark its name carries as a token, so
+    "LV1/Z1", "LV1/Z1 SIDE A" and "Plan LV1/Z1" are LV1/Z1's while
+    "LV1/Z10" is not; when several Marks fit, the longest wins. Marks come
+    from the chambers in the model and from every "... SIDE X" section
+    name. Each entry says what it owns.
   * The VIEW TEMPLATES - one for the plan views, one for the sections (Revit
     keeps them separate) - applied to every placed view first, or left as
     they are.
@@ -191,8 +191,8 @@ groups = SS.group_chamber_views(view_list, known_marks)
 if not groups:
     forms.alert("No chamber views found.\n\n"
                 "Sheet Setup looks for plan views and '... SIDE A' sections "
-                "whose names carry a chamber key (the Mark before any "
-                "'/zone' tail). Run Chamber Plans / Create Sections first.",
+                "whose names carry a chamber Mark. Run Chamber Plans / "
+                "Create Sections first.",
                 exitscript=True)
 
 # Rows for the dialog: label, key, and whether anything is left to place.
