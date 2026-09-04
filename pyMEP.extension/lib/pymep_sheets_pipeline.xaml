@@ -119,7 +119,7 @@
                         <TextBlock x:Name="TxtCount"
                                    Style="{StaticResource Hint}" Text=""/>
                         <TextBlock Style="{StaticResource Hint}"
-                                   Text="Tick one or more family types, then search the Marks and tick the chambers. All / None act on the chambers shown. Chambers without a Mark are not offered - everything is named from it."/>
+                                   Text="Tick family types to narrow the list (none ticked = every chamber), search the Marks, tick the chambers. All / None act on the chambers shown. Chambers without a Mark are not offered - everything is named from it."/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

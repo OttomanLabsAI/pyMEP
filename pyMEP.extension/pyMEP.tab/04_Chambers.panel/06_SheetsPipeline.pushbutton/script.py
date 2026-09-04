@@ -485,8 +485,10 @@ class PipeWindow(forms.WPFWindow):
         from System.Windows.Controls import CheckBox
         from System.Windows import Thickness
         rows = []
+        any_type = any(self._type_state.values())
         for d in type_options:
-            if not self._type_state.get(d["typeid"]):
+            # No type ticked = search across every chamber.
+            if any_type and not self._type_state.get(d["typeid"]):
                 continue
             short = d["label"].split("   (")[0]
             for fi in d["insts"]:
@@ -600,8 +602,7 @@ class PipeWindow(forms.WPFWindow):
         # 1 chambers
         o["chambers"] = self._chambers()
         if not o["chambers"]:
-            return self._fail("Chambers tab: tick at least one family type "
-                              "and one chamber.")
+            return self._fail("Chambers tab: tick at least one chamber.")
         # 2 plans
         o["source"] = plan_by_name.get(self.CmbSourcePlan.SelectedItem)
         if o["source"] is None:

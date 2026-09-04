@@ -438,6 +438,13 @@ class SectionsWindow(forms.WPFWindow):
             rows.append(("{0}   (Id {1})".format(mk if mk else "<no mark>",
                                                   fi.Id.IntegerValue), fi))
         rows.sort(key=lambda r: r[0].lower())
+        query = ""
+        try:
+            query = self.TxtMarkFilter.Text or ""
+        except Exception:
+            pass
+        rows = [rows[i] for i in CS.filter_labels([r[0] for r in rows],
+                                                  query)]
         for label, fi in rows:
             cb = CheckBox()
             cb.Content = label
@@ -503,6 +510,17 @@ class SectionsWindow(forms.WPFWindow):
         if not getattr(self, "_ready", False) or self._filling:
             return
         self._fill_chambers(self._current_type())
+
+    def on_mark_filter(self, sender, args):
+        # Narrow the chamber tick list to the Marks matching the search;
+        # ticks already made are kept on the boxes that stay listed.
+        if getattr(self, "_ready", False) and not self._filling:
+            ticked = set(fi.Id.IntegerValue for fi in self._ticked())
+            self._fill_chambers(self._current_type())
+            for cb, fi in self._boxes:
+                if ticked and fi.Id.IntegerValue not in ticked:
+                    cb.IsChecked = False
+            self._sync()
 
     def on_tick_all(self, sender, args):
         self._set_all(True)
