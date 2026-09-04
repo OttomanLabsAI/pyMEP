@@ -616,9 +616,9 @@ class PipeWindow(forms.WPFWindow):
             if w is None or d is None:
                 return self._fail("Plans tab: crop size along X and Y must "
                                   "be positive mm.")
-            o["width"], o["depth"] = w, d
+            o["crop_w"], o["crop_d"] = w, d
         else:
-            o["width"], o["depth"] = rem_plans["width"], rem_plans["depth"]
+            o["crop_w"], o["crop_d"] = rem_plans["width"], rem_plans["depth"]
         o["seed"] = self.CmbSeed.SelectedItem if seed_names else None
         if o["extents"] == CS.EXTENTS_SCOPE and not o["seed"]:
             return self._fail("Plans tab: pick the seed scope box.")
@@ -734,8 +734,8 @@ opt = win.result
 try:
     S = _settings
     S[CS.SETTINGS_PLANS_EXTENTS] = opt["extents"]
-    S[CS.SETTINGS_PLANS_WIDTH] = opt["width"]
-    S[CS.SETTINGS_PLANS_DEPTH] = opt["depth"]
+    S[CS.SETTINGS_PLANS_WIDTH] = opt["crop_w"]
+    S[CS.SETTINGS_PLANS_DEPTH] = opt["crop_d"]
     if opt["seed"]:
         S[CS.SETTINGS_PLANS_SEED] = opt["seed"]
     S[CS.SETTINGS_PLANS_WORKSET] = opt["workset"]
@@ -747,8 +747,7 @@ try:
     S[CS.SETTINGS_SIZE_CLEAR] = opt["clear"]
     S[CS.SETTINGS_SECTION_OFFSET] = opt["offset"]
     S[CS.SETTINGS_SECTION_HEIGHT] = opt["height"]
-    S[CS.SETTINGS_SECTION_DEPTH] = opt["depth"] if opt["size_mode"] == \
-        CS.SIZE_FIXED else rem_sec["depth"]
+    S[CS.SETTINGS_SECTION_DEPTH] = opt["depth"]
     S[CS.SETTINGS_SECTION_SAME_TYPE] = opt["same"]
     S[CS.SETTINGS_SECTION_SIDE_TYPES] = dict(opt["types"])
     S[CS.SETTINGS_SECTION_TYPE] = opt["types"]["A"]

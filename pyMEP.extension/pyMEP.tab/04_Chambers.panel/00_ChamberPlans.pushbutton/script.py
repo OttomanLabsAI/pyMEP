@@ -1402,8 +1402,13 @@ def _set_crop(v, centre, phi, half_a, half_b):
         return "Revit refused the crop: {0}".format(ex)
     try:
         got = v.CropBox
-        if abs((got.Max.X - got.Min.X) - 2.0 * half_a) > 0.01:
-            return "the view did not keep the crop size"
+        gw = got.Max.X - got.Min.X
+        gh = got.Max.Y - got.Min.Y
+        if abs(gw - 2.0 * half_a) > 0.01 or abs(gh - 2.0 * half_b) > 0.01:
+            return ("the view kept a {0:.2f} x {1:.2f} m crop instead of "
+                    "{2:.2f} x {3:.2f} m".format(
+                        gw * 0.3048, gh * 0.3048, 2.0 * half_a * 0.3048,
+                        2.0 * half_b * 0.3048))
     except Exception:
         pass
     # 2) turn the crop region so its X axis lies at phi.
