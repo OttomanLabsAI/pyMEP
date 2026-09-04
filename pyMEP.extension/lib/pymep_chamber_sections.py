@@ -43,6 +43,10 @@ DEFAULT_SIZE_PARAM_Y = u"Length"
 DEFAULT_SIZE_PARAM_H = u"Height"
 DEFAULT_SIZE_CLEAR_MM = 500.0
 
+# Dimension Section dialog
+SETTINGS_DIM_TYPE = "dimension_section_dim_type"
+DEFAULT_DIM_TYPE_NAME = u"RHD_2.5"
+
 # Chamber Plans dialog
 SETTINGS_PLANS_TEMPLATE = "chamber_plans_template"
 SETTINGS_PLANS_SEED = "chamber_plans_seed"
@@ -100,6 +104,27 @@ def section_settings(settings):
         "same": bool(settings.get(SETTINGS_SECTION_SAME_TYPE, True)),
         "cut_only": bool(settings.get(SETTINGS_SECTION_CUT_ONLY, True)),
     }
+
+
+def dim_settings(settings):
+    """The Dimension Section dialog's remembered dimension type name."""
+    settings = settings or {}
+    return {"dim_type": u"{0}".format(settings.get(SETTINGS_DIM_TYPE)
+                                      or DEFAULT_DIM_TYPE_NAME)}
+
+
+def pick_dim_type_name(names, remembered=u""):
+    """Which linear dimension type the dialog offers first: the remembered
+    one if it still exists, else the house default (any case), else the
+    first name, else None."""
+    names = list(names or [])
+    if remembered and remembered in names:
+        return remembered
+    want = DEFAULT_DIM_TYPE_NAME.lower()
+    for n in names:
+        if u"{0}".format(n).strip().lower() == want:
+            return n
+    return names[0] if names else None
 
 
 def size_settings(settings):

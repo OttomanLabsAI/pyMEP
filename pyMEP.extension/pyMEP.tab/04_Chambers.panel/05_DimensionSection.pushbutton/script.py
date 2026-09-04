@@ -1,7 +1,15 @@
 # -*- coding: utf-8 -*-
 """Dimension Section - dimension the pipe / conduit / duct CENTRELINES in
-the active SECTION view, and nothing else.
+chamber sections, and nothing else.
 
+WHERE it runs:
+  * From a SECTION view: that one view is dimensioned. The dialog only
+    asks for the dimension type.
+  * From anywhere else (a sheet, a plan): the dialog offers a tick list of
+    sections - the ones placed on the open sheet when you start from a
+    sheet, or every section in the project - plus the dimension type.
+
+WHAT it does in each section:
   * Every pipe, conduit and duct visible in the section (inside the
     chamber's footprint when a chamber family is in view) is located where
     it crosses the section plane.
@@ -11,10 +19,8 @@ the active SECTION view, and nothing else.
     dimension goes to the LEFT of the bank through one centreline per row
     (the row spacing). A single row or a single column gets no dimension
     in that direction.
-  * The dimension type named in DIM_TYPE_NAME ('RHD_2.5') is used when the
-    project has it, else the view's default.
-
-Run it with a section view open and active - no selection needed.
+  * The dimension type is picked in the dialog (remembered; the house
+    'RHD_2.5' is offered first when the project has it).
 
 IronPython 2.7: pure ASCII, no f-strings, LF endings.
 """
@@ -22,6 +28,7 @@ IronPython 2.7: pure ASCII, no f-strings, LF endings.
 __title__  = "Dimension\nSection"
 __author__ = "Glent Group"
 
+import os
 import sys
 
 # Reload pymep_* lib modules so the script picks up the latest helpers.
@@ -35,18 +42,21 @@ clr.AddReference("RevitAPIUI")
 from Autodesk.Revit.DB import (
     Transaction, ViewType, BuiltInCategory, XYZ, Options, Curve,
     GeometryInstance, ReferenceArray, Line, FilteredElementCollector,
+    FamilyInstance, View, ViewSheet, DimensionType, DimensionStyleType,
+    Element,
 )
 
 from pyrevit import revit, forms, script
 
+import pymep_chamber_sections as CS
+from pymep_config import load_settings, save_settings
+
 doc = revit.doc
-view = doc.ActiveView
 out = script.get_output()
 
+XAML_PATH = os.path.join(os.path.dirname(os.path.abspath(CS.__file__)),
+                         "pymep_dimension_section.xaml")
 MM_PER_FOOT = 304.8
-
-# --- Type name to use (edit here if your standards change) -----------------
-DIM_TYPE_NAME = "RHD_2.5"
 
 # Categories treated as "ducts" (round MEP elements).
 DUCT_CATS = (
@@ -55,14 +65,11 @@ DUCT_CATS = (
     int(BuiltInCategory.OST_DuctCurves),
 )
 
-
-# ---------------------------------------------------------------------------
-# 0. Pre-flight: must be a section view
-# ---------------------------------------------------------------------------
-if view is None or view.ViewType != ViewType.Section:
-    forms.alert("Open a SECTION view and try again.\n\n"
-                "This tool dimensions the pipe / conduit centrelines visible "
-                "in a chamber section.", exitscript=True)
+DUCT_MARGIN_MM = 300.0      # allow ducts just outside the chamber shell
+COL_TOL_MM = 50.0           # ducts within this are the same column
+ROW_TOL_MM = 50.0           # ducts within this are the same row
+DIM_OFFSET_MM = 600.0       # column string this far above the bank
+VDIM_OFFSET_MM = 900.0      # row string this far left of the bank
 
 
 def _cat_int(elem):
@@ -75,21 +82,22 @@ def _cat_int(elem):
         return cid.IntegerValue
 
 
-# ---------------------------------------------------------------------------
-# 1. Helpers
-# ---------------------------------------------------------------------------
-def _find_dim_type(name):
-    # Find a DimensionType by name; return None if not present.
-    from Autodesk.Revit.DB import DimensionType
-    for dt in FilteredElementCollector(doc).OfClass(DimensionType):
-        try:
-            if dt.Name == name:
-                return dt
-        except Exception:
-            continue
-    return None
+def _name(el):
+    try:
+        n = el.Name
+        if n:
+            return n
+    except Exception:
+        pass
+    try:
+        return Element.Name.GetValue(el) or "?"
+    except Exception:
+        return "?"
 
 
+# ---------------------------------------------------------------------------
+# 1. Geometry helpers (all take the section view they work in)
+# ---------------------------------------------------------------------------
 def _pipe_endpoints(elem):
     loc = getattr(elem, "Location", None)
     if loc is not None and hasattr(loc, "Curve") and loc.Curve is not None:
@@ -98,44 +106,25 @@ def _pipe_endpoints(elem):
     return None, None
 
 
-def _centre_point(elem):
-    # Midpoint of the element's centreline (Revit ft), or None.
-    p0, p1 = _pipe_endpoints(elem)
-    if p0 is None or p1 is None:
-        return None
-    return XYZ((p0.X + p1.X) * 0.5,
-               (p0.Y + p1.Y) * 0.5,
-               (p0.Z + p1.Z) * 0.5)
-
-
 def _section_cross_point(elem, plane_origin, plane_normal):
-    # Where the pipe centreline crosses the section's cut plane. This is the
-    # point that shows as the duct circle in the section - the correct point
-    # for both the chamber filter and dimension placement.
-    #
-    # Pipes run perpendicular to the section, so their 3D midpoint can be far
-    # from the cut plane; the crossing point is what matters.
+    # Where the pipe centreline crosses the section's cut plane - the point
+    # that shows as the duct circle. Pipes run perpendicular to the section,
+    # so their 3D midpoint can be far from the cut plane.
     p0, p1 = _pipe_endpoints(elem)
     if p0 is None or p1 is None:
         return None
-
     dx = p1.X - p0.X
     dy = p1.Y - p0.Y
     dz = p1.Z - p0.Z
     denom = dx * plane_normal.X + dy * plane_normal.Y + dz * plane_normal.Z
     if abs(denom) < 1.0e-9:
-        # Pipe is parallel to the cut plane - it does not cross. Use midpoint.
-        return XYZ((p0.X + p1.X) * 0.5,
-                   (p0.Y + p1.Y) * 0.5,
+        # Parallel to the cut plane - it does not cross. Use the midpoint.
+        return XYZ((p0.X + p1.X) * 0.5, (p0.Y + p1.Y) * 0.5,
                    (p0.Z + p1.Z) * 0.5)
-
-    # Parametric t where the line p0 + t*d meets the plane.
     num = ((plane_origin.X - p0.X) * plane_normal.X +
            (plane_origin.Y - p0.Y) * plane_normal.Y +
            (plane_origin.Z - p0.Z) * plane_normal.Z)
     t = num / denom
-    # Clamp to the segment so a pipe that ends before the plane still yields a
-    # sensible point (its nearest end) rather than an extrapolated one.
     if t < 0.0:
         t = 0.0
     elif t > 1.0:
@@ -143,14 +132,9 @@ def _section_cross_point(elem, plane_origin, plane_normal):
     return XYZ(p0.X + dx * t, p0.Y + dy * t, p0.Z + dz * t)
 
 
-def _get_centreline_ref(elem):
+def _get_centreline_ref(elem, v):
     # Multi-strategy reference extraction (proven in Pipe End Elev).
-    strategies = (
-        (True, None),
-        (True, view),
-        (False, None),
-        (False, view),
-    )
+    strategies = ((True, None), (True, v), (False, None), (False, v))
     for include_non_vis, opts_view in strategies:
         opts = Options()
         opts.ComputeReferences = True
@@ -194,41 +178,33 @@ def _get_centreline_ref(elem):
     return None
 
 
-
-# ---------------------------------------------------------------------------
-# 2a. Find the chamber FIRST (the single largest non-duct family in the view).
-#     Ducts are then filtered to those inside the chamber, so pipes from other
-#     nearby chambers that happen to fall in the view's crop depth are ignored.
-# ---------------------------------------------------------------------------
-from Autodesk.Revit.DB import FamilyInstance
-chamber_candidates = []
-for el in FilteredElementCollector(doc, view.Id).OfClass(FamilyInstance):
-    if _cat_int(el) in DUCT_CATS:
-        continue
-    try:
-        bb = el.get_BoundingBox(view)
-    except Exception:
-        bb = None
-    if bb is None:
-        continue
-    span = ((bb.Max.X - bb.Min.X) ** 2 +
-            (bb.Max.Y - bb.Min.Y) ** 2 +
-            (bb.Max.Z - bb.Min.Z) ** 2) ** 0.5
-    chamber_candidates.append((el, span, bb))
-
-chamber = None
-if chamber_candidates:
-    chamber_candidates.sort(key=lambda c: c[1], reverse=True)
-    chamber = chamber_candidates[0][0]
+def _find_chamber(v):
+    # The single largest non-duct family instance in the view, or None.
+    best = None
+    best_span = 0.0
+    for el in FilteredElementCollector(doc, v.Id).OfClass(FamilyInstance):
+        if _cat_int(el) in DUCT_CATS:
+            continue
+        try:
+            bb = el.get_BoundingBox(v)
+        except Exception:
+            bb = None
+        if bb is None:
+            continue
+        span = ((bb.Max.X - bb.Min.X) ** 2 + (bb.Max.Y - bb.Min.Y) ** 2 +
+                (bb.Max.Z - bb.Min.Z) ** 2) ** 0.5
+        if span > best_span:
+            best, best_span = el, span
+    return best
 
 
-def _inside_chamber_model_bb(pt, margin_ft):
-    # Test a model-space point against the chamber's MODEL bounding box
-    # (transform=None), expanded by a margin. Returns True if no chamber.
-    if chamber is None:
+def _inside_model_bb(el, pt, margin_ft):
+    # Point against the element's MODEL bounding box plus a margin. True
+    # when there is no element / box to test against.
+    if el is None:
         return True
     try:
-        mbb = chamber.get_BoundingBox(None)   # model coords
+        mbb = el.get_BoundingBox(None)
     except Exception:
         mbb = None
     if mbb is None:
@@ -238,268 +214,346 @@ def _inside_chamber_model_bb(pt, margin_ft):
             mbb.Min.Z - margin_ft <= pt.Z <= mbb.Max.Z + margin_ft)
 
 
-# ---------------------------------------------------------------------------
-# Section frame + cut plane. Defined here because duct filtering needs the
-# plane to find where each pipe crosses the section.
-# ---------------------------------------------------------------------------
-right = view.RightDirection      # unit XYZ across the section, left->right
-up = view.UpDirection            # unit XYZ up the section
-view_dir = view.ViewDirection    # plane normal (into the screen)
-plane_origin = view.Origin       # a point on the section cut plane
-
-
-def _along_right(pt):
-    return pt.X * right.X + pt.Y * right.Y + pt.Z * right.Z
-
-
-def _along_up(pt):
-    return pt.X * up.X + pt.Y * up.Y + pt.Z * up.Z
+def _group(items, key, tol):
+    # Cluster (el, point) items whose key() values lie within tol of a
+    # cluster's first member. Returns clusters sorted by key.
+    clusters = []
+    for it in items:
+        k = key(it[1])
+        for cl in clusters:
+            if abs(cl["k"] - k) <= tol:
+                cl["items"].append(it)
+                break
+        else:
+            clusters.append({"k": k, "items": [it]})
+    clusters.sort(key=lambda cl: cl["k"])
+    return clusters
 
 
 # ---------------------------------------------------------------------------
-# 2b. Collect ducts, filtered to those within the chamber's footprint.
-#     The test point is where each pipe CROSSES the section plane (the duct
-#     circle), not the pipe's 3D midpoint - pipes run perpendicular to the
-#     section and their midpoint can be far outside the chamber depth.
+# 2. One section: analyse + dimension (inside the caller's transaction)
 # ---------------------------------------------------------------------------
-DUCT_MARGIN_MM = 300.0      # allow ducts just outside the chamber shell
-duct_margin_ft = DUCT_MARGIN_MM / MM_PER_FOOT
+def dimension_view(v, dim_type):
+    res = {"view": _name(v), "ducts": 0, "cols": 0, "rows": 0,
+           "col": "-", "row": "-", "notes": []}
+    right = v.RightDirection
+    up = v.UpDirection
+    view_dir = v.ViewDirection
+    plane_origin = v.Origin
 
-collector = FilteredElementCollector(doc, view.Id)\
-    .WhereElementIsNotElementType()
-ducts = []
-ducts_rejected_outside = 0
-for el in collector:
-    if _cat_int(el) in DUCT_CATS:
+    def along_right(pt):
+        return pt.X * right.X + pt.Y * right.Y + pt.Z * right.Z
+
+    def along_up(pt):
+        return pt.X * up.X + pt.Y * up.Y + pt.Z * up.Z
+
+    chamber = _find_chamber(v)
+    res["chamber"] = _name(chamber) if chamber is not None else ""
+    margin_ft = DUCT_MARGIN_MM / MM_PER_FOOT
+
+    ducts = []
+    rejected = 0
+    for el in FilteredElementCollector(doc, v.Id).WhereElementIsNotElementType():
+        if _cat_int(el) not in DUCT_CATS:
+            continue
         c = _section_cross_point(el, plane_origin, view_dir)
         if c is None:
             continue
-        if not _inside_chamber_model_bb(c, duct_margin_ft):
-            ducts_rejected_outside += 1
+        if not _inside_model_bb(chamber, c, margin_ft):
+            rejected += 1
             continue
         ducts.append((el, c))
+    res["ducts"] = len(ducts)
+    if rejected:
+        res["notes"].append("{0} duct(s) outside the chamber ignored".format(
+            rejected))
+    if not ducts:
+        res["col"] = res["row"] = "no ducts in view"
+        return res
 
-if not ducts:
-    forms.alert("No ducts found inside the chamber in this section.\n\n"
-                "Found ducts in the view but none within the chamber bounds "
-                "({0} rejected as outside). If there is no chamber family, "
-                "every visible duct is used - check the view.".format(
-                    ducts_rejected_outside),
-                exitscript=True)
+    ducts.sort(key=lambda d: along_right(d[1]))
+    columns = _group(ducts, along_right, COL_TOL_MM / MM_PER_FOOT)
+    rows = _group(ducts, along_up, ROW_TOL_MM / MM_PER_FOOT)
+    res["cols"] = len(columns)
+    res["rows"] = len(rows)
 
+    # One representative per column (its topmost duct) and per row (its
+    # leftmost duct), so each chain shows one spacing only.
+    col_reps = [max(cl["items"], key=lambda d: along_up(d[1]))
+                for cl in columns]
+    row_reps = [min(rw["items"], key=lambda d: along_right(d[1]))
+                for rw in rows]
 
-# Sort ducts left-to-right as seen in the section.
-ducts.sort(key=lambda d: _along_right(d[1]))
+    bank_top_u = max(along_up(c) for _el, c in ducts)
+    bank_left_r = min(along_right(c) for _el, c in ducts)
 
-# Group ducts into COLUMNS by their position along RightDirection. Two ducts
-# stacked vertically (top row + bottom row) share a column and must NOT both
-# feed the horizontal dimension - otherwise the chain dimensions the vertical
-# (parallel) pairs too. Keep one representative per column (the topmost) for
-# the horizontal spacing dimension.
-COL_TOL_MM = 50.0                      # ducts within this are the same column
-col_tol_ft = COL_TOL_MM / MM_PER_FOOT
+    def refs_of(reps):
+        arr = ReferenceArray()
+        pts = []
+        missing = 0
+        for el, c in reps:
+            r = _get_centreline_ref(el, v)
+            if r is None:
+                missing += 1
+                continue
+            arr.Append(r)
+            pts.append(c)
+        return arr, pts, missing
 
-columns = []        # list of dicts: {"r": along-right, "ducts": [(el, c), ...]}
-for el, c in ducts:
-    r_pos = _along_right(c)
-    placed_in_col = False
-    for col in columns:
-        if abs(col["r"] - r_pos) <= col_tol_ft:
-            col["ducts"].append((el, c))
-            placed_in_col = True
-            break
-    if not placed_in_col:
-        columns.append({"r": r_pos, "ducts": [(el, c)]})
+    def make(line, arr):
+        if dim_type is not None:
+            return doc.Create.NewDimension(v, line, arr, dim_type)
+        return doc.Create.NewDimension(v, line, arr)
 
-columns.sort(key=lambda col: col["r"])
+    # --- column spacing, above the bank ---
+    if len(columns) < 2:
+        res["col"] = "skipped (single column)"
+    else:
+        arr, pts, missing = refs_of(col_reps)
+        if missing:
+            res["notes"].append("{0} column(s) gave no centreline "
+                                "reference".format(missing))
+        if arr.Size < 2:
+            res["col"] = "NOT created - fewer than two references"
+        else:
+            left_pt = pts[0]
+            lift = (bank_top_u - along_up(left_pt)) + DIM_OFFSET_MM / MM_PER_FOOT
+            o = XYZ(left_pt.X + up.X * lift, left_pt.Y + up.Y * lift,
+                    left_pt.Z + up.Z * lift)
+            span = along_right(pts[-1]) - along_right(left_pt)
+            e = XYZ(o.X + right.X * (span + 1.0), o.Y + right.Y * (span + 1.0),
+                    o.Z + right.Z * (span + 1.0))
+            try:
+                d = make(Line.CreateBound(o, e), arr)
+                res["col"] = "created" if d is not None else "NOT created"
+            except Exception as ex:
+                res["col"] = "NOT created - {0}".format(ex)
 
-# One representative per column for the horizontal dimension: the TOPMOST duct
-# (largest 'up' coordinate) so the dimension line ties to a consistent row.
-col_reps = []
-for col in columns:
-    rep = max(col["ducts"], key=lambda d: _along_up(d[1]))
-    col_reps.append(rep)
-
-# Group ducts into ROWS by their position along UpDirection (mirror of the
-# column grouping). Two ducts side-by-side in the same row share a row and must
-# NOT both feed the vertical dimension. Keep one representative per row (the
-# leftmost) for the vertical row-to-row spacing dimension.
-ROW_TOL_MM = 50.0
-row_tol_ft = ROW_TOL_MM / MM_PER_FOOT
-
-rows_grp = []       # list of dicts: {"u": along-up, "ducts": [(el, c), ...]}
-for el, c in ducts:
-    u_pos = _along_up(c)
-    placed_in_row = False
-    for rw in rows_grp:
-        if abs(rw["u"] - u_pos) <= row_tol_ft:
-            rw["ducts"].append((el, c))
-            placed_in_row = True
-            break
-    if not placed_in_row:
-        rows_grp.append({"u": u_pos, "ducts": [(el, c)]})
-
-rows_grp.sort(key=lambda rw: rw["u"])
-
-# One representative per row: the LEFTMOST duct (smallest 'right' coordinate).
-row_reps = []
-for rw in rows_grp:
-    rep = min(rw["ducts"], key=lambda d: _along_right(d[1]))
-    row_reps.append(rep)
+    # --- row spacing, left of the bank ---
+    if len(rows) < 2:
+        res["row"] = "skipped (single row)"
+    else:
+        arr, pts, missing = refs_of(row_reps)
+        if missing:
+            res["notes"].append("{0} row(s) gave no centreline "
+                                "reference".format(missing))
+        if arr.Size < 2:
+            res["row"] = "NOT created - fewer than two references"
+        else:
+            low_pt = pts[0]
+            shift = (along_right(low_pt) - bank_left_r) + \
+                VDIM_OFFSET_MM / MM_PER_FOOT
+            o = XYZ(low_pt.X - right.X * shift, low_pt.Y - right.Y * shift,
+                    low_pt.Z - right.Z * shift)
+            vspan = along_up(pts[-1]) - along_up(low_pt)
+            e = XYZ(o.X + up.X * (vspan + 1.0), o.Y + up.Y * (vspan + 1.0),
+                    o.Z + up.Z * (vspan + 1.0))
+            try:
+                d = make(Line.CreateBound(o, e), arr)
+                res["row"] = "created" if d is not None else "NOT created"
+            except Exception as ex:
+                res["row"] = "NOT created - {0}".format(ex)
+    return res
 
 
 # ---------------------------------------------------------------------------
-# 3. Find the dimension / spot types
+# 3. Which sections, and the dimension types on offer
 # ---------------------------------------------------------------------------
-dim_type = _find_dim_type(DIM_TYPE_NAME)
+active = doc.ActiveView
+active_is_section = active is not None and active.ViewType == ViewType.Section
 
-warn_lines = []
-if dim_type is None:
-    warn_lines.append("Dimension type '{0}' not found - the dimensions use "
-                      "the view's default type.".format(DIM_TYPE_NAME))
-
-# The bank's extent in the section frame, for placing the two strings.
-bank_top_u = max(_along_up(c) for _el, c in ducts)
-bank_left_r = min(_along_right(c) for _el, c in ducts)
-
-
-# ---------------------------------------------------------------------------
-# 4. Build references + a dimension line ABOVE the bank
-#    Use ONE duct per column so the horizontal chain ignores the vertical
-#    (parallel) pairs.
-# ---------------------------------------------------------------------------
-refs = ReferenceArray()
-ref_pts = []        # parallel list of column-rep centre points with a reference
-no_ref = 0
-for el, c in col_reps:
-    r = _get_centreline_ref(el)
-    if r is None:
-        no_ref += 1
-        continue
-    refs.Append(r)
-    ref_pts.append(c)
-
-# A single column has no horizontal spacing to show; the vertical string
-# below may still apply.
-have_horizontal = refs.Size >= 2
-dim_line = None
-
-# Dimension line: parallel to RightDirection, ABOVE the topmost duct so the
-# string sits clear of the circles (~600 mm up).
-DIM_OFFSET_MM = 600.0
-dim_offset_ft = DIM_OFFSET_MM / MM_PER_FOOT
-
-if have_horizontal:
-    # Start over the leftmost column, lifted to the bank top plus the offset.
-    left_pt = ref_pts[0]
-    lift = (bank_top_u - _along_up(left_pt)) + dim_offset_ft
-    line_origin = XYZ(
-        left_pt.X + up.X * lift,
-        left_pt.Y + up.Y * lift,
-        left_pt.Z + up.Z * lift,
-    )
-    # The line runs along RightDirection; long enough to span all columns.
-    right_pt = ref_pts[-1]
-    span = _along_right(right_pt) - _along_right(left_pt)
-    line_end = XYZ(
-        line_origin.X + right.X * (span + 1.0),
-        line_origin.Y + right.Y * (span + 1.0),
-        line_origin.Z + right.Z * (span + 1.0),
-    )
+all_sections = []
+for v in FilteredElementCollector(doc).OfClass(View):
     try:
-        dim_line = Line.CreateBound(line_origin, line_end)
+        if v.IsTemplate or v.ViewType != ViewType.Section:
+            continue
     except Exception:
-        dim_line = None
-        have_horizontal = False
-
-
-# ---------------------------------------------------------------------------
-# 4b. Build references + a VERTICAL dimension line to the side of the ducts,
-#     using ONE duct per row so the chain shows row-to-row spacing only.
-# ---------------------------------------------------------------------------
-vrefs = ReferenceArray()
-vref_pts = []
-v_no_ref = 0
-for el, c in row_reps:
-    r = _get_centreline_ref(el)
-    if r is None:
-        v_no_ref += 1
         continue
-    vrefs.Append(r)
-    vref_pts.append(c)
+    all_sections.append(v)
+all_sections.sort(key=lambda v: _name(v).lower())
 
-# Only meaningful with 2+ rows. If there is a single row, skip the vertical dim.
-have_vertical = vrefs.Size >= 2
-vdim_line = None
-if have_vertical:
-    # Vertical line runs along UpDirection, offset to the LEFT of the leftmost
-    # duct so it sits in the margin clear of the circles (~900 mm).
-    VDIM_OFFSET_MM = 900.0
-    vdim_offset_ft = VDIM_OFFSET_MM / MM_PER_FOOT
-
-    # Anchor at the lowest row rep, shifted left past the bank's leftmost
-    # duct by the offset.
-    low_row_pt = vref_pts[0]    # rows sorted ascending by 'up'
-    high_row_pt = vref_pts[-1]
-    shift = (_along_right(low_row_pt) - bank_left_r) + vdim_offset_ft
-    vline_origin = XYZ(
-        low_row_pt.X - right.X * shift,
-        low_row_pt.Y - right.Y * shift,
-        low_row_pt.Z - right.Z * shift,
-    )
-    vspan = _along_up(high_row_pt) - _along_up(low_row_pt)
-    vline_end = XYZ(
-        vline_origin.X + up.X * (vspan + 1.0),
-        vline_origin.Y + up.Y * (vspan + 1.0),
-        vline_origin.Z + up.Z * (vspan + 1.0),
-    )
+sheet_sections = []
+if isinstance(active, ViewSheet):
     try:
-        vdim_line = Line.CreateBound(vline_origin, vline_end)
+        placed = set(i.IntegerValue for i in active.GetAllPlacedViews())
     except Exception:
-        vdim_line = None
-        have_vertical = False
+        placed = set()
+    sheet_sections = [v for v in all_sections if v.Id.IntegerValue in placed]
 
+if not active_is_section and not all_sections:
+    forms.alert("No section views in this project.\n\n"
+                "Open a section, or make some with Create Sections, then "
+                "run again.", exitscript=True)
 
-if not have_horizontal and not have_vertical:
-    forms.alert("Nothing to dimension.\n\n"
-                "Found {0} duct(s) in {1} column(s) and {2} row(s), with {3} "
-                "usable centreline reference(s). A string needs two columns "
-                "(or two rows).".format(len(ducts), len(columns),
-                                       len(rows_grp), refs.Size),
-                exitscript=True)
+dim_types = {}
+for dt in FilteredElementCollector(doc).OfClass(DimensionType):
+    try:
+        if dt.StyleType != DimensionStyleType.Linear:
+            continue
+    except Exception:
+        continue
+    nm = _name(dt)
+    if nm and nm != "?":
+        dim_types.setdefault(nm, dt)
+dim_names = sorted(dim_types, key=lambda s: s.lower())
 
 
 # ---------------------------------------------------------------------------
-# 5. Create the two centreline strings in one transaction
+# 4. The dialog
 # ---------------------------------------------------------------------------
-created_dim = False
-created_vdim = False
-errors = []
-t = Transaction(doc, "pyMEP: Dimension section ({0} ducts)".format(len(ducts)))
+class DimWindow(forms.WPFWindow):
+
+    def __init__(self, remembered):
+        forms.WPFWindow.__init__(self, XAML_PATH)
+        self.result = None
+        self._ready = False
+        self._state = {}      # view id -> ticked
+        self._boxes = []
+        from System.Windows import Visibility
+        if active_is_section:
+            self.GrpSections.Visibility = Visibility.Collapsed
+            self.TxtInfo.Text = ("Section '{0}' is open: it is the one "
+                                 "dimensioned.".format(_name(active)))
+        else:
+            if sheet_sections:
+                self.TxtInfo.Text = (
+                    "Sheet {0}: its {1} section(s) are listed and ticked. "
+                    "Tick more from the whole project if you like.".format(
+                        _name(active), len(sheet_sections)))
+                self.ChkAllProject.IsChecked = False
+            else:
+                self.TxtInfo.Text = ("No section is open: tick the sections "
+                                     "to dimension.")
+                self.ChkAllProject.IsChecked = True
+                self.ChkAllProject.IsEnabled = False
+            for v in (sheet_sections or []):
+                self._state[v.Id.IntegerValue] = True
+        self.CmbDimType.Items.Clear()
+        for n in dim_names:
+            self.CmbDimType.Items.Add(n)
+        first = CS.pick_dim_type_name(dim_names, remembered["dim_type"])
+        if first is not None:
+            self.CmbDimType.SelectedItem = first
+        self._rebuild()
+        self._ready = True
+
+    def _pool(self):
+        if self.ChkAllProject.IsChecked or not sheet_sections:
+            return all_sections
+        return sheet_sections
+
+    def _rebuild(self):
+        from System.Windows.Controls import CheckBox
+        from System.Windows import Thickness
+        self.PnlSections.Children.Clear()
+        self._boxes = []
+        pool = self._pool()
+        query = ""
+        try:
+            query = self.TxtFilter.Text or ""
+        except Exception:
+            pass
+        keep = CS.filter_labels([_name(v) for v in pool], query)
+        for i in keep:
+            v = pool[i]
+            cb = CheckBox()
+            cb.Content = _name(v)
+            cb.IsChecked = self._state.get(v.Id.IntegerValue, False)
+            cb.Margin = Thickness(0, 2, 0, 2)
+            cb.Tag = v.Id.IntegerValue
+            cb.Checked += self._on_box
+            cb.Unchecked += self._on_box
+            self.PnlSections.Children.Add(cb)
+            self._boxes.append(cb)
+        self._count()
+
+    def _on_box(self, sender, args):
+        try:
+            self._state[int(sender.Tag)] = bool(sender.IsChecked)
+        except Exception:
+            pass
+        self._count()
+
+    def _count(self):
+        try:
+            n = len([k for k, on in self._state.items() if on])
+            self.TxtCount.Text = "{0} section(s) ticked.".format(n)
+            self.StatusText.Text = ""
+        except Exception:
+            pass
+
+    def _set_all(self, on):
+        for cb in self._boxes:
+            cb.IsChecked = on
+        self._count()
+
+    def on_filter(self, sender, args):
+        if getattr(self, "_ready", False):
+            self._rebuild()
+
+    def on_scope_changed(self, sender, args):
+        if getattr(self, "_ready", False):
+            self._rebuild()
+
+    def on_tick_all(self, sender, args):
+        self._set_all(True)
+
+    def on_tick_none(self, sender, args):
+        self._set_all(False)
+
+    def on_go(self, sender, args):
+        if active_is_section:
+            views = [active]
+        else:
+            ids = set(k for k, on in self._state.items() if on)
+            views = [v for v in all_sections if v.Id.IntegerValue in ids]
+            if not views:
+                self.StatusText.Text = "Tick at least one section."
+                return
+        name = self.CmbDimType.SelectedItem
+        if dim_names and not name:
+            self.StatusText.Text = "Pick a dimension type."
+            return
+        self.result = {"views": views, "dim_type": name}
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.Close()
+
+
+_settings = load_settings()
+win = DimWindow(CS.dim_settings(_settings))
+win.ShowDialog()
+if not win.result:
+    script.exit()
+
+target_views = win.result["views"]
+dim_name = win.result["dim_type"]
+dim_type = dim_types.get(dim_name) if dim_name else None
+try:
+    if dim_name:
+        _settings[CS.SETTINGS_DIM_TYPE] = dim_name
+        save_settings(_settings)
+except Exception:
+    pass
+
+
+# ---------------------------------------------------------------------------
+# 5. Run - one transaction, one result row per section
+# ---------------------------------------------------------------------------
+results = []
+t = Transaction(doc, "pyMEP: Dimension {0} section(s)".format(
+    len(target_views)))
 t.Start()
 try:
-    # --- horizontal: column spacing, above the bank ---
-    if have_horizontal and dim_line is not None:
+    for v in target_views:
         try:
-            if dim_type is not None:
-                dim = doc.Create.NewDimension(view, dim_line, refs, dim_type)
-            else:
-                dim = doc.Create.NewDimension(view, dim_line, refs)
-            created_dim = dim is not None
+            results.append(dimension_view(v, dim_type))
         except Exception as ex:
-            errors.append("Horizontal dimension failed: {0}".format(ex))
-
-    # --- vertical: row spacing, left of the bank ---
-    if have_vertical and vdim_line is not None:
-        try:
-            if dim_type is not None:
-                vdim = doc.Create.NewDimension(view, vdim_line, vrefs, dim_type)
-            else:
-                vdim = doc.Create.NewDimension(view, vdim_line, vrefs)
-            created_vdim = vdim is not None
-        except Exception as ex:
-            errors.append("Vertical dimension failed: {0}".format(ex))
-
+            results.append({"view": _name(v), "ducts": 0, "cols": 0,
+                            "rows": 0, "col": "FAILED", "row": "FAILED",
+                            "chamber": "", "notes": ["{0}".format(ex)]})
     t.Commit()
 except Exception as ex:
     t.RollBack()
@@ -509,27 +563,21 @@ except Exception as ex:
 # ---------------------------------------------------------------------------
 # 6. Report
 # ---------------------------------------------------------------------------
+made = sum(1 for r in results for k in ("col", "row") if r[k] == "created")
 out.print_md("### Dimension section")
-out.print_md("**Ducts in chamber:** {0}  |  **{1} column(s) x {2} row(s)**".format(
-    len(ducts), len(columns), len(rows_grp)))
-if ducts_rejected_outside:
-    out.print_md("- {0} duct(s) outside the chamber bounds were ignored "
-                 "(other chambers / nearby runs).".format(
-                     ducts_rejected_outside))
-out.print_md("**Chamber found:** {0}".format(
-    "yes" if chamber is not None else "NO - all visible ducts used"))
-out.print_md("**Column spacing (above the bank):** {0}".format(
-    "created" if created_dim else
-    ("NOT created" if have_horizontal else "skipped (single column)")))
-out.print_md("**Row spacing (left of the bank):** {0}".format(
-    "created" if created_vdim else
-    ("NOT created" if have_vertical else "skipped (single row)")))
-if no_ref or v_no_ref:
-    out.print_md("- {0} column rep(s) and {1} row rep(s) gave no usable "
-                 "centreline reference (skipped).".format(no_ref, v_no_ref))
-for w in warn_lines:
-    out.print_md("- " + w)
-for e in errors[:20]:
-    out.print_md("- " + e)
+out.print_md("**Sections:** {0}  |  **Dimension type:** {1}  |  "
+             "**Strings created:** {2}".format(
+                 len(results), dim_name or "(view default)", made))
+if dim_name and dim_type is None:
+    out.print_md("- Dimension type '{0}' was not found; the view default "
+                 "was used.".format(dim_name))
+rows = []
+for r in results:
+    rows.append([r["view"], r.get("chamber") or "-", str(r["ducts"]),
+                 "{0} x {1}".format(r["cols"], r["rows"]), r["col"], r["row"],
+                 "; ".join(r["notes"]) if r["notes"] else ""])
+out.print_table(table_data=rows,
+                columns=["Section", "Chamber", "Ducts", "Cols x rows",
+                         "Column spacing", "Row spacing", "Notes"])
 
 # Keep the output window open (matches the other Chambers buttons).

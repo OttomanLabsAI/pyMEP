@@ -146,6 +146,24 @@ class UprightRotation(unittest.TestCase):
                                math.radians(45))
 
 
+class DimSettings(unittest.TestCase):
+    def test_remembered_and_default(self):
+        self.assertEqual(CS.dim_settings({})["dim_type"], "RHD_2.5")
+        self.assertEqual(CS.dim_settings(None)["dim_type"], "RHD_2.5")
+        self.assertEqual(CS.dim_settings(
+            {CS.SETTINGS_DIM_TYPE: "Linear - 2.5mm"})["dim_type"],
+            "Linear - 2.5mm")
+
+    def test_pick_dim_type_name(self):
+        names = ["Linear - 2.5mm", "rhd_2.5", "Arial 3mm"]
+        self.assertEqual(CS.pick_dim_type_name(names), "rhd_2.5")
+        self.assertEqual(CS.pick_dim_type_name(names, "Arial 3mm"),
+                         "Arial 3mm")
+        self.assertEqual(CS.pick_dim_type_name(names, "gone"), "rhd_2.5")
+        self.assertEqual(CS.pick_dim_type_name(["A", "B"]), "A")
+        self.assertIsNone(CS.pick_dim_type_name([]))
+
+
 class Sizing(unittest.TestCase):
     def test_size_settings_defaults(self):
         s = CS.size_settings({})

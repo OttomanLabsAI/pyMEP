@@ -2,8 +2,8 @@ title: |-
   Dimension
   Section
 tooltip: >-
-  Open a chamber section view and click to auto-place dimensions and spot
-  elevations on the visible ducts. Builds one chained linear dimension through
-  all duct centrelines (the 300/300/300 spacing run) using the 'RHD_2.5'
-  dimension type, plus a spot elevation on each duct using 'RHD_2.5_Project'.
-  No selection needed - it dimensions everything visible in the section.
+  Two chained dimensions through the pipe / conduit / duct centrelines in a
+  chamber section: the column spacing above the bank and the row spacing to
+  its left, one reference per column and per row. From a section view it
+  does that view; from a sheet or anywhere else a dialog offers the sections
+  (the open sheet's, or the whole project's) and the dimension type.
