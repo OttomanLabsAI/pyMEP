@@ -18,6 +18,11 @@ chambers), the source plan, the title block, the sheet number and name
 patterns with {n}, the first number, chambers per sheet, the scale, and
 whether to dimension.
 
+ONE UNDO: the whole run sits inside a TransactionGroup that is assimilated
+at the end, so every step's transactions - plans, sections, each sheet and
+its viewports, the dimensions - collapse into a single entry on Revit's
+undo list. One Ctrl+Z takes the lot back.
+
 How the hand-off works: each step's options are left on the sys module
 (sys._pymep_pipeline), which survives the pymep_* module purge every
 button does, and the button's script is compiled and exec'd; it finds
@@ -43,7 +48,8 @@ clr.AddReference("RevitAPI")
 clr.AddReference("RevitAPIUI")
 
 from Autodesk.Revit.DB import (
-    Transaction, View, ViewSheet, ViewType, FilteredElementCollector,
+    Transaction, TransactionGroup, View, ViewSheet, ViewType,
+    FilteredElementCollector,
     FamilyInstance, LocationPoint, BuiltInParameter, BuiltInCategory,
     ElementId, Element, DimensionType, DimensionStyleType,
 )
@@ -531,6 +537,11 @@ for inst in chambers:
 out.print_md("# Sheets Full Pipeline - {0} chamber(s), {1} per sheet".format(
     len(chambers), opt["per"]))
 
+# Every step's transactions are gathered into one undo entry.
+group = TransactionGroup(doc, "pyMEP: Sheets Full Pipeline ({0} chamber(s))"
+                         .format(len(chambers)))
+group.Start()
+sheet_rows = []
 try:
     # --- 1. plans ---
     ok, why, res = _run_step("Step 1 - Chamber Plans", STEP_PLANS, "plans",
@@ -552,7 +563,6 @@ try:
     # --- 3. sheets ---
     tb = titleblocks.get(opt["titleblock"])
     tb_id = tb.Id if tb is not None else ElementId.InvalidElementId
-    sheet_rows = []
     n = opt["start"]
     for chunk in CS.chunks(marks, opt["per"]):
         while CS.sheet_text(opt["number"], n) in existing_numbers:
@@ -623,12 +633,28 @@ finally:
         del sys._pymep_pipeline
     except Exception:
         pass
+    # Collapse everything into ONE undo step. If the group cannot be
+    # assimilated (a step left something open), roll it back so nothing is
+    # left half-done.
+    undo_note = ""
+    try:
+        if group.HasStarted() and not group.HasEnded():
+            group.Assimilate()
+            undo_note = "one undo step"
+    except Exception as ex:
+        try:
+            group.RollBack()
+            undo_note = "ROLLED BACK - {0}".format(ex)
+        except Exception:
+            undo_note = "could not close the undo group: {0}".format(ex)
 
 
 # ---------------------------------------------------------------------------
 # 4. Summary
 # ---------------------------------------------------------------------------
 out.print_md("# Pipeline summary")
+if undo_note:
+    out.print_md("**Undo:** {0}.".format(undo_note))
 out.print_md("**Chambers:** {0}  |  **Source plan:** {1}  |  **Title block:** "
              "{2}  |  **Scale:** {3}".format(
                  ", ".join(marks), _name(opt["source"]), opt["titleblock"],
