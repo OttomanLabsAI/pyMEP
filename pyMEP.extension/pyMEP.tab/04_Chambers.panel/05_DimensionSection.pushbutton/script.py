@@ -1,26 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Dimension Section - auto-populate dimensions and spot elevations for
-everything visible in the active SECTION view.
+"""Dimension Section - dimension the pipe / conduit / duct CENTRELINES in
+the active SECTION view, and nothing else.
 
-What it does (built in layers, ducts first as the reliable foundation):
-
-  1. DUCT SPACING: collects every pipe / conduit visible in the section,
-     sorts them left-to-right along the section's RightDirection, builds a
-     ReferenceArray of their centrelines, and creates ONE chained linear
-     dimension through all of them (the 300/300/300 runs). Uses the
-     dimension type named in DIM_TYPE_NAME ('RHD_2.5').
-
-  2. CHAMBER EXTENTS (best-effort): if a single chamber family instance is
-     visible, dimensions are added for its overall width and height and the
-     edge gaps to the outermost ducts. Skipped quietly if the chamber's
-     edges cannot be referenced.
-
-  3. SPOT ELEVATIONS: a spot elevation (type SPOT_TYPE_NAME,
-     'RHD_2.5_Project') is placed on each duct centreline.
+  * Every pipe, conduit and duct visible in the section (inside the
+    chamber's footprint when a chamber family is in view) is located where
+    it crosses the section plane.
+  * The runs are grouped into COLUMNS (same position across the view) and
+    ROWS (same height). One chained dimension goes ABOVE the bank through
+    one centreline per column (the column spacing), and one chained
+    dimension goes to the LEFT of the bank through one centreline per row
+    (the row spacing). A single row or a single column gets no dimension
+    in that direction.
+  * The dimension type named in DIM_TYPE_NAME ('RHD_2.5') is used when the
+    project has it, else the view's default.
 
 Run it with a section view open and active - no selection needed.
-
-Reuses the centreline-reference strategy proven in the Pipe End Elev button.
 
 IronPython 2.7: pure ASCII, no f-strings, LF endings.
 """
@@ -45,20 +39,14 @@ from Autodesk.Revit.DB import (
 
 from pyrevit import revit, forms, script
 
-from pymep_config import get_chamber_dim_pairs
-
 doc = revit.doc
 view = doc.ActiveView
 out = script.get_output()
 
 MM_PER_FOOT = 304.8
 
-# Chamber reference-plane dimension pairs (configurable in Settings).
-chamber_dim_pairs = get_chamber_dim_pairs()
-
-# --- Type names to use (edit here if your standards change) ---------------
+# --- Type name to use (edit here if your standards change) -----------------
 DIM_TYPE_NAME = "RHD_2.5"
-SPOT_TYPE_NAME = "RHD_2.5_Project"
 
 # Categories treated as "ducts" (round MEP elements).
 DUCT_CATS = (
@@ -73,8 +61,8 @@ DUCT_CATS = (
 # ---------------------------------------------------------------------------
 if view is None or view.ViewType != ViewType.Section:
     forms.alert("Open a SECTION view and try again.\n\n"
-                "This tool dimensions the ducts (and chamber) visible in a "
-                "chamber section.", exitscript=True)
+                "This tool dimensions the pipe / conduit centrelines visible "
+                "in a chamber section.", exitscript=True)
 
 
 def _cat_int(elem):
@@ -97,18 +85,6 @@ def _find_dim_type(name):
         try:
             if dt.Name == name:
                 return dt
-        except Exception:
-            continue
-    return None
-
-
-def _find_spot_type(name):
-    # Find a SpotDimensionType by name; return None if not present.
-    from Autodesk.Revit.DB import SpotDimensionType
-    for st in FilteredElementCollector(doc).OfClass(SpotDimensionType):
-        try:
-            if st.Name == name:
-                return st
         except Exception:
             continue
     return None
@@ -280,45 +256,6 @@ def _along_up(pt):
     return pt.X * up.X + pt.Y * up.Y + pt.Z * up.Z
 
 
-def _point_at(anchor, r_vec, u_vec, target_r, target_u):
-    # Build a world point that has the given coordinates along Right and Up,
-    # keeping the anchor's component along the view direction (depth). This
-    # places dimension lines in the section plane at chosen r/u positions.
-    cur_r = _along_right(anchor)
-    cur_u = _along_up(anchor)
-    dr = target_r - cur_r
-    du = target_u - cur_u
-    return XYZ(anchor.X + r_vec.X * dr + u_vec.X * du,
-               anchor.Y + r_vec.Y * dr + u_vec.Y * du,
-               anchor.Z + r_vec.Z * dr + u_vec.Z * du)
-
-
-def _inst_xy_anchor(elem):
-    # A fallback anchor point: the family instance's location point.
-    loc = getattr(elem, "Location", None)
-    if loc is not None and hasattr(loc, "Point") and loc.Point is not None:
-        return loc.Point
-    try:
-        bb = elem.get_BoundingBox(None)
-        return XYZ((bb.Min.X + bb.Max.X) * 0.5,
-                   (bb.Min.Y + bb.Max.Y) * 0.5,
-                   (bb.Min.Z + bb.Max.Z) * 0.5)
-    except Exception:
-        return XYZ(0.0, 0.0, 0.0)
-
-
-def _get_ref_by_name(inst, plane_name):
-    # Fetch a named reference (e.g. a named reference plane) from a family
-    # instance. Returns the Reference or None. The plane must be named exactly
-    # and have 'Is Reference' set to a real reference inside the family.
-    if not plane_name:
-        return None
-    try:
-        return inst.GetReferenceByName(plane_name)
-    except Exception:
-        return None
-
-
 # ---------------------------------------------------------------------------
 # 2b. Collect ducts, filtered to those within the chamber's footprint.
 #     The test point is where each pipe CROSSES the section plane (the duct
@@ -415,19 +352,19 @@ for rw in rows_grp:
 # 3. Find the dimension / spot types
 # ---------------------------------------------------------------------------
 dim_type = _find_dim_type(DIM_TYPE_NAME)
-spot_type = _find_spot_type(SPOT_TYPE_NAME)
 
 warn_lines = []
 if dim_type is None:
-    warn_lines.append("Dimension type '{0}' not found - the duct dimension "
-                      "will use the view's default type.".format(DIM_TYPE_NAME))
-if spot_type is None:
-    warn_lines.append("Spot elevation type '{0}' not found - spot elevations "
-                      "will be skipped.".format(SPOT_TYPE_NAME))
+    warn_lines.append("Dimension type '{0}' not found - the dimensions use "
+                      "the view's default type.".format(DIM_TYPE_NAME))
+
+# The bank's extent in the section frame, for placing the two strings.
+bank_top_u = max(_along_up(c) for _el, c in ducts)
+bank_left_r = min(_along_right(c) for _el, c in ducts)
 
 
 # ---------------------------------------------------------------------------
-# 4. Build references + a dimension line below the ducts
+# 4. Build references + a dimension line ABOVE the bank
 #    Use ONE duct per column so the horizontal chain ignores the vertical
 #    (parallel) pairs.
 # ---------------------------------------------------------------------------
@@ -442,38 +379,38 @@ for el, c in col_reps:
     refs.Append(r)
     ref_pts.append(c)
 
-if refs.Size < 2:
-    forms.alert("Could not build enough duct references to dimension.\n\n"
-                "Found {0} duct(s) but only {1} usable reference(s). "
-                "Dimensions need at least two.".format(len(ducts), refs.Size),
-                exitscript=True)
+# A single column has no horizontal spacing to show; the vertical string
+# below may still apply.
+have_horizontal = refs.Size >= 2
+dim_line = None
 
-# Dimension line: parallel to RightDirection, offset BELOW the lowest duct so
-# the dimension sits clear of the circles. Offset in feet (~600 mm).
+# Dimension line: parallel to RightDirection, ABOVE the topmost duct so the
+# string sits clear of the circles (~600 mm up).
 DIM_OFFSET_MM = 600.0
 dim_offset_ft = DIM_OFFSET_MM / MM_PER_FOOT
 
-# A point on the dimension line: take the leftmost ref point, drop it down by
-# the offset along the (negative) up direction.
-left_pt = ref_pts[0]
-line_origin = XYZ(
-    left_pt.X - up.X * dim_offset_ft,
-    left_pt.Y - up.Y * dim_offset_ft,
-    left_pt.Z - up.Z * dim_offset_ft,
-)
-# The line runs along RightDirection; make it long enough to span all ducts.
-right_pt = ref_pts[-1]
-span = _along_right(right_pt) - _along_right(left_pt)
-line_end = XYZ(
-    line_origin.X + right.X * (span + 1.0),
-    line_origin.Y + right.Y * (span + 1.0),
-    line_origin.Z + right.Z * (span + 1.0),
-)
-try:
-    dim_line = Line.CreateBound(line_origin, line_end)
-except Exception as ex:
-    forms.alert("Could not build the dimension line:\n{0}".format(ex),
-                exitscript=True)
+if have_horizontal:
+    # Start over the leftmost column, lifted to the bank top plus the offset.
+    left_pt = ref_pts[0]
+    lift = (bank_top_u - _along_up(left_pt)) + dim_offset_ft
+    line_origin = XYZ(
+        left_pt.X + up.X * lift,
+        left_pt.Y + up.Y * lift,
+        left_pt.Z + up.Z * lift,
+    )
+    # The line runs along RightDirection; long enough to span all columns.
+    right_pt = ref_pts[-1]
+    span = _along_right(right_pt) - _along_right(left_pt)
+    line_end = XYZ(
+        line_origin.X + right.X * (span + 1.0),
+        line_origin.Y + right.Y * (span + 1.0),
+        line_origin.Z + right.Z * (span + 1.0),
+    )
+    try:
+        dim_line = Line.CreateBound(line_origin, line_end)
+    except Exception:
+        dim_line = None
+        have_horizontal = False
 
 
 # ---------------------------------------------------------------------------
@@ -500,13 +437,15 @@ if have_vertical:
     VDIM_OFFSET_MM = 900.0
     vdim_offset_ft = VDIM_OFFSET_MM / MM_PER_FOOT
 
-    # Anchor at the lowest row rep, shifted left along -RightDirection.
+    # Anchor at the lowest row rep, shifted left past the bank's leftmost
+    # duct by the offset.
     low_row_pt = vref_pts[0]    # rows sorted ascending by 'up'
     high_row_pt = vref_pts[-1]
+    shift = (_along_right(low_row_pt) - bank_left_r) + vdim_offset_ft
     vline_origin = XYZ(
-        low_row_pt.X - right.X * vdim_offset_ft,
-        low_row_pt.Y - right.Y * vdim_offset_ft,
-        low_row_pt.Z - right.Z * vdim_offset_ft,
+        low_row_pt.X - right.X * shift,
+        low_row_pt.Y - right.Y * shift,
+        low_row_pt.Z - right.Z * shift,
     )
     vspan = _along_up(high_row_pt) - _along_up(low_row_pt)
     vline_end = XYZ(
@@ -521,29 +460,36 @@ if have_vertical:
         have_vertical = False
 
 
+if not have_horizontal and not have_vertical:
+    forms.alert("Nothing to dimension.\n\n"
+                "Found {0} duct(s) in {1} column(s) and {2} row(s), with {3} "
+                "usable centreline reference(s). A string needs two columns "
+                "(or two rows).".format(len(ducts), len(columns),
+                                       len(rows_grp), refs.Size),
+                exitscript=True)
+
+
 # ---------------------------------------------------------------------------
-# 5. Create dimension + spot elevations in one transaction
+# 5. Create the two centreline strings in one transaction
 # ---------------------------------------------------------------------------
 created_dim = False
 created_vdim = False
-chamber_note = ""
-chamber_results = []     # list of (label, ok_bool, message) per pair
-spots_placed = 0
-spot_errors = []
+errors = []
 t = Transaction(doc, "pyMEP: Dimension section ({0} ducts)".format(len(ducts)))
 t.Start()
 try:
-    # --- Chained duct dimension (horizontal: column spacing) ---
-    try:
-        if dim_type is not None:
-            dim = doc.Create.NewDimension(view, dim_line, refs, dim_type)
-        else:
-            dim = doc.Create.NewDimension(view, dim_line, refs)
-        created_dim = dim is not None
-    except Exception as ex:
-        spot_errors.append("Horizontal dimension failed: {0}".format(ex))
+    # --- horizontal: column spacing, above the bank ---
+    if have_horizontal and dim_line is not None:
+        try:
+            if dim_type is not None:
+                dim = doc.Create.NewDimension(view, dim_line, refs, dim_type)
+            else:
+                dim = doc.Create.NewDimension(view, dim_line, refs)
+            created_dim = dim is not None
+        except Exception as ex:
+            errors.append("Horizontal dimension failed: {0}".format(ex))
 
-    # --- Chained duct dimension (vertical: row-to-row spacing) ---
+    # --- vertical: row spacing, left of the bank ---
     if have_vertical and vdim_line is not None:
         try:
             if dim_type is not None:
@@ -552,121 +498,7 @@ try:
                 vdim = doc.Create.NewDimension(view, vdim_line, vrefs)
             created_vdim = vdim is not None
         except Exception as ex:
-            spot_errors.append("Vertical dimension failed: {0}".format(ex))
-
-    # --- Chamber dimensions from NAMED REFERENCE PLANES (live dims) ---
-    # For each configured pair, fetch the two named reference planes from the
-    # chamber family instance and dimension between them. This is deterministic
-    # across every box of the family - no face/geometry guessing.
-    if chamber is not None:
-        # Chamber extent in the section frame, to position the dimension lines.
-        cmin_r = cmax_r = cmin_u = cmax_u = None
-        try:
-            mbb = chamber.get_BoundingBox(None)
-            corners = [
-                XYZ(mbb.Min.X, mbb.Min.Y, mbb.Min.Z),
-                XYZ(mbb.Max.X, mbb.Min.Y, mbb.Min.Z),
-                XYZ(mbb.Min.X, mbb.Max.Y, mbb.Min.Z),
-                XYZ(mbb.Max.X, mbb.Max.Y, mbb.Min.Z),
-                XYZ(mbb.Min.X, mbb.Min.Y, mbb.Max.Z),
-                XYZ(mbb.Max.X, mbb.Min.Y, mbb.Max.Z),
-                XYZ(mbb.Min.X, mbb.Max.Y, mbb.Max.Z),
-                XYZ(mbb.Max.X, mbb.Max.Y, mbb.Max.Z),
-            ]
-            for cp in corners:
-                pr = _along_right(cp)
-                pu = _along_up(cp)
-                cmin_r = pr if cmin_r is None else min(cmin_r, pr)
-                cmax_r = pr if cmax_r is None else max(cmax_r, pr)
-                cmin_u = pu if cmin_u is None else min(cmin_u, pu)
-                cmax_u = pu if cmax_u is None else max(cmax_u, pu)
-        except Exception:
-            pass
-
-        anchor = ref_pts[0] if ref_pts else _inst_xy_anchor(chamber)
-        base_r = cmin_r if cmin_r is not None else _along_right(anchor)
-        base_u = cmin_u if cmin_u is not None else _along_up(anchor)
-        ext_r = (cmax_r - cmin_r) if (cmax_r is not None) else 10.0
-        ext_u = (cmax_u - cmin_u) if (cmax_u is not None) else 10.0
-        off_ft = 900.0 / MM_PER_FOOT
-
-        # Stagger successive width dims (and height dims) so they don't overlap.
-        width_rank = 0
-        height_rank = 0
-
-        for pair in chamber_dim_pairs:
-            ra = _get_ref_by_name(chamber, pair["plane_a"])
-            rb = _get_ref_by_name(chamber, pair["plane_b"])
-            if ra is None or rb is None:
-                missing = []
-                if ra is None:
-                    missing.append(pair["plane_a"])
-                if rb is None:
-                    missing.append(pair["plane_b"])
-                chamber_results.append(
-                    (pair["label"], False,
-                     "plane(s) not found: {0}".format(", ".join(missing))))
-                continue
-
-            arr = ReferenceArray()
-            arr.Append(ra)
-            arr.Append(rb)
-
-            try:
-                if pair["axis"] == "width":
-                    # Horizontal dimension line, below the chamber.
-                    drop = base_u - off_ft * (1 + width_rank)
-                    width_rank += 1
-                    o = _point_at(anchor, right, up, base_r - 1.0, drop)
-                    e = XYZ(o.X + right.X * (ext_r + 2.0),
-                            o.Y + right.Y * (ext_r + 2.0),
-                            o.Z + right.Z * (ext_r + 2.0))
-                else:
-                    # Vertical dimension line, left of the chamber.
-                    leftr = base_r - off_ft * (1 + height_rank)
-                    height_rank += 1
-                    o = _point_at(anchor, right, up, leftr, base_u - 1.0)
-                    e = XYZ(o.X + up.X * (ext_u + 2.0),
-                            o.Y + up.Y * (ext_u + 2.0),
-                            o.Z + up.Z * (ext_u + 2.0))
-
-                dline = Line.CreateBound(o, e)
-                if dim_type is not None:
-                    d = doc.Create.NewDimension(view, dline, arr, dim_type)
-                else:
-                    d = doc.Create.NewDimension(view, dline, arr)
-                ok = d is not None
-                chamber_results.append((pair["label"], ok,
-                                        "" if ok else "NewDimension returned null"))
-            except Exception as ex:
-                chamber_results.append((pair["label"], False, str(ex)))
-
-    # --- Spot elevations on each duct centreline ---
-    if spot_type is not None:
-        for el, c in ducts:
-            ref = _get_centreline_ref(el)
-            if ref is None:
-                continue
-            # Text position: offset to the LEFT of the duct so labels sit in
-            # the margin (matching the screenshots' left-side tags).
-            text_off_mm = 1500.0
-            text_off_ft = text_off_mm / MM_PER_FOOT
-            text_pos = XYZ(
-                c.X - right.X * text_off_ft,
-                c.Y - right.Y * text_off_ft,
-                c.Z - right.Z * text_off_ft,
-            )
-            try:
-                spot = doc.Create.NewSpotElevation(
-                    view, ref, c, text_pos, text_pos, c, True)
-                if spot is not None:
-                    try:
-                        spot.ChangeTypeId(spot_type.Id)
-                    except Exception:
-                        pass
-                    spots_placed += 1
-            except Exception as ex:
-                spot_errors.append("Spot on {0}: {1}".format(el.Id, ex))
+            errors.append("Vertical dimension failed: {0}".format(ex))
 
     t.Commit()
 except Exception as ex:
@@ -686,30 +518,18 @@ if ducts_rejected_outside:
                      ducts_rejected_outside))
 out.print_md("**Chamber found:** {0}".format(
     "yes" if chamber is not None else "NO - all visible ducts used"))
-out.print_md("**Duct dimension - horizontal (column spacing):** {0}".format(
-    "created" if created_dim else "NOT created"))
-out.print_md("**Duct dimension - vertical (row spacing):** {0}".format(
+out.print_md("**Column spacing (above the bank):** {0}".format(
+    "created" if created_dim else
+    ("NOT created" if have_horizontal else "skipped (single column)")))
+out.print_md("**Row spacing (left of the bank):** {0}".format(
     "created" if created_vdim else
-    ("not created" if have_vertical else "skipped (single row)")))
-out.print_md("**Chamber dimensions (from named reference planes):**")
-if chamber is None:
-    out.print_md("- No chamber family instance found in the view.")
-elif not chamber_results:
-    out.print_md("- No dimension pairs configured. Set them in "
-                 "Settings > Section Dims.")
-else:
-    for label, ok, msg in chamber_results:
-        if ok:
-            out.print_md("- {0}: created".format(label))
-        else:
-            out.print_md("- {0}: NOT created - {1}".format(label, msg))
-out.print_md("**Spot elevations placed:** {0}".format(spots_placed))
-if no_ref:
-    out.print_md("- {0} column rep(s) gave no usable reference (skipped).".format(
-        no_ref))
+    ("NOT created" if have_vertical else "skipped (single row)")))
+if no_ref or v_no_ref:
+    out.print_md("- {0} column rep(s) and {1} row rep(s) gave no usable "
+                 "centreline reference (skipped).".format(no_ref, v_no_ref))
 for w in warn_lines:
     out.print_md("- " + w)
-for e in spot_errors[:20]:
+for e in errors[:20]:
     out.print_md("- " + e)
 
 # Keep the output window open (matches the other Chambers buttons).
