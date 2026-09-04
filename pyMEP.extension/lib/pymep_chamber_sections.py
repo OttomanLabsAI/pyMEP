@@ -175,6 +175,25 @@ def wrap_angle(a, period):
     return a
 
 
+def box_bottom(chamber_bottom, box_height, cut_plane, chamber_margin,
+               cut_margin):
+    """Where a scope box of a fixed height should START (its bottom Z) so
+    it wraps the chamber from chamber_bottom - chamber_margin upward while
+    the plan's cut plane still passes through it. Revit only shows a scope
+    box in a plan - and only lets the plan take it - when the cut plane
+    intersects the box, and the API cannot resize a box, only move it.
+
+    Returns (bottom, reaches): reaches is False when the box is too short
+    to hold both the chamber and the cut plane, in which case it sits as
+    low as the cut plane allows (top = cut_plane + cut_margin)."""
+    want = chamber_bottom - chamber_margin
+    lowest_ok = cut_plane + cut_margin - box_height    # top clears the plane
+    highest_ok = cut_plane - cut_margin                # bottom stays under it
+    if want >= lowest_ok:
+        return min(want, highest_ok), True
+    return lowest_ok, False
+
+
 def upright_rotation(chamber_angle, up_reference=0.0):
     """The rotation to give a chamber's scope box so that the chamber face
     most aligned with 'up' sits at the top of the plan.

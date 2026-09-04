@@ -75,6 +75,31 @@ class ChamberKey(unittest.TestCase):
         self.assertEqual(CS.chamber_key(None), "")
 
 
+class BoxBottom(unittest.TestCase):
+    # chamber from -3 to -1, plan cut plane at +1.2, margins 0.5 / 0.3
+    def test_tall_seed_wraps_the_chamber(self):
+        bottom, reaches = CS.box_bottom(-3.0, 6.0, 1.2, 0.5, 0.3)
+        self.assertAlmostEqual(bottom, -3.5)
+        self.assertTrue(reaches)
+        self.assertGreaterEqual(bottom + 6.0, 1.2 + 0.3)
+
+    def test_short_seed_sits_as_low_as_the_plane_allows(self):
+        bottom, reaches = CS.box_bottom(-3.0, 3.0, 1.2, 0.5, 0.3)
+        self.assertAlmostEqual(bottom, -1.5)
+        self.assertFalse(reaches)
+        self.assertAlmostEqual(bottom + 3.0, 1.5)
+
+    def test_exact_fit(self):
+        bottom, reaches = CS.box_bottom(-3.0, 5.0, 1.2, 0.5, 0.3)
+        self.assertAlmostEqual(bottom, -3.5)
+        self.assertTrue(reaches)
+
+    def test_chamber_above_the_plane_keeps_the_plane_inside(self):
+        bottom, reaches = CS.box_bottom(5.0, 4.0, 1.2, 0.5, 0.3)
+        self.assertAlmostEqual(bottom, 0.9)
+        self.assertTrue(reaches)
+
+
 class UprightRotation(unittest.TestCase):
     def deg(self, chamber_deg, ref_deg=0.0):
         import math

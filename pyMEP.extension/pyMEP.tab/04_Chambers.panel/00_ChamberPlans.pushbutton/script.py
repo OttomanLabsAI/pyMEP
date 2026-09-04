@@ -17,8 +17,13 @@ For each chamber:
      the chamber in plan it is used as is; if it exists but sits somewhere
      else (a copy that never got moved, a chamber that moved) it is MOVED
      over the chamber in plan; otherwise the seed scope box is copied,
-     moved IN PLAN to the chamber centre (it keeps the seed's vertical
-     extent, so it stays visible in this plan view), rotated and renamed.
+     moved to the chamber centre, rotated and renamed.
+     HEIGHT: the API cannot resize a scope box, only move it, and a plan
+     only shows - and only takes - a box its CUT PLANE passes through. So
+     each box is set as LOW as that allows: its bottom 500 mm under the
+     chamber when the seed is tall enough to still reach 300 mm above this
+     plan's cut plane, else as low as the cut plane permits (the report
+     then says how tall the seed needs to be).
      ROTATION: a rotated scope box turns its plan view with it, so the box
      is aligned to the chamber with the chamber face MOST ALIGNED TO 'UP'
      at the top - never more than 45 degrees off. 'Up' is Project North,
@@ -63,7 +68,7 @@ from Autodesk.Revit.DB import (
     Transaction, ViewType, View, ViewDuplicateOption, ViewPlan,
     ViewFamilyType, ViewFamily, XYZ, Line, ElementTransformUtils, ElementId,
     FilteredElementCollector, FamilyInstance, BuiltInParameter,
-    BuiltInCategory, Element, Options,
+    BuiltInCategory, Element, Options, PlanViewPlane,
 )
 
 from pyrevit import revit, forms, script
@@ -72,7 +77,7 @@ from pyrevit import revit, forms, script
 # rotation snaps the chamber face nearest 'up' to the top of the plan.
 import pymep_chamber_sections as CS
 from pymep_chamber_sections import (
-    chamber_key, upright_rotation, wrap_angle, RIGHT_ANGLE,
+    chamber_key, upright_rotation, wrap_angle, RIGHT_ANGLE, box_bottom,
     plans_settings, pick_seed_name, PLANS_TEMPLATE_ACTIVE,
     PLANS_TEMPLATE_NONE, SETTINGS_PLANS_TEMPLATE, SETTINGS_PLANS_SEED,
 )
@@ -85,6 +90,10 @@ out = script.get_output()
 
 XAML_PATH = os.path.join(os.path.dirname(os.path.abspath(CS.__file__)),
                          "pymep_chamber_plans.xaml")
+
+FT = 304.8
+CHAMBER_MARGIN_FT = 500.0 / FT    # box bottom this far under the chamber
+CUT_MARGIN_FT = 300.0 / FT        # box top at least this far above the cut
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +244,52 @@ def _scopebox_plan_angle(sb):
     except Exception:
         return None
     return None
+
+
+def _z_range(el):
+    # (bottom, top) Z of an element's model bounding box, or (None, None).
+    try:
+        bb = el.get_BoundingBox(None)
+    except Exception:
+        bb = None
+    if bb is None:
+        return None, None
+    return bb.Min.Z, bb.Max.Z
+
+
+def _cut_plane_z(v):
+    # Absolute Z of the plan's cut plane (view range), or None.
+    try:
+        vr = v.GetViewRange()
+        off = vr.GetOffset(PlanViewPlane.CutPlane)
+        lvl = None
+        try:
+            lvl = doc.GetElement(vr.GetLevelId(PlanViewPlane.CutPlane))
+        except Exception:
+            lvl = None
+        if lvl is None or not hasattr(lvl, "ProjectElevation"):
+            lvl = v.GenLevel
+        if lvl is None:
+            return None
+        return lvl.ProjectElevation + off
+    except Exception:
+        return None
+
+
+def _drop(bottom_now, height, chamber_bottom):
+    # Vertical move for a box of `height` whose bottom is at `bottom_now`,
+    # and a note. (0, note) when the cut plane is unknown.
+    if cut_z is None or not height or chamber_bottom is None:
+        return 0.0, "height kept (cut plane unknown)"
+    bottom, reaches = box_bottom(chamber_bottom, height, cut_z,
+                                 CHAMBER_MARGIN_FT, CUT_MARGIN_FT)
+    if reaches:
+        note = "box wraps the chamber"
+    else:
+        need = (cut_z + CUT_MARGIN_FT) - (chamber_bottom - CHAMBER_MARGIN_FT)
+        note = ("box as low as this plan's cut plane allows - a {0:.1f} m "
+                "tall seed would reach the chamber".format(need * 0.3048))
+    return bottom - bottom_now, note
 
 
 def _true_north_angle():
@@ -520,6 +575,9 @@ try:
 except Exception:
     src_level = None
 
+# The plan's cut plane and the seed's height decide how low a box can go.
+cut_z = _cut_plane_z(view)
+
 # What counts as 'up' for the box rotation: True North when the active
 # plan is oriented that way, else Project North.
 use_true_north = _plan_true_north(view)
@@ -552,9 +610,10 @@ def _build_jobs(instances, seed):
             dup_marks.append((mark, inst))
             continue
         seen.add(base)
+        zmin, zmax = _z_range(inst)
         job = {"inst": inst, "mark": mark, "base": base,
                "centre": _world_centre(inst), "box": None, "box_note": "-",
-               "view_note": "-"}
+               "view_note": "-", "zmin": zmin, "zmax": zmax}
         sb = sb_by_name.get(base)
         if sb is None or (seed is not None
                           and sb.Id.IntegerValue == seed.Id.IntegerValue):
@@ -591,6 +650,13 @@ def _plan_text(jobs, no_mark, dup_marks):
         lines.extend(_name_list(moving))
     lines.append("Plan views to create: {0}".format(len(views)))
     lines.extend(_name_list(views))
+    if cut_z is None:
+        lines.append("This plan's cut plane could not be read: boxes keep "
+                     "the seed's height.")
+    else:
+        lines.append("Boxes go as low as this plan's cut plane allows: 500 mm "
+                     "under the chamber when the seed is tall enough, else "
+                     "the report says how tall the seed must be.")
     if prefer_fresh:
         lines.append("Plans are created FRESH on level '{0}' - the active "
                      "view is a {1}, whose duplicates cannot carry a scope "
@@ -1024,6 +1090,9 @@ seed_skew = _scopebox_plan_angle(seed)
 if seed_skew is None:
     seed_skew = 0.0
 
+seed_zmin, seed_zmax = _z_range(seed)
+seed_h = (seed_zmax - seed_zmin) if seed_zmin is not None else None
+
 seed_centre = _scopebox_centre(seed)
 if seed_centre is None:
     forms.alert("The seed scope box '{0}' has no readable bounding box, so "
@@ -1059,11 +1128,16 @@ try:
             sb = job["box"]
             try:
                 sb_c = _scopebox_centre(sb)
-                move = XYZ(centre.X - sb_c.X, centre.Y - sb_c.Y, 0.0)
+                b0, b1 = _z_range(sb)
+                dz, znote = _drop(b0, (b1 - b0) if b0 is not None else None,
+                                  job["zmin"])
+                move = XYZ(centre.X - sb_c.X, centre.Y - sb_c.Y, dz)
                 ElementTransformUtils.MoveElement(doc, sb.Id, move)
                 moved_sb += 1
-                job["box_note"] = "moved onto chamber ({0:.1f} m): {1}".format(
-                    (move.X ** 2 + move.Y ** 2) ** 0.5 * 0.3048, base)
+                job["box_note"] = ("moved onto chamber ({0:.1f} m): {1}  "
+                                   "({2})".format(
+                                       (move.X ** 2 + move.Y ** 2) ** 0.5
+                                       * 0.3048, base, znote))
             except Exception as ex:
                 job["box"] = None
                 job["box_note"] = ("misplaced and the move failed - left "
@@ -1090,17 +1164,18 @@ try:
 
         notes = []
 
-        # Move it IN PLAN so its centre sits on the chamber centre. The
-        # copy starts exactly on the seed (zero-offset copy), so the seed's
-        # centre is the reliable origin - a just-copied element's own
-        # bounding box can read back empty before regeneration. Z is left
-        # alone on purpose: the box keeps the seed's vertical extent, so it
-        # stays visible in this plan and can be applied to the views.
+        # Move it so its centre sits on the chamber centre in plan, and as
+        # low as this plan's cut plane allows in height. The copy starts
+        # exactly on the seed (zero-offset copy), so the seed's centre and
+        # bottom are the reliable origins - a just-copied element's own
+        # bounding box can read back empty before regeneration.
         try:
+            dz, znote = _drop(seed_zmin, seed_h, job["zmin"])
             move = XYZ(centre.X - seed_centre.X,
                        centre.Y - seed_centre.Y,
-                       0.0)
+                       dz)
             ElementTransformUtils.MoveElement(doc, new_sb.Id, move)
+            notes.append(znote)
         except Exception as ex:
             notes.append("move failed: {0}".format(ex))
 
@@ -1180,6 +1255,14 @@ if template_notes:
         len(template_notes)))
     for nm, why in template_notes:
         out.print_md("- {0}: {1}".format(nm, why))
+if cut_z is not None and seed_h:
+    out.print_md("**Box height:** seed '{0}' is {1:.1f} m tall; this plan's "
+                 "cut plane must pass through every box, so each box sits "
+                 "as low as that allows (500 mm under the chamber when the "
+                 "seed reaches).".format(_elem_name(seed), seed_h * 0.3048))
+elif cut_z is None:
+    out.print_md("**Box height:** this plan's cut plane could not be read, "
+                 "so boxes keep the seed's height.")
 out.print_md("**Up reference for box rotation:** {0}{1}".format(
     up_label,
     "  |  seed box skew of {0:.1f} deg taken out".format(
