@@ -3,9 +3,18 @@
 
 One dialog (pymep_chamber_plans.xaml) asks for everything: WHICH chambers
 (the current selection, or a family type with a search box and a tick list
-of its instances by Mark), the SEED scope box to copy, and the VIEW
-TEMPLATE for the plan views - and shows live what will be created, moved
-or skipped before you press Create. The seed and template are remembered.
+of its instances by Mark), the PLAN EXTENTS, and the VIEW TEMPLATE for the
+plan views - and shows live what will be created, moved or skipped before
+you press Create. Everything is remembered.
+
+PLAN EXTENTS, two routes:
+  * EXACT CROP (default, no scope box): the plan's crop region is set to a
+    size along the chamber's own X and Y - typed in mm, or the chamber's
+    length parameters plus a clearance each side - and turned so the
+    chamber face nearest 'up' is on top. Precise, any size, no seed.
+  * SCOPE BOX: a copy of a seed box applied to the plan (steps 1-2 below).
+    Revit's API can copy, move and turn a scope box but CANNOT resize one,
+    so every box is the seed's size.
 
 For each chamber:
   0. NAME = the chamber's instance parameter "Mark", whole ("LV1/Z1" - the
@@ -68,7 +77,8 @@ from Autodesk.Revit.DB import (
     Transaction, ViewType, View, ViewDuplicateOption, ViewPlan,
     ViewFamilyType, ViewFamily, XYZ, Line, ElementTransformUtils, ElementId,
     FilteredElementCollector, FamilyInstance, BuiltInParameter,
-    BuiltInCategory, Element, Options, PlanViewPlane,
+    BuiltInCategory, Element, Options, PlanViewPlane, Transform,
+    BoundingBoxXYZ, StorageType,
 )
 
 from pyrevit import revit, forms, script
@@ -80,6 +90,10 @@ from pymep_chamber_sections import (
     chamber_key, upright_rotation, wrap_angle, RIGHT_ANGLE, box_bottom,
     plans_settings, pick_seed_name, PLANS_TEMPLATE_ACTIVE,
     PLANS_TEMPLATE_NONE, SETTINGS_PLANS_TEMPLATE, SETTINGS_PLANS_SEED,
+    SETTINGS_PLANS_EXTENTS, SETTINGS_PLANS_WIDTH, SETTINGS_PLANS_DEPTH,
+    EXTENTS_SCOPE, EXTENTS_CROP, size_settings, SIZE_FIXED, SIZE_PARAMS,
+    SETTINGS_SIZE_MODE, SETTINGS_SIZE_PARAM_X, SETTINGS_SIZE_PARAM_Y,
+    SETTINGS_SIZE_CLEAR, plan_crop_from_dims, parse_mm, mm_text,
 )
 from pymep_config import load_settings, save_settings
 
@@ -199,6 +213,80 @@ def _world_centre(inst):
     return XYZ((bb.Min.X + bb.Max.X) * 0.5,
                (bb.Min.Y + bb.Max.Y) * 0.5,
                (bb.Min.Z + bb.Max.Z) * 0.5)
+
+
+def _chamber_plan_halfspan(inst, angle):
+    # Half-size of the chamber footprint along its LOCAL X and Y, from its
+    # world bounding box projected into the chamber frame (a slight
+    # over-estimate for a rotated chamber). ~0.5 m each when unreadable.
+    try:
+        bb = inst.get_BoundingBox(None)
+    except Exception:
+        bb = None
+    centre = _world_centre(inst)
+    if bb is None or centre is None:
+        return (0.5 / 0.3048, 0.5 / 0.3048)
+    ca, sa = math.cos(-angle), math.sin(-angle)
+    max_lx = max_ly = 0.0
+    for x in (bb.Min.X, bb.Max.X):
+        for y in (bb.Min.Y, bb.Max.Y):
+            dx, dy = x - centre.X, y - centre.Y
+            lx = dx * ca - dy * sa
+            ly = dx * sa + dy * ca
+            max_lx = max(max_lx, abs(lx))
+            max_ly = max(max_ly, abs(ly))
+    return (max_lx, max_ly)
+
+
+def _param_len_ft(inst, name):
+    # A LENGTH parameter by name - instance first, then its type. None when
+    # absent, not a length, or not positive.
+    if not name:
+        return None
+    holders = [inst]
+    try:
+        holders.append(doc.GetElement(inst.GetTypeId()))
+    except Exception:
+        pass
+    for holder in holders:
+        if holder is None:
+            continue
+        try:
+            p = holder.LookupParameter(name)
+        except Exception:
+            p = None
+        if p is None:
+            continue
+        try:
+            if p.StorageType != StorageType.Double or not p.HasValue:
+                continue
+            v = p.AsDouble()
+        except Exception:
+            continue
+        if v is not None and v > 0:
+            return v
+    return None
+
+
+def _mm0(text):
+    # A non-negative mm field, or None.
+    if text is None:
+        return None
+    try:
+        t = text.strip().lower().replace(",", ".")
+    except Exception:
+        return None
+    if t.endswith("mm"):
+        t = t[:-2].strip()
+    if not t:
+        return None
+    try:
+        v = float(t)
+    except Exception:
+        return None
+    if v != v or v - v != 0 or v < 0:
+        return None
+    return v
 
 
 def _scopebox_centre(sb):
@@ -593,6 +681,29 @@ else:
 # 2. Jobs: one per chamber Mark - built live for the dialog's preview and
 #    again for the run. Chambers without a Mark are NOT processed.
 # ---------------------------------------------------------------------------
+def _crop_halves(inst, angle):
+    # (half_x, half_y, note) of the exact crop for a chamber, in feet, in
+    # the chamber's own frame.
+    if crop_size_mode == SIZE_PARAMS:
+        hx, hy = _chamber_plan_halfspan(inst, angle)
+        missing = []
+        dx = _param_len_ft(inst, crop_param_x)
+        if dx is None:
+            dx = 2.0 * hx
+            missing.append(crop_param_x)
+        dy = _param_len_ft(inst, crop_param_y)
+        if dy is None:
+            dy = 2.0 * hy
+            missing.append(crop_param_y)
+        half_x, half_y = plan_crop_from_dims(dx, dy, crop_clear_ft)
+        note = ""
+        if missing:
+            note = "parameter(s) {0} not found - bounding box used".format(
+                ", ".join("'{0}'".format(m) for m in missing))
+        return half_x, half_y, note
+    return crop_w_ft * 0.5, crop_d_ft * 0.5, ""
+
+
 def _build_jobs(instances, seed):
     # -> (jobs, no_mark, dup_marks)
     no_mark = []             # (ident, instance)
@@ -614,14 +725,17 @@ def _build_jobs(instances, seed):
         job = {"inst": inst, "mark": mark, "base": base,
                "centre": _world_centre(inst), "box": None, "box_note": "-",
                "view_note": "-", "zmin": zmin, "zmax": zmax}
-        sb = sb_by_name.get(base)
-        if sb is None or (seed is not None
-                          and sb.Id.IntegerValue == seed.Id.IntegerValue):
-            job["box_state"] = "create"
+        if extents == EXTENTS_CROP:
+            job["box_state"] = "none"
         else:
-            job["box"] = sb
-            over = _box_over_point(sb, job["centre"])
-            job["box_state"] = "misplaced" if over is False else "exists"
+            sb = sb_by_name.get(base)
+            if sb is None or (seed is not None
+                              and sb.Id.IntegerValue == seed.Id.IntegerValue):
+                job["box_state"] = "create"
+            else:
+                job["box"] = sb
+                over = _box_over_point(sb, job["centre"])
+                job["box_state"] = "misplaced" if over is False else "exists"
         job["view_state"] = "exists" if base in view_names else "create"
         jobs.append(job)
     return jobs, no_mark, dup_marks
@@ -639,24 +753,44 @@ def _plan_text(jobs, no_mark, dup_marks):
     moving = [j["base"] for j in jobs if j["box_state"] == "misplaced"]
     views = [j["base"] for j in jobs if j["view_state"] == "create"]
     lines = []
-    if not creating and not moving and not views:
-        lines.append("Nothing to do: every chamber with a Mark already has "
-                     "a scope box over it and a plan view of that name.")
-    lines.append("Scope boxes to create: {0}".format(len(creating)))
-    lines.extend(_name_list(creating))
-    if moving:
-        lines.append("Existing scope boxes moved onto their chamber: {0}"
-                     .format(len(moving)))
-        lines.extend(_name_list(moving))
-    lines.append("Plan views to create: {0}".format(len(views)))
-    lines.extend(_name_list(views))
-    if cut_z is None:
-        lines.append("This plan's cut plane could not be read: boxes keep "
-                     "the seed's height.")
+    if extents == EXTENTS_CROP:
+        if not views:
+            lines.append("Nothing to do: every chamber with a Mark already "
+                         "has a plan view of that name.")
+        lines.append("Plan views to create: {0}".format(len(views)))
+        lines.extend(_name_list(views))
+        if crop_size_mode == SIZE_PARAMS:
+            lines.append("Exact crop: '{0}' x '{1}' from each chamber + "
+                         "{2:.0f} mm clearance each side, turned to the "
+                         "chamber. No scope boxes.".format(
+                             crop_param_x, crop_param_y,
+                             crop_clear_ft * 304.8))
+        else:
+            lines.append("Exact crop: {0:.0f} x {1:.0f} mm along each "
+                         "chamber's X and Y, turned to the chamber. No "
+                         "scope boxes.".format(crop_w_ft * 304.8,
+                                               crop_d_ft * 304.8))
     else:
-        lines.append("Boxes go as low as this plan's cut plane allows: 500 mm "
-                     "under the chamber when the seed is tall enough, else "
-                     "the report says how tall the seed must be.")
+        if not creating and not moving and not views:
+            lines.append("Nothing to do: every chamber with a Mark already "
+                         "has a scope box over it and a plan view of that "
+                         "name.")
+        lines.append("Scope boxes to create: {0}".format(len(creating)))
+        lines.extend(_name_list(creating))
+        if moving:
+            lines.append("Existing scope boxes moved onto their chamber: {0}"
+                         .format(len(moving)))
+            lines.extend(_name_list(moving))
+        lines.append("Plan views to create: {0}".format(len(views)))
+        lines.extend(_name_list(views))
+        if cut_z is None:
+            lines.append("This plan's cut plane could not be read: boxes "
+                         "keep the seed's height.")
+        else:
+            lines.append("Boxes go as low as this plan's cut plane allows: "
+                         "500 mm under the chamber when the seed is tall "
+                         "enough, else the report says how tall the seed "
+                         "must be.")
     if prefer_fresh:
         lines.append("Plans are created FRESH on level '{0}' - the active "
                      "view is a {1}, whose duplicates cannot carry a scope "
@@ -672,6 +806,17 @@ def _plan_text(jobs, no_mark, dup_marks):
             len(dup_marks)))
         lines.extend(_name_list(sorted(set(m for m, _i in dup_marks))))
     return "\n".join(lines)
+
+
+# Extents state the preview and the run read. The dialog updates these as
+# the user changes the controls, then the run takes the final values.
+extents = EXTENTS_CROP
+crop_size_mode = SIZE_FIXED
+crop_w_ft = 0.0
+crop_d_ft = 0.0
+crop_param_x = u""
+crop_param_y = u""
+crop_clear_ft = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -713,6 +858,20 @@ class PlansWindow(forms.WPFWindow):
         first = pick_seed_name(seed_names, remembered["seed"])
         if first is not None:
             self.CmbSeed.SelectedItem = first
+
+        if remembered["extents"] == EXTENTS_SCOPE:
+            self.RbExtScope.IsChecked = True
+        else:
+            self.RbExtCrop.IsChecked = True
+        self.TxtW.Text = mm_text(remembered["width"])
+        self.TxtD.Text = mm_text(remembered["depth"])
+        self.TxtParamX.Text = sizing["px"]
+        self.TxtParamY.Text = sizing["py"]
+        self.TxtClear.Text = mm_text(sizing["clear"])
+        if sizing["mode"] == SIZE_PARAMS:
+            self.RbCropParams.IsChecked = True
+        else:
+            self.RbCropFixed.IsChecked = True
         self.CmbTemplate.Items.Clear()
         for n in template_choices:
             self.CmbTemplate.Items.Add(n)
@@ -801,6 +960,34 @@ class PlansWindow(forms.WPFWindow):
         except Exception:
             return None
 
+    def _read_extents(self):
+        # Push the extents controls into the module state the preview and
+        # the run read. Returns an error message, or None.
+        global extents, crop_size_mode, crop_w_ft, crop_d_ft
+        global crop_param_x, crop_param_y, crop_clear_ft
+        extents = EXTENTS_SCOPE if self.RbExtScope.IsChecked else EXTENTS_CROP
+        if extents == EXTENTS_SCOPE:
+            return None
+        if self.RbCropParams.IsChecked:
+            crop_size_mode = SIZE_PARAMS
+            px = (self.TxtParamX.Text or "").strip()
+            py = (self.TxtParamY.Text or "").strip()
+            if not px or not py:
+                return "Give the chamber's parameter names along X and Y."
+            clear = _mm0(self.TxtClear.Text)
+            if clear is None:
+                return "Clearance must be a number of mm (0 or more)."
+            crop_param_x, crop_param_y = px, py
+            crop_clear_ft = clear / FT
+        else:
+            crop_size_mode = SIZE_FIXED
+            w = parse_mm(self.TxtW.Text)
+            d = parse_mm(self.TxtD.Text)
+            if w is None or d is None:
+                return "Crop size along X and Y must be positive mm."
+            crop_w_ft, crop_d_ft = w / FT, d / FT
+        return None
+
     # -- state -> UI -----------------------------------------------------------
     def _sync(self):
         if not getattr(self, "_ready", False):
@@ -808,6 +995,12 @@ class PlansWindow(forms.WPFWindow):
         try:
             by_type = bool(self.RbType.IsChecked)
             self.PnlType.IsEnabled = by_type
+            scope = bool(self.RbExtScope.IsChecked)
+            self.PnlScope.IsEnabled = scope
+            self.PnlCrop.IsEnabled = not scope
+            params = bool(self.RbCropParams.IsChecked)
+            self.PnlCropFixed.IsEnabled = not params
+            self.PnlCropParams.IsEnabled = params
             if by_type:
                 total = len(self._boxes)
                 if total:
@@ -828,9 +1021,13 @@ class PlansWindow(forms.WPFWindow):
 
     def _refresh_plan(self):
         try:
+            err = self._read_extents()
             chambers = self._chambers()
             if not chambers:
                 self.TxtPlan.Text = "Pick or tick chambers above."
+                return
+            if err:
+                self.TxtPlan.Text = err
                 return
             jobs, no_mark, dups = _build_jobs(chambers, self._seed())
             self.TxtPlan.Text = _plan_text(jobs, no_mark, dups)
@@ -860,6 +1057,12 @@ class PlansWindow(forms.WPFWindow):
         if getattr(self, "_ready", False):
             self._refresh_plan()
 
+    def on_extents(self, sender, args):
+        self._sync()
+
+    def on_size_mode(self, sender, args):
+        self._sync()
+
     def _on_box(self, sender, args):
         self._sync()
 
@@ -871,8 +1074,12 @@ class PlansWindow(forms.WPFWindow):
             else:
                 self.StatusText.Text = "Tick at least one chamber."
             return
-        seed = self._seed()
-        if seed is None:
+        err = self._read_extents()
+        if err:
+            self.StatusText.Text = err
+            return
+        seed = self._seed() if extents == EXTENTS_SCOPE else None
+        if extents == EXTENTS_SCOPE and seed is None:
             self.StatusText.Text = "Pick the seed scope box to copy."
             return
         tmpl = self.CmbTemplate.SelectedItem
@@ -886,12 +1093,13 @@ class PlansWindow(forms.WPFWindow):
                 "plans are named from the instance parameter 'Mark'."
                 .format(len(chambers)))
             return
-        todo = [j for j in jobs if j["box_state"] != "exists"
+        todo = [j for j in jobs if j["box_state"] in ("create", "misplaced")
                 or j["view_state"] == "create"]
         if not todo:
             self.StatusText.Text = (
-                "Nothing to do - every chamber with a Mark already has a "
-                "scope box over it and a plan view of that name.")
+                "Nothing to do - every chamber with a Mark already has "
+                "its plan view" + (" and scope box." if extents ==
+                                   EXTENTS_SCOPE else "."))
             return
         if self.RbSelection.IsChecked and self._sel:
             source = "(selection)"
@@ -907,6 +1115,7 @@ class PlansWindow(forms.WPFWindow):
 
 
 _settings = load_settings()
+sizing = size_settings(_settings)
 win = PlansWindow(type_options, sel_insts, plans_settings(_settings))
 win.ShowDialog()
 if not win.result:
@@ -925,7 +1134,18 @@ else:
 
 try:
     _settings[SETTINGS_PLANS_TEMPLATE] = tmpl_label
-    _settings[SETTINGS_PLANS_SEED] = _elem_name(seed)
+    _settings[SETTINGS_PLANS_EXTENTS] = extents
+    if seed is not None:
+        _settings[SETTINGS_PLANS_SEED] = _elem_name(seed)
+    if extents == EXTENTS_CROP:
+        _settings[SETTINGS_SIZE_MODE] = crop_size_mode
+        if crop_size_mode == SIZE_PARAMS:
+            _settings[SETTINGS_SIZE_PARAM_X] = crop_param_x
+            _settings[SETTINGS_SIZE_PARAM_Y] = crop_param_y
+            _settings[SETTINGS_SIZE_CLEAR] = crop_clear_ft * FT
+        else:
+            _settings[SETTINGS_PLANS_WIDTH] = crop_w_ft * FT
+            _settings[SETTINGS_PLANS_DEPTH] = crop_d_ft * FT
     save_settings(_settings)
 except Exception:
     pass
@@ -1036,6 +1256,102 @@ def _delete_quietly(el, name=None):
         view_names.discard(name)
 
 
+def _clear_scope_box(v):
+    # Take any inherited scope box off a view (a crop can't be set while
+    # one is applied). Returns an error text, or None.
+    p = _scope_param(v)
+    if p is None:
+        return None
+    try:
+        eid = p.AsElementId()
+        if not _valid_id(eid):
+            return None
+        if p.IsReadOnly:
+            return "the inherited scope box is locked on this view"
+        p.Set(ElementId.InvalidElementId)
+    except Exception as ex:
+        return "could not take the inherited scope box off: {0}".format(ex)
+    return None
+
+
+def _set_crop(v, centre, phi, half_a, half_b):
+    # Crop the plan to half_a x half_b about the chamber centre, its X axis
+    # turned by phi (a turned crop box turns the plan view with it). The
+    # existing crop's depth (Z) is kept. Returns an error text, or None.
+    try:
+        old = v.CropBox
+        z0, z1 = old.Min.Z, old.Max.Z
+        oz = old.Transform.Origin.Z
+    except Exception:
+        z0, z1, oz = -10.0, 10.0, 0.0
+    t = Transform.Identity
+    t.Origin = XYZ(centre.X, centre.Y, oz)
+    t.BasisX = XYZ(math.cos(phi), math.sin(phi), 0.0)
+    t.BasisY = XYZ(-math.sin(phi), math.cos(phi), 0.0)
+    t.BasisZ = XYZ(0.0, 0.0, 1.0)
+    box = BoundingBoxXYZ()
+    box.Transform = t
+    box.Min = XYZ(-half_a, -half_b, z0)
+    box.Max = XYZ(half_a, half_b, z1)
+    try:
+        v.CropBoxActive = True
+        v.CropBox = box
+        v.CropBoxVisible = True
+    except Exception as ex:
+        return "Revit refused the crop: {0}".format(ex)
+    try:
+        got = v.CropBox
+        if abs((got.Max.X - got.Min.X) - 2.0 * half_a) > 0.01:
+            return "the view did not keep the crop size"
+    except Exception:
+        pass
+    return None
+
+
+def _make_plan_crop(name, centre, angle, half_x, half_y):
+    # (view, how, reasons): a named plan view cropped exactly around the
+    # chamber, or None with every attempt's reason. half_x / half_y are in
+    # the chamber's own frame; the crop turns with the chamber face nearest
+    # 'up' on top, swapping the halves when that is a quarter turn away.
+    phi = upright_rotation(angle, up_ref)
+    quarter = abs(wrap_angle(phi - angle, math.pi)) > math.pi / 4.0
+    half_a, half_b = (half_y, half_x) if quarter else (half_x, half_y)
+    methods = [("fresh plan", _fresh_plan), ("duplicate", _duplicate_plan)]
+    if not prefer_fresh:
+        methods.reverse()
+    tried = []
+    for label, maker in methods:
+        nv, err = maker()
+        if nv is None:
+            tried.append("{0}: {1}".format(label, err))
+            continue
+        try:
+            nv.Name = name
+            view_names.add(name)
+        except Exception as ex:
+            _delete_quietly(nv)
+            tried.append("{0}: rename failed ({1})".format(label, ex))
+            continue
+        if label == "duplicate":
+            try:
+                if tmpl_mode == "named":
+                    nv.ViewTemplateId = tmpl_id
+                elif tmpl_mode == "none":
+                    nv.ViewTemplateId = ElementId.InvalidElementId
+            except Exception as ex:
+                template_notes.append((name, "{0}".format(ex)))
+        why = _clear_scope_box(nv) or _set_crop(nv, centre, phi, half_a,
+                                                half_b)
+        if why is None:
+            how = label
+            if label == "fresh plan" and src_level is not None:
+                how = "fresh plan on '{0}'".format(_elem_name(src_level))
+            return nv, how, math.degrees(phi)
+        _delete_quietly(nv, name)
+        tried.append("{0}: {1}".format(label, why))
+    return None, "", "; ".join(tried)
+
+
 def _make_plan(name, sb):
     # (view, how, reasons): a named plan view with the scope box on it, or
     # None with every attempt's reason.
@@ -1086,18 +1402,21 @@ def _make_plan(name, sb):
 # ---------------------------------------------------------------------------
 # 5. One transaction: (a) a scope box per chamber, (b) a plan view per box.
 # ---------------------------------------------------------------------------
-seed_skew = _scopebox_plan_angle(seed)
-if seed_skew is None:
-    seed_skew = 0.0
-
-seed_zmin, seed_zmax = _z_range(seed)
-seed_h = (seed_zmax - seed_zmin) if seed_zmin is not None else None
-
-seed_centre = _scopebox_centre(seed)
-if seed_centre is None:
-    forms.alert("The seed scope box '{0}' has no readable bounding box, so "
-                "copies can't be positioned. Pick another seed.".format(
-                    _elem_name(seed)), exitscript=True)
+seed_skew = 0.0
+seed_h = None
+seed_zmin = None
+seed_centre = None
+if extents == EXTENTS_SCOPE:
+    seed_skew = _scopebox_plan_angle(seed)
+    if seed_skew is None:
+        seed_skew = 0.0
+    seed_zmin, seed_zmax = _z_range(seed)
+    seed_h = (seed_zmax - seed_zmin) if seed_zmin is not None else None
+    seed_centre = _scopebox_centre(seed)
+    if seed_centre is None:
+        forms.alert("The seed scope box '{0}' has no readable bounding box, "
+                    "so copies can't be positioned. Pick another seed."
+                    .format(_elem_name(seed)), exitscript=True)
 
 created_sb = 0
 moved_sb = 0
@@ -1110,13 +1429,17 @@ t = Transaction(doc, "pyMEP: Chamber plans ({0} chamber(s))".format(
     len(jobs)))
 t.Start()
 try:
-    # --- (a) a scope box per chamber ---
+    # --- (a) a scope box per chamber (scope-box route only) ---
     for job in jobs:
         base = job["base"]
         centre = job["centre"]
         if centre is None:
             job["box"] = None
             job["box_note"] = "no centre"
+            continue
+
+        if job["box_state"] == "none":
+            job["box_note"] = "exact crop (no scope box)"
             continue
 
         if job["box_state"] == "exists":
@@ -1218,13 +1541,35 @@ try:
     except Exception:
         pass
 
-    # --- (b) a plan view per box ---
+    # --- (b) a plan view per chamber ---
     for job in jobs:
-        if job["box"] is None:
-            job["view_note"] = "-"
-            continue
         if job["view_state"] == "exists":
             job["view_note"] = "view exists"
+            continue
+        if extents == EXTENTS_CROP:
+            if job["centre"] is None:
+                job["view_note"] = "-"
+                continue
+            pose = _chamber_pose(job["inst"])
+            angle = pose[1] if pose is not None else 0.0
+            half_x, half_y, dnote = _crop_halves(job["inst"], angle)
+            nv, how, extra = _make_plan_crop(job["base"], job["centre"],
+                                             angle, half_x, half_y)
+            if nv is None:
+                job["view_note"] = "NOT created - " + extra
+                view_failed += 1
+                continue
+            created_views += 1
+            job["box_note"] = ("exact crop {0:.2f} x {1:.2f} m, turned "
+                               "{2:.1f} deg{3}".format(
+                                   2.0 * half_x * 0.3048,
+                                   2.0 * half_y * 0.3048, extra,
+                                   "  -  " + dnote if dnote else ""))
+            job["view_note"] = "created" + (
+                " ({0})".format(how) if how and how != "duplicate" else "")
+            continue
+        if job["box"] is None:
+            job["view_note"] = "-"
             continue
         nv, how, reasons = _make_plan(job["base"], job["box"])
         if nv is None:
@@ -1245,17 +1590,29 @@ except Exception as ex:
 # 6. Report
 # ---------------------------------------------------------------------------
 out.print_md("### Chamber plans")
-out.print_md("**Target:** {0}  |  **Seed scope box:** {1}  |  "
-             "**Active view:** {2} ({3}{4})".format(
-                 picked_type_label, _elem_name(seed), _elem_name(view),
-                 src_kind, ", scope box locked" if src_locked else ""))
-out.print_md("**Plan template:** {0}".format(tmpl_label))
+out.print_md("**Target:** {0}  |  **Active view:** {1} ({2}{3})".format(
+    picked_type_label, _elem_name(view), src_kind,
+    ", scope box locked" if src_locked else ""))
+if extents == EXTENTS_CROP:
+    if crop_size_mode == SIZE_PARAMS:
+        _ext_desc = ("exact crop from parameters '{0}' x '{1}' + {2:.0f} mm "
+                     "clearance each side, no scope boxes".format(
+                         crop_param_x, crop_param_y, crop_clear_ft * FT))
+    else:
+        _ext_desc = ("exact crop {0:.0f} x {1:.0f} mm, no scope boxes".format(
+            crop_w_ft * FT, crop_d_ft * FT))
+else:
+    _ext_desc = "scope box copied from '{0}'".format(_elem_name(seed))
+out.print_md("**Plan extents:** {0}  |  **Plan template:** {1}".format(
+    _ext_desc, tmpl_label))
 if template_notes:
     out.print_md("**{0} plan view(s) did not take the template:**".format(
         len(template_notes)))
     for nm, why in template_notes:
         out.print_md("- {0}: {1}".format(nm, why))
-if cut_z is not None and seed_h:
+if extents == EXTENTS_CROP:
+    pass
+elif cut_z is not None and seed_h:
     out.print_md("**Box height:** seed '{0}' is {1:.1f} m tall; this plan's "
                  "cut plane must pass through every box, so each box sits "
                  "as low as that allows (500 mm under the chamber when the "

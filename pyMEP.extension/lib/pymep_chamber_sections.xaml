@@ -120,7 +120,11 @@
 
                 <GroupBox Header="Section box (mm)">
                     <StackPanel>
-                        <Grid>
+                        <RadioButton x:Name="RbSizeFixed" GroupName="Size"
+                                     Margin="0,4,0,0"
+                                     Content="type the box"
+                                     Checked="on_size_mode"/>
+                        <Grid x:Name="PnlFixed" Margin="18,2,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="90"/>
@@ -144,8 +148,46 @@
                                        Text="Depth"/>
                             <TextBox x:Name="TxtDepth" Grid.Column="5"/>
                         </Grid>
-                        <TextBlock Style="{StaticResource Hint}"
+                        <TextBlock Style="{StaticResource Hint}" Margin="18,4,0,0"
                                    Text="OFFSET is how far out from the chamber centre each section plane sits. HEIGHT is the total vertical extent, centred on the chamber. DEPTH is the far clip measured from the plane inward - keep it larger than the offset so the cut reaches through the chamber. The width follows the chamber footprint plus 500 mm each side."/>
+                        <RadioButton x:Name="RbSizeParams" GroupName="Size"
+                                     Margin="0,10,0,0"
+                                     Content="size from the chamber's parameters plus a clearance"
+                                     Checked="on_size_mode"/>
+                        <Grid x:Name="PnlParams" Margin="18,2,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="110"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0"
+                                       Style="{StaticResource FieldLabel}"
+                                       Text="Along X"/>
+                            <TextBox x:Name="TxtParamX" Grid.Row="0" Grid.Column="1"/>
+                            <TextBlock Grid.Row="0" Grid.Column="2"
+                                       Style="{StaticResource FieldLabel}"
+                                       Margin="16,6,10,0"
+                                       Text="Along Y"/>
+                            <TextBox x:Name="TxtParamY" Grid.Row="0" Grid.Column="3"/>
+                            <TextBlock Grid.Row="0" Grid.Column="4"
+                                       Style="{StaticResource FieldLabel}"
+                                       Margin="16,6,10,0"
+                                       Text="Height"/>
+                            <TextBox x:Name="TxtParamH" Grid.Row="0" Grid.Column="5"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0"
+                                       Style="{StaticResource FieldLabel}"
+                                       Text="Clearance each side (mm)"/>
+                            <TextBox x:Name="TxtClear" Grid.Row="1" Grid.Column="1"/>
+                        </Grid>
+                        <TextBlock Style="{StaticResource Hint}" Margin="18,4,0,0"
+                                   Text="Names of the chamber's length parameters (instance first, then type) for its size along its own X and Y and its height. Each section is then the chamber plus the clearance on every side: the plane sits at half the chamber plus the clearance, the crop is the chamber plus the clearance each way, and the depth runs through the chamber and the clearance past its far face. A chamber missing a parameter falls back to its bounding box and is reported."/>
                     </StackPanel>
                 </GroupBox>
 

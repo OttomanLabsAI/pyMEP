@@ -6,10 +6,15 @@ toward the chamber centre and aligned to the chamber's rotation.
 The dialog (pymep_chamber_sections.xaml) asks for everything at once:
   * WHICH chambers: the current selection, or a chamber family type (with a
     search box) and a tick list of its placed instances by Mark.
-  * The section box in mm: OFFSET from the chamber centre to each section
-    plane, HEIGHT (centred on the chamber centre elevation) and DEPTH (far
-    clip measured from the plane inward). The width follows the chamber
-    footprint plus a 500 mm margin each side.
+  * The section box, either TYPED in mm - OFFSET from the chamber centre to
+    each section plane, HEIGHT (centred on the chamber centre elevation)
+    and DEPTH (far clip measured from the plane inward), the width
+    following the chamber footprint plus a 500 mm margin each side - or
+    FROM THE CHAMBER'S PARAMETERS: the names of its length parameters along
+    its own X and Y and for its height (instance first, then type) plus a
+    CLEARANCE, so every section is the chamber plus the clearance on each
+    side. A chamber missing a parameter falls back to its bounding box and
+    is reported.
   * The section view type: one for every side, or one per final side letter.
   * Whether to run the PIPEWORK CHECK (on by default).
 Everything is remembered in Settings for the next run.
@@ -64,7 +69,7 @@ from Autodesk.Revit.DB import (
     Transaction, XYZ, Transform, BoundingBoxXYZ,
     FilteredElementCollector, FamilyInstance, ViewFamilyType,
     ViewFamily, ViewSection, View, BuiltInParameter, BuiltInCategory,
-    ElementId, Element, LocationPoint, Line, RevitLinkInstance,
+    ElementId, Element, LocationPoint, Line, RevitLinkInstance, StorageType,
 )
 
 from pyrevit import revit, forms, script
@@ -300,6 +305,27 @@ for key, insts in inst_by_typeid.items():
 type_options.sort(key=lambda d: d["label"].lower())
 
 
+def _mm0(text):
+    # A non-negative mm field, or None.
+    if text is None:
+        return None
+    try:
+        t = text.strip().lower().replace(",", ".")
+    except Exception:
+        return None
+    if t.endswith("mm"):
+        t = t[:-2].strip()
+    if not t:
+        return None
+    try:
+        v = float(t)
+    except Exception:
+        return None
+    if v != v or v - v != 0 or v < 0:
+        return None
+    return v
+
+
 # ---------------------------------------------------------------------------
 # 3. The dialog
 # ---------------------------------------------------------------------------
@@ -339,6 +365,14 @@ class SectionsWindow(forms.WPFWindow):
         self.TxtOffset.Text = CS.mm_text(remembered["offset"])
         self.TxtHeight.Text = CS.mm_text(remembered["height"])
         self.TxtDepth.Text = CS.mm_text(remembered["depth"])
+        self.TxtParamX.Text = sizing["px"]
+        self.TxtParamY.Text = sizing["py"]
+        self.TxtParamH.Text = sizing["ph"]
+        self.TxtClear.Text = CS.mm_text(sizing["clear"])
+        if sizing["mode"] == CS.SIZE_PARAMS:
+            self.RbSizeParams.IsChecked = True
+        else:
+            self.RbSizeFixed.IsChecked = True
 
         self._fill_types()
         self._ready = True
@@ -431,6 +465,9 @@ class SectionsWindow(forms.WPFWindow):
             from System.Windows import Visibility
             by_type = bool(self.RbType.IsChecked)
             self.PnlType.IsEnabled = by_type
+            params = bool(self.RbSizeParams.IsChecked)
+            self.PnlFixed.IsEnabled = not params
+            self.PnlParams.IsEnabled = params
             same = bool(self.ChkSameType.IsChecked)
             self.CmbTypeAll.Visibility = (Visibility.Visible if same
                                           else Visibility.Collapsed)
@@ -476,6 +513,9 @@ class SectionsWindow(forms.WPFWindow):
     def on_same_changed(self, sender, args):
         self._sync()
 
+    def on_size_mode(self, sender, args):
+        self._sync()
+
     def _on_box(self, sender, args):
         self._sync()
 
@@ -498,17 +538,37 @@ class SectionsWindow(forms.WPFWindow):
                 self.StatusText.Text = "Tick at least one chamber to section."
                 return
             source = tdict["label"]
-        # Box (mm)
-        vals = {}
-        for key, box, label in (("offset", self.TxtOffset, "Offset"),
-                                ("height", self.TxtHeight, "Height"),
-                                ("depth", self.TxtDepth, "Depth")):
-            v = CS.parse_mm(box.Text)
-            if v is None:
+        # Box: typed, or from the chamber's parameters + clearance
+        vals = {"offset": None, "height": None, "depth": None}
+        by_params = bool(self.RbSizeParams.IsChecked)
+        names = {}
+        clear = None
+        if by_params:
+            for key, box, label in (("px", self.TxtParamX, "Along X"),
+                                    ("py", self.TxtParamY, "Along Y"),
+                                    ("ph", self.TxtParamH, "Height")):
+                nm = (box.Text or "").strip()
+                if not nm:
+                    self.StatusText.Text = (
+                        "Give the chamber's parameter name for '{0}'."
+                        .format(label))
+                    return
+                names[key] = nm
+            clear = _mm0(self.TxtClear.Text)
+            if clear is None:
                 self.StatusText.Text = (
-                    "{0} must be a positive number of mm.".format(label))
+                    "Clearance must be a number of mm (0 or more).")
                 return
-            vals[key] = v
+        else:
+            for key, box, label in (("offset", self.TxtOffset, "Offset"),
+                                    ("height", self.TxtHeight, "Height"),
+                                    ("depth", self.TxtDepth, "Depth")):
+                v = CS.parse_mm(box.Text)
+                if v is None:
+                    self.StatusText.Text = (
+                        "{0} must be a positive number of mm.".format(label))
+                    return
+                vals[key] = v
         # Section types, by FINAL letter
         same = bool(self.ChkSameType.IsChecked)
         types = {}
@@ -532,6 +592,9 @@ class SectionsWindow(forms.WPFWindow):
             "offset": vals["offset"], "height": vals["height"],
             "depth": vals["depth"], "same": same, "types": types,
             "cut_only": bool(self.ChkCutOnly.IsChecked),
+            "size_mode": CS.SIZE_PARAMS if by_params else CS.SIZE_FIXED,
+            "px": names.get("px", ""), "py": names.get("py", ""),
+            "ph": names.get("ph", ""), "clear": clear,
         }
         self.Close()
 
@@ -541,6 +604,7 @@ class SectionsWindow(forms.WPFWindow):
 
 
 _settings = load_settings()
+sizing = CS.size_settings(_settings)
 win = SectionsWindow(type_options, sel_insts, vft_labels,
                      CS.section_settings(_settings))
 win.ShowDialog()
@@ -559,10 +623,22 @@ side_vfts = {}
 for letter in SIDE_LETTERS:
     side_vfts[letter] = vft_by_label[win.result["types"][letter]]
 
+size_mode = win.result["size_mode"]
+param_x, param_y, param_h = (win.result["px"], win.result["py"],
+                             win.result["ph"])
+clear_mm = win.result["clear"]
+
 try:
-    _settings[CS.SETTINGS_SECTION_OFFSET] = offset_mm
-    _settings[CS.SETTINGS_SECTION_HEIGHT] = height_mm
-    _settings[CS.SETTINGS_SECTION_DEPTH] = depth_mm
+    if offset_mm is not None:
+        _settings[CS.SETTINGS_SECTION_OFFSET] = offset_mm
+        _settings[CS.SETTINGS_SECTION_HEIGHT] = height_mm
+        _settings[CS.SETTINGS_SECTION_DEPTH] = depth_mm
+    _settings[CS.SETTINGS_SIZE_MODE] = size_mode
+    if size_mode == CS.SIZE_PARAMS:
+        _settings[CS.SETTINGS_SIZE_PARAM_X] = param_x
+        _settings[CS.SETTINGS_SIZE_PARAM_Y] = param_y
+        _settings[CS.SETTINGS_SIZE_PARAM_H] = param_h
+        _settings[CS.SETTINGS_SIZE_CLEAR] = clear_mm
     _settings[CS.SETTINGS_SECTION_SAME_TYPE] = same_type
     _settings[CS.SETTINGS_SECTION_CUT_ONLY] = cut_only
     _settings[CS.SETTINGS_SECTION_SIDE_TYPES] = dict(win.result["types"])
@@ -572,9 +648,70 @@ try:
 except Exception:
     pass
 
-offset_ft = offset_mm / MM_PER_FOOT
-height_ft = height_mm / MM_PER_FOOT
-depth_ft = depth_mm / MM_PER_FOOT
+offset_ft = (offset_mm / MM_PER_FOOT) if offset_mm else None
+height_ft = (height_mm / MM_PER_FOOT) if height_mm else None
+depth_ft = (depth_mm / MM_PER_FOOT) if depth_mm else None
+clear_ft = (clear_mm / MM_PER_FOOT) if clear_mm else 0.0
+
+
+def _param_len_ft(inst, name):
+    # A LENGTH parameter by name - instance first, then its type. None when
+    # absent, not a length, or not positive.
+    if not name:
+        return None
+    holders = [inst]
+    try:
+        holders.append(doc.GetElement(inst.GetTypeId()))
+    except Exception:
+        pass
+    for holder in holders:
+        if holder is None:
+            continue
+        try:
+            p = holder.LookupParameter(name)
+        except Exception:
+            p = None
+        if p is None:
+            continue
+        try:
+            if p.StorageType != StorageType.Double or not p.HasValue:
+                continue
+            v = p.AsDouble()
+        except Exception:
+            continue
+        if v is not None and v > 0:
+            return v
+    return None
+
+
+def _chamber_dims_ft(inst, half_lx, half_ly):
+    # (dx, dy, dh, note): the chamber's size along its local X and Y and
+    # its height from the named parameters, falling back to the bounding
+    # box for any that is missing (the note says which).
+    missing = []
+    dx = _param_len_ft(inst, param_x)
+    if dx is None:
+        dx = 2.0 * half_lx
+        missing.append(param_x)
+    dy = _param_len_ft(inst, param_y)
+    if dy is None:
+        dy = 2.0 * half_ly
+        missing.append(param_y)
+    dh = _param_len_ft(inst, param_h)
+    if dh is None:
+        try:
+            bb = inst.get_BoundingBox(None)
+            dh = (bb.Max.Z - bb.Min.Z) if bb is not None else None
+        except Exception:
+            dh = None
+        if not dh:
+            dh = 2.0 * max(half_lx, half_ly)
+        missing.append(param_h)
+    note = ""
+    if missing:
+        note = "parameter(s) {0} not found - bounding box used".format(
+            ", ".join("'{0}'".format(m) for m in missing))
+    return dx, dy, dh, note
 
 
 # ---------------------------------------------------------------------------
@@ -774,19 +911,20 @@ def _mep_geometry(skip_ids):
     return runs, tally, linked
 
 
-def _side_frame(side_idx, centre, angle, half_lx, half_ly):
-    # The crop frame of one side's section: origin on the section plane, the
-    # right / up / look axes, and the crop half-width / half-height. Shared
-    # by the cut test and the section box so both see the same cut.
+def _side_frame(side_idx, centre, angle, plane_ft, half_w, half_h, depth):
+    # The crop frame of one side's section: origin on the section plane
+    # (plane_ft out from the chamber centre), the right / up / look axes,
+    # the crop half-width / half-height and the far-clip depth. Shared by
+    # the cut test and the section box so both see the same cut.
     ox, oy = SIDE_OUTWARD[side_idx]
     ca, sa = math.cos(angle), math.sin(angle)
     out_x = ox * ca - oy * sa
     out_y = ox * sa + oy * ca
     out_dir = XYZ(out_x, out_y, 0.0).Normalize()
 
-    # Section plane origin: offset out from the chamber centre.
-    sec_origin = XYZ(centre.X + out_dir.X * offset_ft,
-                     centre.Y + out_dir.Y * offset_ft,
+    # Section plane origin: out from the chamber centre.
+    sec_origin = XYZ(centre.X + out_dir.X * plane_ft,
+                     centre.Y + out_dir.Y * plane_ft,
                      centre.Z)
 
     # Look direction = back toward the centre.
@@ -796,16 +934,8 @@ def _side_frame(side_idx, centre, angle, half_lx, half_ly):
     # right internally, but a clean orthonormal frame keeps the box square).
     right = up.CrossProduct(look).Normalize()
 
-    # Width of the cut = the chamber half-span perpendicular to the look
-    # direction. For an A/C section (looks along local X) the visible width is
-    # the local-Y span; for B/D it is the local-X span.
-    if side_idx in (0, 2):       # +X / -X - looking along local X
-        half_w = half_ly + WIDTH_MARGIN_FT
-    else:                        # +Y / -Y - looking along local Y
-        half_w = half_lx + WIDTH_MARGIN_FT
-
     return {"origin": sec_origin, "right": right, "up": up, "look": look,
-            "half_w": half_w, "half_h": height_ft * 0.5}
+            "half_w": half_w, "half_h": half_h, "depth": depth}
 
 
 def _section_box(frame):
@@ -816,12 +946,12 @@ def _section_box(frame):
     t.BasisZ = frame["look"]
 
     # Local box: X = width (across), Y = height (world Z), Z = depth (look).
-    # Far clip = the dialog's section depth, measured from the plane inward
+    # Far clip = the frame's depth, measured from the plane inward
     # (CreateSection sets far clip = Max.Z - Min.Z, and Min.Z is 0 here).
     box = BoundingBoxXYZ()
     box.Transform = t
     box.Min = XYZ(-frame["half_w"], -frame["half_h"], 0.0)
-    box.Max = XYZ(frame["half_w"], frame["half_h"], depth_ft)
+    box.Max = XYZ(frame["half_w"], frame["half_h"], frame["depth"])
     return box
 
 
@@ -875,8 +1005,24 @@ for inst in target_chambers:
     stem = _sanitize(CS.chamber_key(mark)) if mark else "Id{0}".format(
         inst.Id.IntegerValue)
     half_lx, half_ly = _chamber_plan_halfspan(inst, angle)
-    frames = [_side_frame(i, centre, angle, half_lx, half_ly)
-              for i in range(len(SIDE_LETTERS))]
+    dims = None
+    dims_note = ""
+    frames = []
+    if size_mode == CS.SIZE_PARAMS:
+        dx, dy, dh, dims_note = _chamber_dims_ft(inst, half_lx, half_ly)
+        dims = (dx, dy, dh)
+        for i in range(len(SIDE_LETTERS)):
+            plane, hw, hh, depth = CS.section_box_from_dims(
+                i, dx, dy, dh, clear_ft)
+            frames.append(_side_frame(i, centre, angle, plane, hw, hh,
+                                      depth))
+    else:
+        for i in range(len(SIDE_LETTERS)):
+            # Width = the chamber half-span across the look direction plus
+            # the margin: local Y for the +X / -X sides, local X for +Y / -Y.
+            hw = (half_ly if i in (0, 2) else half_lx) + WIDTH_MARGIN_FT
+            frames.append(_side_frame(i, centre, angle, offset_ft, hw,
+                                      height_ft * 0.5, depth_ft))
     if have_mep:
         counts = [_count_cuts(f, mep_runs) for f in frames]
     else:
@@ -894,6 +1040,7 @@ for inst in target_chambers:
         "mark": mark, "stem": stem,
         "frames": frames, "counts": counts,
         "sides": sides, "all_kept": all_kept,
+        "dims": dims, "dims_note": dims_note,
     })
 
 if not chamber_jobs:
@@ -1027,11 +1174,24 @@ else:
 out.print_md("**Family / source:** {0}  |  **Chambers:** {1}  |  "
              "**Section type:** {2}".format(
                  picked_type_label, len(chamber_jobs), _section_type_summary))
-out.print_md("**Offset:** {0:.0f} mm  |  **Height:** {1:.0f} mm  |  "
-             "**Depth:** {2:.0f} mm  |  **Sections created:** {3} of {4} "
-             "planned  |  **Associations stored:** {5}".format(
-                 offset_mm, height_mm, depth_mm, len(created),
-                 planned_total, assoc_stored))
+if size_mode == CS.SIZE_PARAMS:
+    _box_desc = ("**Box:** from parameters '{0}' x '{1}' x '{2}' + {3:.0f} mm "
+                 "clearance each side".format(param_x, param_y, param_h,
+                                              clear_mm))
+else:
+    _box_desc = ("**Offset:** {0:.0f} mm  |  **Height:** {1:.0f} mm  |  "
+                 "**Depth:** {2:.0f} mm".format(offset_mm, height_mm,
+                                                 depth_mm))
+out.print_md("{0}  |  **Sections created:** {1} of {2} planned  |  "
+             "**Associations stored:** {3}".format(
+                 _box_desc, len(created), planned_total, assoc_stored))
+if size_mode == CS.SIZE_PARAMS:
+    out.print_md("**Chamber sizes used** (X x Y x height):")
+    for job in chamber_jobs:
+        dx, dy, dh = job["dims"]
+        out.print_md("- {0}: {1:.2f} x {2:.2f} x {3:.2f} m{4}".format(
+            job["stem"], dx * 0.3048, dy * 0.3048, dh * 0.3048,
+            "  -  " + job["dims_note"] if job["dims_note"] else ""))
 _mep_note = ("**Pipework checked:** {0} run(s), {1} fitting(s) by their "
              "connectors".format(mep_tally["runs"], mep_tally["fittings"]))
 if mep_tally["no_conn"]:

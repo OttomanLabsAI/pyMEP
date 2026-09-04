@@ -146,11 +146,60 @@ class UprightRotation(unittest.TestCase):
                                math.radians(45))
 
 
+class Sizing(unittest.TestCase):
+    def test_size_settings_defaults(self):
+        s = CS.size_settings({})
+        self.assertEqual(s["mode"], CS.SIZE_FIXED)
+        self.assertEqual((s["px"], s["py"], s["ph"]),
+                         ("Width", "Length", "Height"))
+        self.assertEqual(s["clear"], 500.0)
+        self.assertEqual(CS.size_settings(None)["mode"], CS.SIZE_FIXED)
+
+    def test_size_settings_remembered(self):
+        s = CS.size_settings({CS.SETTINGS_SIZE_MODE: CS.SIZE_PARAMS,
+                              CS.SETTINGS_SIZE_PARAM_X: "W",
+                              CS.SETTINGS_SIZE_PARAM_Y: "L",
+                              CS.SETTINGS_SIZE_PARAM_H: "H",
+                              CS.SETTINGS_SIZE_CLEAR: 250})
+        self.assertEqual(s["mode"], CS.SIZE_PARAMS)
+        self.assertEqual((s["px"], s["py"], s["ph"]), ("W", "L", "H"))
+        self.assertEqual(s["clear"], 250.0)
+        self.assertEqual(CS.size_settings(
+            {CS.SETTINGS_SIZE_CLEAR: 0})["clear"], 0.0)
+        self.assertEqual(CS.size_settings(
+            {CS.SETTINGS_SIZE_MODE: "odd"})["mode"], CS.SIZE_FIXED)
+
+    def test_section_box_from_dims(self):
+        # chamber 2000 along X, 1200 along Y, 1800 high, 500 clear
+        plane, hw, hh, depth = CS.section_box_from_dims(0, 2000, 1200,
+                                                        1800, 500)
+        self.assertEqual((plane, hw, hh, depth), (1500, 1100, 1400, 3000))
+        plane, hw, hh, depth = CS.section_box_from_dims(1, 2000, 1200,
+                                                        1800, 500)
+        self.assertEqual((plane, hw, hh, depth), (1100, 1500, 1400, 2200))
+        self.assertEqual(CS.section_box_from_dims(2, 2000, 1200, 1800, 500),
+                         CS.section_box_from_dims(0, 2000, 1200, 1800, 500))
+        self.assertEqual(CS.section_box_from_dims(3, 2000, 1200, 1800, 500),
+                         CS.section_box_from_dims(1, 2000, 1200, 1800, 500))
+
+    def test_plan_crop_from_dims(self):
+        self.assertEqual(CS.plan_crop_from_dims(2000, 1200, 500),
+                         (1500, 1100))
+        self.assertEqual(CS.plan_crop_from_dims(2000, 1200, 0), (1000, 600))
+
+
 class PlansSettings(unittest.TestCase):
     def test_defaults_and_remembered(self):
         s = CS.plans_settings({})
         self.assertEqual(s["template"], CS.PLANS_TEMPLATE_ACTIVE)
         self.assertEqual(s["seed"], "")
+        self.assertEqual(s["extents"], CS.EXTENTS_CROP)
+        self.assertEqual((s["width"], s["depth"]), (3000.0, 3000.0))
+        s = CS.plans_settings({CS.SETTINGS_PLANS_EXTENTS: CS.EXTENTS_SCOPE,
+                               CS.SETTINGS_PLANS_WIDTH: 2500,
+                               CS.SETTINGS_PLANS_DEPTH: "bad"})
+        self.assertEqual(s["extents"], CS.EXTENTS_SCOPE)
+        self.assertEqual((s["width"], s["depth"]), (2500.0, 3000.0))
         s = CS.plans_settings({CS.SETTINGS_PLANS_TEMPLATE: "CHAMBER PLAN",
                                CS.SETTINGS_PLANS_SEED: "sample_scope_box"})
         self.assertEqual(s["template"], "CHAMBER PLAN")

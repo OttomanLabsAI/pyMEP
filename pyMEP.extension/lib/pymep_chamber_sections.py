@@ -28,9 +28,31 @@ SETTINGS_SECTION_SIDE_TYPES = "chamber_section_side_types"
 SETTINGS_SECTION_SAME_TYPE = "chamber_section_same_type"
 SETTINGS_SECTION_CUT_ONLY = "chamber_section_cut_only"
 
+# Sizing from the chamber - shared by Create Sections and Chamber Plans.
+# Either fixed numbers, or the chamber's own dimension parameters plus a
+# clearance each side.
+SIZE_FIXED = "fixed"
+SIZE_PARAMS = "params"
+SETTINGS_SIZE_MODE = "chamber_size_mode"
+SETTINGS_SIZE_PARAM_X = "chamber_size_param_x"    # plan dim along local X
+SETTINGS_SIZE_PARAM_Y = "chamber_size_param_y"    # plan dim along local Y
+SETTINGS_SIZE_PARAM_H = "chamber_size_param_h"    # height
+SETTINGS_SIZE_CLEAR = "chamber_size_clear_mm"     # clearance each side
+DEFAULT_SIZE_PARAM_X = u"Width"
+DEFAULT_SIZE_PARAM_Y = u"Length"
+DEFAULT_SIZE_PARAM_H = u"Height"
+DEFAULT_SIZE_CLEAR_MM = 500.0
+
 # Chamber Plans dialog
 SETTINGS_PLANS_TEMPLATE = "chamber_plans_template"
 SETTINGS_PLANS_SEED = "chamber_plans_seed"
+SETTINGS_PLANS_EXTENTS = "chamber_plans_extents"  # EXTENTS_SCOPE | _CROP
+SETTINGS_PLANS_WIDTH = "chamber_plans_width_mm"   # fixed crop, local X
+SETTINGS_PLANS_DEPTH = "chamber_plans_depth_mm"   # fixed crop, local Y
+EXTENTS_SCOPE = "scope"
+EXTENTS_CROP = "crop"
+DEFAULT_PLANS_WIDTH_MM = 3000.0
+DEFAULT_PLANS_DEPTH_MM = 3000.0
 PLANS_TEMPLATE_ACTIVE = u"(same as the active view)"
 PLANS_TEMPLATE_NONE = u"(no template)"
 SEED_PREFERRED_NAME = u"sample_scope_box"
@@ -80,15 +102,65 @@ def section_settings(settings):
     }
 
 
+def size_settings(settings):
+    """The shared sizing choice: mode (SIZE_FIXED / SIZE_PARAMS), the
+    three parameter names px / py / ph and the clearance (mm)."""
+    settings = settings or {}
+    mode = settings.get(SETTINGS_SIZE_MODE)
+    if mode not in (SIZE_FIXED, SIZE_PARAMS):
+        mode = SIZE_FIXED
+    return {
+        "mode": mode,
+        "px": u"{0}".format(settings.get(SETTINGS_SIZE_PARAM_X)
+                            or DEFAULT_SIZE_PARAM_X),
+        "py": u"{0}".format(settings.get(SETTINGS_SIZE_PARAM_Y)
+                            or DEFAULT_SIZE_PARAM_Y),
+        "ph": u"{0}".format(settings.get(SETTINGS_SIZE_PARAM_H)
+                            or DEFAULT_SIZE_PARAM_H),
+        "clear": _mm(settings.get(SETTINGS_SIZE_CLEAR), DEFAULT_SIZE_CLEAR_MM)
+        if settings.get(SETTINGS_SIZE_CLEAR) not in (0, 0.0, "0")
+        else 0.0,
+    }
+
+
+def section_box_from_dims(side_idx, dx, dy, dh, clear):
+    """One side's section crop from the chamber's dimensions: dx along its
+    local X, dy along local Y, dh high, with `clear` free each side (all
+    in one unit). Sides 0 and 2 look along local X, 1 and 3 along local Y.
+    Returns (plane_offset, half_w, half_h, depth): the plane sits
+    plane_offset from the chamber centre, the crop is half_w / half_h each
+    way of the centre, and depth is the far clip from the plane inward -
+    right through the chamber and `clear` past its far face."""
+    along, across = (dx, dy) if side_idx in (0, 2) else (dy, dx)
+    return (along * 0.5 + clear, across * 0.5 + clear, dh * 0.5 + clear,
+            along + 2.0 * clear)
+
+
+def plan_crop_from_dims(dx, dy, clear):
+    """(half_x, half_y) of a plan crop around a chamber dx by dy in plan
+    with `clear` free each side."""
+    return dx * 0.5 + clear, dy * 0.5 + clear
+
+
 def plans_settings(settings):
     """The Chamber Plans dialog's remembered values: template (the
     dropdown label - PLANS_TEMPLATE_ACTIVE, PLANS_TEMPLATE_NONE or a
-    template name) and seed (scope box name, '' for the default pick)."""
+    template name), seed (scope box name, '' for the default pick),
+    extents (EXTENTS_SCOPE / EXTENTS_CROP) and the fixed crop width /
+    depth (mm)."""
     settings = settings or {}
     tmpl = settings.get(SETTINGS_PLANS_TEMPLATE) or PLANS_TEMPLATE_ACTIVE
+    ext = settings.get(SETTINGS_PLANS_EXTENTS)
+    if ext not in (EXTENTS_SCOPE, EXTENTS_CROP):
+        ext = EXTENTS_CROP
     return {
         "template": u"{0}".format(tmpl),
         "seed": u"{0}".format(settings.get(SETTINGS_PLANS_SEED) or u""),
+        "extents": ext,
+        "width": _mm(settings.get(SETTINGS_PLANS_WIDTH),
+                     DEFAULT_PLANS_WIDTH_MM),
+        "depth": _mm(settings.get(SETTINGS_PLANS_DEPTH),
+                     DEFAULT_PLANS_DEPTH_MM),
     }
 
 
