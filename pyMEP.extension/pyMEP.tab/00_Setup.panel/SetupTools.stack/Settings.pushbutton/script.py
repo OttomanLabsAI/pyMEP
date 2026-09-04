@@ -10,7 +10,6 @@ Categories:
   Ducts        - Build Ducts type / system names
   Pipes        - placement names + the LandXML survey origin
   Annotate     - label offset
-  Section Dims - chamber reference-plane dimension pairs
   Updates      - GitHub repo/token + install any tagged version
 """
 
@@ -26,7 +25,6 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
 
 from pyrevit import forms, revit, script
 
-from System.Collections import ArrayList, Hashtable
 from System.Windows import Visibility
 
 from pymep_config import (
@@ -38,8 +36,6 @@ from pymep_config import (
     DEFAULT_ANNOTATE_PIPE_OFFSET_MM,
     get_landxml_survey_transform, get_annotate_pipe_offset_mm,
     get_auto_close_output, get_hide_output,
-    get_chamber_dim_pairs, save_chamber_dim_pairs,
-    DEFAULT_CHAMBER_DIM_PAIRS,
     get_local_version, get_github_repo, get_github_token,
     DEFAULT_GITHUB_REPO,
 )
@@ -49,18 +45,12 @@ doc = revit.doc
 XAML_FILE = script.get_bundle_file("SettingsWindow.xaml")
 
 
-def _default_pairs():
-    return [dict(p) for p in DEFAULT_CHAMBER_DIM_PAIRS]
-
-
 class SettingsWindow(forms.WPFWindow):
 
     def __init__(self):
         forms.WPFWindow.__init__(self, XAML_FILE)
-        self._pairs = get_chamber_dim_pairs()
         self._versions = []
         self._load_state()
-        self._refresh_pairs()
         self.CatList.SelectedIndex = 0
 
     # ------------------------------------------------------------------
@@ -116,9 +106,6 @@ class SettingsWindow(forms.WPFWindow):
             "Perpendicular distance each auto-placed label sits from its "
             "pipe's midpoint, in model mm. Default: {:g}".format(
                 DEFAULT_ANNOTATE_PIPE_OFFSET_MM))
-
-        # Section Dims
-        self.CmbAxis.SelectedIndex = 0
 
         # Updates
         self.TxtInstalledVer.Text = get_local_version() or "(no version.txt)"
@@ -227,13 +214,6 @@ class SettingsWindow(forms.WPFWindow):
         except Exception:
             pass
 
-        # Saving [] keeps the 'fall back to the shipped defaults' baseline,
-        # so an unedited default set follows future extension updates.
-        if self._pairs == _default_pairs():
-            save_chamber_dim_pairs([])
-        else:
-            save_chamber_dim_pairs(self._pairs)
-
         self._refresh_active_export()
         self.StatusText.Text = "Saved."
         return True
@@ -243,8 +223,7 @@ class SettingsWindow(forms.WPFWindow):
     # ------------------------------------------------------------------
     def on_category_changed(self, sender, args):
         panels = [self.PanelGeneral, self.PanelDucts, self.PanelPipes,
-                  self.PanelAnnotate, self.PanelDims, self.PanelUpdates,
-                  self.PanelRibbon]
+                  self.PanelAnnotate, self.PanelUpdates, self.PanelRibbon]
         idx = self.CatList.SelectedIndex
         for i, panel in enumerate(panels):
             panel.Visibility = (
@@ -278,74 +257,6 @@ class SettingsWindow(forms.WPFWindow):
         else:
             forms.alert("Folder does not exist:\n{}".format(
                 path or "(no open document)"))
-
-    # ------------------------------------------------------------------
-    # Section Dims
-    # ------------------------------------------------------------------
-    def _refresh_pairs(self, select_index=-1):
-        # .NET Hashtables, not Python dicts: the WPF binding engine can
-        # only see the indexer on real .NET collection types.
-        items = ArrayList()
-        for i, p in enumerate(self._pairs):
-            row = Hashtable()
-            row["num"] = str(i + 1)
-            row["label"] = p["label"]
-            row["plane_a"] = p["plane_a"]
-            row["plane_b"] = p["plane_b"]
-            row["axis"] = p["axis"]
-            items.Add(row)
-        self.LstPairs.ItemsSource = items
-        if 0 <= select_index < items.Count:
-            self.LstPairs.SelectedIndex = select_index
-
-    def _pair_from_fields(self):
-        pa = self.TxtPlaneA.Text.strip()
-        pb = self.TxtPlaneB.Text.strip()
-        if not pa or not pb:
-            forms.alert("Both reference-plane names (Plane A and Plane B) "
-                        "are needed.")
-            return None
-        axis = "height" if self.CmbAxis.SelectedIndex == 1 else "width"
-        label = self.TxtPairLabel.Text.strip() or "{} / {}".format(pa, pb)
-        return {"label": label, "plane_a": pa, "plane_b": pb, "axis": axis}
-
-    def on_pair_select(self, sender, args):
-        idx = self.LstPairs.SelectedIndex
-        if idx < 0 or idx >= len(self._pairs):
-            return
-        p = self._pairs[idx]
-        self.TxtPairLabel.Text = p["label"]
-        self.TxtPlaneA.Text = p["plane_a"]
-        self.TxtPlaneB.Text = p["plane_b"]
-        self.CmbAxis.SelectedIndex = 1 if p["axis"] == "height" else 0
-
-    def on_pair_add(self, sender, args):
-        pair = self._pair_from_fields()
-        if pair:
-            self._pairs.append(pair)
-            self._refresh_pairs(len(self._pairs) - 1)
-
-    def on_pair_update(self, sender, args):
-        idx = self.LstPairs.SelectedIndex
-        if idx < 0 or idx >= len(self._pairs):
-            forms.alert("Pick the pair to update in the list first.")
-            return
-        pair = self._pair_from_fields()
-        if pair:
-            self._pairs[idx] = pair
-            self._refresh_pairs(idx)
-
-    def on_pair_remove(self, sender, args):
-        idx = self.LstPairs.SelectedIndex
-        if idx < 0 or idx >= len(self._pairs):
-            forms.alert("Pick the pair to remove in the list first.")
-            return
-        del self._pairs[idx]
-        self._refresh_pairs(min(idx, len(self._pairs) - 1))
-
-    def on_pair_reset(self, sender, args):
-        self._pairs = _default_pairs()
-        self._refresh_pairs()
 
     # ------------------------------------------------------------------
     # Updates

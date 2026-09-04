@@ -74,7 +74,6 @@
                 <ListBoxItem Content="Ducts"/>
                 <ListBoxItem Content="Pipes"/>
                 <ListBoxItem Content="Annotate"/>
-                <ListBoxItem Content="Section Dims"/>
                 <ListBoxItem Content="Updates"/>
                 <ListBoxItem Content="Ribbon Panels"/>
             </ListBox>
@@ -202,55 +201,6 @@
                     </StackPanel>
 
                     <!-- ================= SECTION DIMS ================= -->
-                    <StackPanel x:Name="PanelDims" Visibility="Collapsed">
-                        <GroupBox Header="Chamber dimension pairs (Dimension Section)">
-                            <StackPanel>
-                                <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,6"
-                                           Text="Each pair dimensions the chamber between two named reference planes in the chamber family. The planes must exist with these exact names and have 'Is Reference' set to Strong Reference."/>
-                                <ListView x:Name="LstPairs" Height="190" SelectionMode="Single"
-                                          SelectionChanged="on_pair_select">
-                                    <ListView.View>
-                                        <GridView>
-                                            <GridViewColumn Header="#"       Width="34"  DisplayMemberBinding="{Binding [num]}"/>
-                                            <GridViewColumn Header="Label"   Width="170" DisplayMemberBinding="{Binding [label]}"/>
-                                            <GridViewColumn Header="Plane A" Width="150" DisplayMemberBinding="{Binding [plane_a]}"/>
-                                            <GridViewColumn Header="Plane B" Width="150" DisplayMemberBinding="{Binding [plane_b]}"/>
-                                            <GridViewColumn Header="Axis"    Width="70"  DisplayMemberBinding="{Binding [axis]}"/>
-                                        </GridView>
-                                    </ListView.View>
-                                </ListView>
-                                <Grid Margin="0,8,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="110"/>
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                    </Grid.RowDefinitions>
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Label" Style="{StaticResource FieldLabel}"/>
-                                    <TextBlock Grid.Row="0" Grid.Column="1" Text="Plane A" Style="{StaticResource FieldLabel}"/>
-                                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Plane B" Style="{StaticResource FieldLabel}"/>
-                                    <TextBlock Grid.Row="0" Grid.Column="3" Text="Axis" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox Grid.Row="1" Grid.Column="0" x:Name="TxtPairLabel" Margin="0,3,8,0"/>
-                                    <TextBox Grid.Row="1" Grid.Column="1" x:Name="TxtPlaneA"   Margin="0,3,8,0"/>
-                                    <TextBox Grid.Row="1" Grid.Column="2" x:Name="TxtPlaneB"   Margin="0,3,8,0"/>
-                                    <ComboBox Grid.Row="1" Grid.Column="3" x:Name="CmbAxis">
-                                        <ComboBoxItem Content="width"/>
-                                        <ComboBoxItem Content="height"/>
-                                    </ComboBox>
-                                </Grid>
-                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                    <Button Content="Add"    MinWidth="80" Padding="8,2" Click="on_pair_add"/>
-                                    <Button Content="Update" MinWidth="80" Padding="8,2" Margin="8,0,0,0" Click="on_pair_update"/>
-                                    <Button Content="Remove" MinWidth="80" Padding="8,2" Margin="8,0,0,0" Click="on_pair_remove"/>
-                                    <Button Content="Reset to defaults" MinWidth="120" Padding="8,2" Margin="24,0,0,0" Click="on_pair_reset"/>
-                                </StackPanel>
-                            </StackPanel>
-                        </GroupBox>
-                    </StackPanel>
 
                     <!-- ================= UPDATES ================= -->
                     <StackPanel x:Name="PanelUpdates" Visibility="Collapsed">
