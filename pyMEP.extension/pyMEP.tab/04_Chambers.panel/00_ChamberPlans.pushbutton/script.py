@@ -10,8 +10,10 @@ you press Create. Everything is remembered.
 PLAN EXTENTS, two routes:
   * EXACT CROP (default, no scope box): the plan's crop region is set to a
     size along the chamber's own X and Y - typed in mm, or the chamber's
-    length parameters plus a clearance each side - and turned so the
-    chamber face nearest 'up' is on top. Precise, any size, no seed.
+    length parameters plus a clearance each side - around the chamber, and
+    the crop region is then turned so the chamber face nearest 'up' is on
+    top (turning the crop region is how a plan view is rotated through the
+    API). Precise, any size, no seed.
   * SCOPE BOX: a copy of a seed box applied to the plan (steps 1-2 below).
     Revit's API can copy, move and turn a scope box but CANNOT resize one,
     so every box is the seed's size.
@@ -1348,27 +1350,52 @@ def _clear_scope_box(v):
     return None
 
 
+def _crop_element_id(v):
+    # The view's crop region element, found as the one element that appears
+    # when the crop is shown. (Revit exposes no direct handle to it.)
+    try:
+        was = v.CropBoxVisible
+        v.CropBoxVisible = False
+        doc.Regenerate()
+        before = set(e.IntegerValue for e in
+                     FilteredElementCollector(doc, v.Id).ToElementIds())
+        v.CropBoxVisible = True
+        doc.Regenerate()
+        after = set(e.IntegerValue for e in
+                    FilteredElementCollector(doc, v.Id).ToElementIds())
+        v.CropBoxVisible = was
+        diff = after - before
+        if len(diff) == 1:
+            return ElementId(diff.pop())
+    except Exception:
+        pass
+    return None
+
+
 def _set_crop(v, centre, phi, half_a, half_b):
     # Crop the plan to half_a x half_b about the chamber centre, its X axis
-    # turned by phi (a turned crop box turns the plan view with it). The
-    # existing crop's depth (Z) is kept. Returns an error text, or None.
-    try:
-        old = v.CropBox
-        z0, z1 = old.Min.Z, old.Max.Z
-        oz = old.Transform.Origin.Z
-    except Exception:
-        z0, z1, oz = -10.0, 10.0, 0.0
-    t = Transform.Identity
-    t.Origin = XYZ(centre.X, centre.Y, oz)
-    t.BasisX = XYZ(math.cos(phi), math.sin(phi), 0.0)
-    t.BasisY = XYZ(-math.sin(phi), math.cos(phi), 0.0)
-    t.BasisZ = XYZ(0.0, 0.0, 1.0)
-    box = BoundingBoxXYZ()
-    box.Transform = t
-    box.Min = XYZ(-half_a, -half_b, z0)
-    box.Max = XYZ(half_a, half_b, z1)
+    # turned to phi (a turned crop region turns the plan view with it).
+    # For a plan view Revit ignores the transform on an assigned crop box
+    # and reads its extents in the view's OWN frame, so: 1) set the extents
+    # in that frame around the chamber, then 2) rotate the crop region
+    # element about the chamber by the difference between phi and the
+    # frame's current X direction. Returns an error text, or None.
     try:
         v.CropBoxActive = True
+        old = v.CropBox
+        frame = old.Transform
+        z0, z1 = old.Min.Z, old.Max.Z
+    except Exception as ex:
+        return "could not read the crop: {0}".format(ex)
+    try:
+        c = frame.Inverse.OfPoint(centre)
+    except Exception as ex:
+        return "could not place the crop: {0}".format(ex)
+    box = BoundingBoxXYZ()
+    box.Transform = frame
+    box.Min = XYZ(c.X - half_a, c.Y - half_b, z0)
+    box.Max = XYZ(c.X + half_a, c.Y + half_b, z1)
+    try:
         v.CropBox = box
         v.CropBoxVisible = True
     except Exception as ex:
@@ -1379,6 +1406,25 @@ def _set_crop(v, centre, phi, half_a, half_b):
             return "the view did not keep the crop size"
     except Exception:
         pass
+    # 2) turn the crop region so its X axis lies at phi.
+    try:
+        bx = frame.BasisX
+        current = math.atan2(bx.Y, bx.X)
+    except Exception:
+        current = 0.0
+    turn = wrap_angle(phi - current, 2.0 * math.pi)
+    if abs(turn) > 1.0e-6:
+        crop_id = _crop_element_id(v)
+        if crop_id is None:
+            return ("crop set but not turned - the crop region element "
+                    "could not be found")
+        try:
+            axis = Line.CreateBound(
+                XYZ(centre.X, centre.Y, centre.Z),
+                XYZ(centre.X, centre.Y, centre.Z + 1.0))
+            ElementTransformUtils.RotateElement(doc, crop_id, axis, turn)
+        except Exception as ex:
+            return "crop set but not turned: {0}".format(ex)
     return None
 
 
