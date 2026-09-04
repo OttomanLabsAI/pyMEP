@@ -121,3 +121,39 @@ def filter_labels(labels, query):
         if ok:
             keep.append(i)
     return keep
+
+
+# ---------------------------------------------------------------------------
+# Scope box rotation: which chamber face goes to the top of the plan
+# ---------------------------------------------------------------------------
+import math as _math
+
+RIGHT_ANGLE = _math.pi / 2.0
+
+
+def wrap_angle(a, period):
+    """`a` folded into (-period/2, period/2]."""
+    half = period / 2.0
+    a = _math.fmod(a, period)
+    if a <= -half:
+        a += period
+    elif a > half:
+        a -= period
+    return a
+
+
+def upright_rotation(chamber_angle, up_reference=0.0):
+    """The rotation to give a chamber's scope box so that the chamber face
+    most aligned with 'up' sits at the top of the plan.
+
+    chamber_angle: the instance's plan rotation (radians, anticlockwise
+    from project X). up_reference: the rotation of the direction that
+    counts as 'up' relative to project north - 0 for a Project North plan,
+    the project's angle to True North for a True North plan.
+
+    A rotated scope box turns its plan view with it, so of the four
+    rotations that align the box to the chamber (the angle plus any
+    quarter turn) the one within 45 degrees of the up reference is
+    chosen: the view stays as close to north-up as the chamber allows."""
+    return up_reference + wrap_angle(chamber_angle - up_reference,
+                                     RIGHT_ANGLE)

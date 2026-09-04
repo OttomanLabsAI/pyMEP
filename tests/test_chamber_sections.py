@@ -76,6 +76,52 @@ class ChamberKey(unittest.TestCase):
         self.assertEqual(CS.chamber_key(None), "")
 
 
+class UprightRotation(unittest.TestCase):
+    def deg(self, chamber_deg, ref_deg=0.0):
+        import math
+        return math.degrees(CS.upright_rotation(math.radians(chamber_deg),
+                                                math.radians(ref_deg)))
+
+    def test_project_north(self):
+        self.assertAlmostEqual(self.deg(0), 0.0)
+        self.assertAlmostEqual(self.deg(10), 10.0)
+        self.assertAlmostEqual(self.deg(-30), -30.0)
+        # a chamber turned 80 deg: its +X face is nearly north - use it
+        self.assertAlmostEqual(self.deg(80), -10.0)
+        self.assertAlmostEqual(self.deg(90), 0.0)
+        self.assertAlmostEqual(self.deg(170), -10.0)
+        self.assertAlmostEqual(self.deg(-100), -10.0)
+        self.assertAlmostEqual(self.deg(360 + 40), 40.0)
+
+    def test_true_north_reference_picks_a_different_face(self):
+        # project north: the 130 deg face is nearest up -> box at +40
+        self.assertAlmostEqual(self.deg(40, 0.0), 40.0)
+        # true north 15.25 deg clockwise (344.75): the 40 deg face is
+        # nearer that 'up' -> box at -50
+        self.assertAlmostEqual(self.deg(40, -15.25), -50.0)
+        self.assertAlmostEqual(self.deg(80, -15.25), -10.0)
+
+    def test_result_always_aligned_to_the_chamber(self):
+        import math
+        for c in range(-180, 181, 7):
+            for ref in (0.0, -15.25, 30.0):
+                phi = self.deg(c, ref)
+                self.assertAlmostEqual(
+                    math.fmod((phi - c) + 3600.0, 90.0), 0.0, places=6)
+                self.assertLessEqual(abs(phi - ref), 45.0 + 1e-9)
+
+    def test_wrap_angle(self):
+        import math
+        self.assertAlmostEqual(CS.wrap_angle(math.radians(100), math.pi / 2),
+                               math.radians(10))
+        self.assertAlmostEqual(CS.wrap_angle(math.radians(-50), math.pi / 2),
+                               math.radians(40))
+        self.assertAlmostEqual(CS.wrap_angle(math.radians(45), math.pi / 2),
+                               math.radians(45))
+        self.assertAlmostEqual(CS.wrap_angle(math.radians(-45), math.pi / 2),
+                               math.radians(45))
+
+
 class ParseMm(unittest.TestCase):
     def test_plain_numbers(self):
         self.assertEqual(CS.parse_mm("1500"), 1500.0)

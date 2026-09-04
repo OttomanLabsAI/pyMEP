@@ -12,8 +12,12 @@ For each chamber (current selection, or a family type you pick):
      else (a copy that never got moved, a chamber that moved) it is MOVED
      over the chamber in plan; otherwise the seed scope box is copied,
      moved IN PLAN to the chamber centre (it keeps the seed's vertical
-     extent, so it stays visible in this plan view), rotated to the
-     chamber's rotation and renamed.
+     extent, so it stays visible in this plan view), rotated and renamed.
+     ROTATION: a rotated scope box turns its plan view with it, so the box
+     is aligned to the chamber with the chamber face MOST ALIGNED TO 'UP'
+     at the top - never more than 45 degrees off. 'Up' is Project North,
+     or True North when the active plan is set to True North (the
+     project's angle to True North is read from the shared site).
   2. ENSURE a plan view named after the Mark with that scope box applied -
      only for the chambers being processed (nothing else in the project is
      touched). The plan is a duplicate of the active plan, or a FRESH plan
@@ -37,6 +41,8 @@ IronPython 2.7: pure ASCII, no f-strings, LF endings.
 __title__  = "Chamber\nPlans"
 __author__ = "Glent Group"
 
+import math
+
 import clr
 clr.AddReference("RevitAPI")
 clr.AddReference("RevitAPIUI")
@@ -45,13 +51,16 @@ from Autodesk.Revit.DB import (
     Transaction, ViewType, View, ViewDuplicateOption, ViewPlan,
     ViewFamilyType, ViewFamily, XYZ, Line, ElementTransformUtils, ElementId,
     FilteredElementCollector, FamilyInstance, BuiltInParameter,
-    BuiltInCategory, Element,
+    BuiltInCategory, Element, Options,
 )
 
 from pyrevit import revit, forms, script
 
-# Chamber names use the Mark's KEY (before any '/zone' tail).
-from pymep_chamber_sections import chamber_key
+# Chamber names use the Mark's KEY (before any '/zone' tail); the box
+# rotation snaps the chamber face nearest 'up' to the top of the plan.
+from pymep_chamber_sections import (
+    chamber_key, upright_rotation, wrap_angle, RIGHT_ANGLE,
+)
 
 doc = revit.doc
 uidoc = revit.uidoc
@@ -182,6 +191,50 @@ def _scopebox_centre(sb):
 def _sanitize(name):
     bad = "\\:{}[]|;<>?`~"
     return "".join("_" if ch in bad else ch for ch in name).strip()
+
+
+def _scopebox_plan_angle(sb):
+    # The seed box's own plan rotation folded to (-45, 45] degrees, read
+    # from its edge lines; None when the geometry can't be read. Which of
+    # its edges is 'up' cannot be told from geometry, so a seed drawn
+    # upright is assumed and only this residual skew is taken out.
+    try:
+        geo = sb.get_Geometry(Options())
+    except Exception:
+        return None
+    if geo is None:
+        return None
+    try:
+        for g in geo:
+            try:
+                p0 = g.GetEndPoint(0)
+                p1 = g.GetEndPoint(1)
+            except Exception:
+                continue
+            dx, dy, dz = p1.X - p0.X, p1.Y - p0.Y, p1.Z - p0.Z
+            if abs(dz) > 1.0e-6 or (dx * dx + dy * dy) < 1.0e-9:
+                continue
+            return wrap_angle(math.atan2(dy, dx), RIGHT_ANGLE)
+    except Exception:
+        return None
+    return None
+
+
+def _true_north_angle():
+    # Rotation from Project North to True North (radians, anticlockwise).
+    try:
+        return doc.ActiveProjectLocation.GetProjectPosition(XYZ.Zero).Angle
+    except Exception:
+        return 0.0
+
+
+def _plan_true_north(v):
+    # True when the plan is set to True North (Orientation parameter).
+    try:
+        p = v.get_Parameter(BuiltInParameter.PLAN_VIEW_NORTH)
+        return p is not None and p.AsInteger() == 1
+    except Exception:
+        return False
 
 
 PLACE_TOL_FT = 100.0 / 304.8      # 100 mm slack on the box edge
@@ -537,6 +590,16 @@ try:
 except Exception:
     src_level = None
 
+# What counts as 'up' for the box rotation: True North when the active
+# plan is oriented that way, else Project North.
+use_true_north = _plan_true_north(view)
+up_ref = _true_north_angle() if use_true_north else 0.0
+if use_true_north:
+    up_label = "True North ({0:.2f} deg from Project North)".format(
+        math.degrees(up_ref) % 360.0)
+else:
+    up_label = "Project North"
+
 
 # ---------------------------------------------------------------------------
 # 3b. Preview + confirm BEFORE anything is created.
@@ -664,6 +727,15 @@ def _fresh_plan():
                     pass
         except Exception:
             pass
+        # Same north (Project / True) as the active plan, unless locked.
+        try:
+            src_p = view.get_Parameter(BuiltInParameter.PLAN_VIEW_NORTH)
+            dst_p = nv.get_Parameter(BuiltInParameter.PLAN_VIEW_NORTH)
+            if (src_p is not None and dst_p is not None
+                    and not dst_p.IsReadOnly):
+                dst_p.Set(src_p.AsInteger())
+        except Exception:
+            pass
         return nv, ""
     return None, last
 
@@ -717,6 +789,10 @@ def _make_plan(name, sb):
 # ---------------------------------------------------------------------------
 # 5. One transaction: (a) a scope box per chamber, (b) a plan view per box.
 # ---------------------------------------------------------------------------
+seed_skew = _scopebox_plan_angle(seed)
+if seed_skew is None:
+    seed_skew = 0.0
+
 seed_centre = _scopebox_centre(seed)
 if seed_centre is None:
     forms.alert("The seed scope box '{0}' has no readable bounding box, so "
@@ -796,14 +872,20 @@ try:
         except Exception as ex:
             notes.append("move failed: {0}".format(ex))
 
-        # Rotate it to the chamber angle about the chamber centre.
+        # Rotate it about the chamber centre so the chamber face nearest
+        # 'up' sits at the top of the plan (a rotated scope box turns its
+        # plan view with it). The seed's own skew, if any, is taken out.
+        phi = upright_rotation(angle, up_ref)
+        turn = phi - seed_skew
         try:
-            if abs(angle) > 1.0e-6:
+            if abs(turn) > 1.0e-6:
                 axis = Line.CreateBound(
                     XYZ(centre.X, centre.Y, centre.Z),
                     XYZ(centre.X, centre.Y, centre.Z + 1.0))
                 ElementTransformUtils.RotateElement(
-                    doc, new_sb.Id, axis, angle)
+                    doc, new_sb.Id, axis, turn)
+            notes.append("box at {0:.1f} deg, chamber at {1:.1f} deg".format(
+                math.degrees(phi), math.degrees(angle)))
         except Exception as ex:
             notes.append("rotate failed: {0}".format(ex))
 
@@ -860,6 +942,11 @@ out.print_md("**Target:** {0}  |  **Seed scope box:** {1}  |  "
              "**Active view:** {2} ({3}{4})".format(
                  picked_type_label, _elem_name(seed), _elem_name(view),
                  src_kind, ", scope box locked" if src_locked else ""))
+out.print_md("**Up reference for box rotation:** {0}{1}".format(
+    up_label,
+    "  |  seed box skew of {0:.1f} deg taken out".format(
+        math.degrees(seed_skew)) if abs(seed_skew) > math.radians(0.05)
+    else ""))
 out.print_md("**Scope boxes created:** {0}  |  **Moved onto chamber:** {1}  |  "
              "**Already in place:** {2}  |  **Plan views created:** {3}  |  "
              "**Plan views failed:** {4}  |  **Skipped (blank Mark):** {5}"
