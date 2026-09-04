@@ -19,6 +19,12 @@ SETTINGS_SHEET_GAP = "sheet_setup_gap_mm"
 SETTINGS_SHEET_LEFT = "sheet_setup_left_mm"
 SETTINGS_SHEET_TOP = "sheet_setup_top_mm"
 SETTINGS_SHEET_LABEL = "sheet_setup_label_mm"
+SETTINGS_SHEET_PLAN_TEMPLATE = "sheet_setup_plan_template"
+SETTINGS_SHEET_SECTION_TEMPLATE = "sheet_setup_section_template"
+SETTINGS_SHEET_VIEWPORT_TYPE = "sheet_setup_viewport_type"
+
+LEAVE_TEMPLATE = u"(leave as is)"
+DEFAULT_VIEWPORT = u"(Revit default)"
 
 DEFAULT_SCALE = 20
 DEFAULT_GAP_MM = 15.0
@@ -186,7 +192,8 @@ def _num(value, default):
 
 def sheet_settings(settings):
     """The dialog's remembered values: scale (int), gap / left / top /
-    label (mm floats). Missing or broken entries fall back to defaults."""
+    label (mm floats), plan_template / section_template (names, "" for
+    none). Missing or broken entries fall back to defaults."""
     settings = settings or {}
     scale = parse_scale(u"{0}".format(settings.get(SETTINGS_SHEET_SCALE) or ""))
     return {
@@ -195,7 +202,22 @@ def sheet_settings(settings):
         "left": _num(settings.get(SETTINGS_SHEET_LEFT), DEFAULT_LEFT_MM),
         "top": _num(settings.get(SETTINGS_SHEET_TOP), DEFAULT_TOP_MM),
         "label": _num(settings.get(SETTINGS_SHEET_LABEL), DEFAULT_LABEL_MM),
+        "plan_template": settings.get(SETTINGS_SHEET_PLAN_TEMPLATE) or u"",
+        "section_template": (settings.get(SETTINGS_SHEET_SECTION_TEMPLATE)
+                             or u""),
+        "viewport_type": settings.get(SETTINGS_SHEET_VIEWPORT_TYPE) or u"",
     }
+
+
+def template_choice(text):
+    """The template name a dropdown selection means: '' for the
+    '(leave as is)' entry or nothing selected."""
+    if not text:
+        return u""
+    t = u"{0}".format(text).strip()
+    if not t or t in (LEAVE_TEMPLATE, DEFAULT_VIEWPORT):
+        return u""
+    return t
 
 
 def layout(rows, sheet_w, sheet_h, left, top, gap_x, gap_y, label_h):

@@ -117,7 +117,26 @@ class SheetSettings(unittest.TestCase):
         self.assertEqual(s["left"], 20.0)
         self.assertEqual(s["top"], 20.0)
         self.assertEqual(s["label"], 12.0)
+        self.assertEqual(s["plan_template"], "")
+        self.assertEqual(s["section_template"], "")
         self.assertEqual(SS.sheet_settings(None)["scale"], 20)
+
+    def test_templates_remembered(self):
+        s = SS.sheet_settings({SS.SETTINGS_SHEET_PLAN_TEMPLATE: "CHAMBER PLAN",
+                               SS.SETTINGS_SHEET_SECTION_TEMPLATE: None})
+        self.assertEqual(s["plan_template"], "CHAMBER PLAN")
+        self.assertEqual(s["section_template"], "")
+
+    def test_template_choice(self):
+        self.assertEqual(SS.template_choice(None), "")
+        self.assertEqual(SS.template_choice(""), "")
+        self.assertEqual(SS.template_choice(SS.LEAVE_TEMPLATE), "")
+        self.assertEqual(SS.template_choice(SS.DEFAULT_VIEWPORT), "")
+        self.assertEqual(SS.sheet_settings({})["viewport_type"], "")
+        self.assertEqual(SS.sheet_settings(
+            {SS.SETTINGS_SHEET_VIEWPORT_TYPE: "No Title"})["viewport_type"],
+            "No Title")
+        self.assertEqual(SS.template_choice("  CHAMBER PLAN "), "CHAMBER PLAN")
 
     def test_remembered_and_broken(self):
         s = SS.sheet_settings({SS.SETTINGS_SHEET_SCALE: 50,

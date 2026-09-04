@@ -8,8 +8,13 @@ Run it on a SHEET. One dialog asks:
     "LV1", "LV1/Z1", "LV1 SIDE A" and "LV1/SIDE A" are all LV1's while
     "LV10/Z2" is not. Keys come from the chamber Marks in the model and from
     every "... SIDE X" section name. Each entry says what it owns.
-  * The SCALE (set on every placed view first; a view whose template locks
-    the scale is reported and placed as is).
+  * The VIEW TEMPLATES - one for the plan views, one for the sections (Revit
+    keeps them separate) - applied to every placed view first, or left as
+    they are.
+  * The VIEWPORT TYPE - the title style under each view - or Revit's
+    default.
+  * The SCALE (set on every placed view after the template; a view whose
+    template locks the scale is reported and placed as is).
   * The spacing: gap between views, left / top margin, room for the view
     title - all in sheet mm.
 
@@ -39,7 +44,7 @@ clr.AddReference("RevitAPIUI")
 from Autodesk.Revit.DB import (
     Transaction, View, ViewSheet, ViewType, Viewport, XYZ,
     FilteredElementCollector, FamilyInstance, LocationPoint,
-    BuiltInParameter,
+    BuiltInParameter, BuiltInCategory, Element,
 )
 
 from pyrevit import revit, forms, script
@@ -124,12 +129,9 @@ def _mm0(text):
 # ---------------------------------------------------------------------------
 view_by_name = {}
 view_list = []               # (name, "plan" | "section")
+plan_templates = {}          # name -> template view (plan kinds)
+section_templates = {}       # name -> template view (sections)
 for v in FilteredElementCollector(doc).OfClass(View):
-    try:
-        if v.IsTemplate:
-            continue
-    except Exception:
-        pass
     try:
         vt = v.ViewType
     except Exception:
@@ -143,8 +145,34 @@ for v in FilteredElementCollector(doc).OfClass(View):
     nm = _name(v)
     if not nm or nm == "?":
         continue
+    is_template = False
+    try:
+        is_template = bool(v.IsTemplate)
+    except Exception:
+        is_template = False
+    if is_template:
+        (plan_templates if kind == "plan" else section_templates)\
+            .setdefault(nm, v)
+        continue
     view_by_name.setdefault(nm, v)
     view_list.append((nm, kind))
+
+# Viewport types (the title style under each view).
+viewport_types = {}          # name -> ElementType
+try:
+    _vpts = FilteredElementCollector(doc)\
+        .OfCategory(BuiltInCategory.OST_Viewports)\
+        .WhereElementIsElementType().ToElements()
+except Exception:
+    _vpts = []
+for _vt in _vpts:
+    _nm = None
+    try:
+        _nm = Element.Name.GetValue(_vt)
+    except Exception:
+        _nm = _name(_vt)
+    if _nm and _nm != "?":
+        viewport_types.setdefault(_nm, _vt)
 
 known_marks = set()
 for fi in FilteredElementCollector(doc).OfClass(FamilyInstance)\
@@ -201,12 +229,31 @@ class SheetWindow(forms.WPFWindow):
         for n in SS.SCALE_CHOICES:
             self.CmbScale.Items.Add(SS.scale_text(n))
         self.CmbScale.Text = SS.scale_text(remembered["scale"])
+        self._fill_templates(self.CmbPlanTemplate, sorted(plan_templates),
+                             remembered["plan_template"])
+        self._fill_templates(self.CmbSectionTemplate,
+                             sorted(section_templates),
+                             remembered["section_template"])
+        self._fill_templates(self.CmbViewportType, sorted(viewport_types),
+                             remembered["viewport_type"],
+                             first=SS.DEFAULT_VIEWPORT)
         self.TxtGap.Text = "{0:g}".format(remembered["gap"])
         self.TxtLeft.Text = "{0:g}".format(remembered["left"])
         self.TxtTop.Text = "{0:g}".format(remembered["top"])
         self.TxtLabel.Text = "{0:g}".format(remembered["label"])
         self._rebuild()
         self._ready = True
+
+    @staticmethod
+    def _fill_templates(cmb, names, remembered, first=SS.LEAVE_TEMPLATE):
+        cmb.Items.Clear()
+        cmb.Items.Add(first)
+        for n in names:
+            cmb.Items.Add(n)
+        if remembered and remembered in names:
+            cmb.SelectedItem = remembered
+        else:
+            cmb.SelectedIndex = 0
 
     def _visible_rows(self):
         query = ""
@@ -289,7 +336,13 @@ class SheetWindow(forms.WPFWindow):
             vals[name] = v
         self.result = {"keys": keys, "scale": scale, "gap": vals["gap"],
                        "left": vals["left"], "top": vals["top"],
-                       "label": vals["label"]}
+                       "label": vals["label"],
+                       "plan_template": SS.template_choice(
+                           self.CmbPlanTemplate.SelectedItem),
+                       "section_template": SS.template_choice(
+                           self.CmbSectionTemplate.SelectedItem),
+                       "viewport_type": SS.template_choice(
+                           self.CmbViewportType.SelectedItem)}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -312,6 +365,9 @@ try:
     _settings[SS.SETTINGS_SHEET_LEFT] = opt["left"]
     _settings[SS.SETTINGS_SHEET_TOP] = opt["top"]
     _settings[SS.SETTINGS_SHEET_LABEL] = opt["label"]
+    _settings[SS.SETTINGS_SHEET_PLAN_TEMPLATE] = opt["plan_template"]
+    _settings[SS.SETTINGS_SHEET_SECTION_TEMPLATE] = opt["section_template"]
+    _settings[SS.SETTINGS_SHEET_VIEWPORT_TYPE] = opt["viewport_type"]
     save_settings(_settings)
 except Exception:
     pass
@@ -322,6 +378,15 @@ except Exception:
 # ---------------------------------------------------------------------------
 results = []              # (key, view name, note)
 scale_notes = []          # (view name, why the scale stayed)
+template_notes = []       # (view name, why the template was not applied)
+templated = 0
+plan_tmpl = plan_templates.get(opt["plan_template"]) \
+    if opt["plan_template"] else None
+section_tmpl = section_templates.get(opt["section_template"]) \
+    if opt["section_template"] else None
+vp_type = viewport_types.get(opt["viewport_type"]) \
+    if opt["viewport_type"] else None
+vp_type_notes = []        # (view name, why the viewport type stayed)
 placed_total = 0
 skipped_total = 0
 below = 0
@@ -360,6 +425,15 @@ try:
                                 "this view on this sheet"))
                 skipped_total += 1
                 continue
+            tmpl = section_tmpl if v.ViewType == ViewType.Section \
+                else plan_tmpl
+            if tmpl is not None:
+                try:
+                    if v.ViewTemplateId != tmpl.Id:
+                        v.ViewTemplateId = tmpl.Id
+                    templated += 1
+                except Exception as ex:
+                    template_notes.append((nm, "{0}".format(ex)))
             try:
                 if v.Scale != opt["scale"]:
                     v.Scale = opt["scale"]
@@ -389,6 +463,12 @@ try:
                 results.append((key, nm, "place failed: no viewport"))
                 skipped_total += 1
                 continue
+            if vp_type is not None:
+                try:
+                    if vp.GetTypeId() != vp_type.Id:
+                        vp.ChangeTypeId(vp_type.Id)
+                except Exception as ex:
+                    vp_type_notes.append((nm, "{0}".format(ex)))
             vps.append((key, nm, vp))
         if vps:
             vp_rows.append(vps)
@@ -443,6 +523,21 @@ out.print_md("**Gap:** {0:g} mm  |  **Left / top margin:** {1:g} / {2:g} mm  "
              "|  **Title room:** {3:g} mm  |  **Sheet:** {4:.0f} x {5:.0f} mm"
              .format(opt["gap"], opt["left"], opt["top"], opt["label"],
                      sheet_w * MM_PER_FOOT, sheet_h * MM_PER_FOOT))
+out.print_md("**Plan template:** {0}  |  **Section template:** {1}  |  "
+             "**Templates applied:** {2}  |  **Viewport type:** {3}".format(
+                 opt["plan_template"] or "(left as is)",
+                 opt["section_template"] or "(left as is)", templated,
+                 opt["viewport_type"] or "(Revit default)"))
+if vp_type_notes:
+    out.print_md("**{0} viewport(s) kept their type:**".format(
+        len(vp_type_notes)))
+    for nm, why in vp_type_notes:
+        out.print_md("- {0}: {1}".format(nm, why))
+if template_notes:
+    out.print_md("**{0} view(s) did not take the template:**".format(
+        len(template_notes)))
+    for nm, why in template_notes:
+        out.print_md("- {0}: {1}".format(nm, why))
 if below:
     out.print_md("**{0} view(s) fall below the bottom edge of the sheet** - "
                  "the rows did not fit. Move them, use a larger sheet, or "
