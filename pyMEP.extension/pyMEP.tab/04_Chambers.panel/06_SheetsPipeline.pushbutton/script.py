@@ -23,6 +23,11 @@ at the end, so every step's transactions - plans, sections, each sheet and
 its viewports, the dimensions - collapse into a single entry on Revit's
 undo list. One Ctrl+Z takes the lot back.
 
+CANCEL: a progress window with a Cancel button stays up while the run goes.
+Cancel is honoured between steps and between sheets (a step in flight
+finishes first); the run then stops and the whole group is ROLLED BACK, so
+a cancelled run leaves nothing behind.
+
 How the hand-off works: each step's options are left on the sys module
 (sys._pymep_pipeline), which survives the pymep_* module purge every
 button does, and the button's script is compiled and exec'd; it finds
@@ -816,8 +821,38 @@ group = TransactionGroup(doc, "pyMEP: Sheets Full Pipeline ({0} chamber(s))"
                          .format(len(chambers)))
 group.Start()
 sheet_rows = []
+cancelled = False
+n_sheets = len(CS.chunks(marks, opt["per"]))
+total_ticks = 2 + n_sheets + (1 if opt["dims"] else 0)
+tick = [0]
+
+# A progress window with a Cancel button. Its click is noticed each time
+# the bar is advanced, i.e. between steps and between sheets.
+try:
+    pbar = forms.ProgressBar(title="Sheets Full Pipeline - {value} of {max_value}",
+                             cancellable=True, step=1)
+    pbar.__enter__()
+except Exception:
+    pbar = None
+
+
+def _advance(label):
+    # Move the bar on; True when the user has pressed Cancel.
+    tick[0] += 1
+    if pbar is None:
+        return False
+    try:
+        pbar.title = "Sheets Full Pipeline - {0}".format(label)
+        pbar.update_progress(min(tick[0], total_ticks), total_ticks)
+        return bool(pbar.cancelled)
+    except Exception:
+        return False
+
+
 try:
     # --- 1. plans ---
+    if _advance("Step 1 of 4: Chamber Plans"):
+        raise KeyboardInterrupt()
     ok, why, res = _run_step("Step 1 - Chamber Plans", STEP_PLANS, "plans",
                              {"view": opt["source"], "chambers": chambers,
                               "extents": opt["extents"],
@@ -831,6 +866,8 @@ try:
                         res.get("failed", 0)) if ok else "FAILED - " + why))
 
     # --- 2. sections ---
+    if _advance("Step 2 of 4: Create Sections"):
+        raise KeyboardInterrupt()
     ok, why, res = _run_step("Step 2 - Create Sections", STEP_SECTIONS,
                              "sections", {"chambers": chambers,
                                           "size_mode": opt["size_mode"]})
@@ -844,7 +881,9 @@ try:
     tb = titleblocks.get(opt["titleblock"])
     tb_id = tb.Id if tb is not None else ElementId.InvalidElementId
     n = opt["start"]
-    for chunk in CS.chunks(marks, opt["per"]):
+    for idx, chunk in enumerate(CS.chunks(marks, opt["per"])):
+        if _advance("Step 3 of 4: sheet {0} of {1}".format(idx + 1, n_sheets)):
+            raise KeyboardInterrupt()
         while CS.sheet_text(opt["number"], n) in existing_numbers:
             n += 1
         number = CS.sheet_text(opt["number"], n)
@@ -897,6 +936,8 @@ try:
             if v is not None:
                 views.append(v)
         if views:
+            if _advance("Step 4 of 4: Dimension Section"):
+                raise KeyboardInterrupt()
             ok, why, res = _run_step("Step 4 - Dimension Section", STEP_DIMS,
                                      "dims", {"views": views,
                                               "dim_type": opt["dim_type"]})
@@ -908,19 +949,30 @@ try:
         else:
             summary.append(("Dimension Section",
                             "skipped - no new sections to dimension"))
+except KeyboardInterrupt:
+    cancelled = True
 finally:
     try:
         del sys._pymep_pipeline
     except Exception:
         pass
-    # Collapse everything into ONE undo step. If the group cannot be
-    # assimilated (a step left something open), roll it back so nothing is
-    # left half-done.
+    if pbar is not None:
+        try:
+            pbar.__exit__(None, None, None)
+        except Exception:
+            pass
+    # Cancelled: take the whole run back. Otherwise collapse everything
+    # into ONE undo step; if the group cannot be assimilated (a step left
+    # something open), roll it back so nothing is left half-done.
     undo_note = ""
     try:
         if group.HasStarted() and not group.HasEnded():
-            group.Assimilate()
-            undo_note = "one undo step"
+            if cancelled:
+                group.RollBack()
+                undo_note = "CANCELLED - everything rolled back"
+            else:
+                group.Assimilate()
+                undo_note = "one undo step"
     except Exception as ex:
         try:
             group.RollBack()
@@ -933,6 +985,9 @@ finally:
 # 4. Summary
 # ---------------------------------------------------------------------------
 out.print_md("# Pipeline summary")
+if cancelled:
+    out.print_md("**Cancelled by you** - the run stopped at the next "
+                 "checkpoint and nothing was kept.")
 if undo_note:
     out.print_md("**Undo:** {0}.".format(undo_note))
 out.print_md("**Chambers:** {0}  |  **Source plan:** {1}  |  **Title block:** "
