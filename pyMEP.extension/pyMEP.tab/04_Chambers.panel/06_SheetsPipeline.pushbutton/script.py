@@ -66,11 +66,41 @@ out = script.get_output()
 
 XAML_PATH = os.path.join(os.path.dirname(os.path.abspath(CS.__file__)),
                          "pymep_sheets_pipeline.xaml")
-PANEL_DIR = os.path.dirname(os.path.dirname(script.get_script_path()))
 STEP_PLANS = "00_ChamberPlans.pushbutton"
 STEP_SECTIONS = "02_CreateSections.pushbutton"
 STEP_SHEET = "01_SheetSetup.pushbutton"
 STEP_DIMS = "05_DimensionSection.pushbutton"
+
+
+def _panel_dir():
+    # The Chambers panel folder holding the step buttons. pyRevit's
+    # script path may be the script file or its bundle folder depending
+    # on the version, so walk up from every candidate until a folder that
+    # holds the step buttons appears; the lib folder is the fixed fallback.
+    starts = []
+    try:
+        starts.append(script.get_script_path())
+    except Exception:
+        pass
+    try:
+        starts.append(os.path.abspath(__file__))
+    except Exception:
+        pass
+    starts.append(os.path.join(os.path.dirname(os.path.abspath(CS.__file__)),
+                               "..", "pyMEP.tab", "04_Chambers.panel"))
+    for start in starts:
+        p = os.path.abspath(start)
+        for _ in range(5):
+            if os.path.isfile(os.path.join(p, STEP_PLANS, "script.py")):
+                return p
+            parent = os.path.dirname(p)
+            if parent == p:
+                break
+            p = parent
+    return os.path.abspath(starts[-1])
+
+
+PANEL_DIR = _panel_dir()
 NO_TITLEBLOCK = u"(no title block)"
 PLAN_TYPES = (ViewType.FloorPlan, ViewType.CeilingPlan,
               ViewType.EngineeringPlan, ViewType.AreaPlan)
