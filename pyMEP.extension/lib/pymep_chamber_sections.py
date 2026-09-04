@@ -64,6 +64,8 @@ SETTINGS_PLANS_SEED = "chamber_plans_seed"
 SETTINGS_PLANS_EXTENTS = "chamber_plans_extents"  # EXTENTS_SCOPE | _CROP
 SETTINGS_PLANS_WIDTH = "chamber_plans_width_mm"   # fixed crop, local X
 SETTINGS_PLANS_DEPTH = "chamber_plans_depth_mm"   # fixed crop, local Y
+SETTINGS_PLANS_WORKSET = "chamber_plans_workset"  # scope box workset name
+CURRENT_WORKSET = u"(current workset)"
 EXTENTS_SCOPE = "scope"
 EXTENTS_CROP = "crop"
 DEFAULT_PLANS_WIDTH_MM = 3000.0
@@ -243,6 +245,7 @@ def plans_settings(settings):
                      DEFAULT_PLANS_WIDTH_MM),
         "depth": _mm(settings.get(SETTINGS_PLANS_DEPTH),
                      DEFAULT_PLANS_DEPTH_MM),
+        "workset": u"{0}".format(settings.get(SETTINGS_PLANS_WORKSET) or u""),
     }
 
 

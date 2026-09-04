@@ -78,7 +78,7 @@ from Autodesk.Revit.DB import (
     ViewFamilyType, ViewFamily, XYZ, Line, ElementTransformUtils, ElementId,
     FilteredElementCollector, FamilyInstance, BuiltInParameter,
     BuiltInCategory, Element, Options, PlanViewPlane, Transform,
-    BoundingBoxXYZ, StorageType,
+    BoundingBoxXYZ, StorageType, FilteredWorksetCollector, WorksetKind,
 )
 
 from pyrevit import revit, forms, script
@@ -94,6 +94,7 @@ from pymep_chamber_sections import (
     EXTENTS_SCOPE, EXTENTS_CROP, size_settings, SIZE_FIXED, SIZE_PARAMS,
     SETTINGS_SIZE_MODE, SETTINGS_SIZE_PARAM_X, SETTINGS_SIZE_PARAM_Y,
     SETTINGS_SIZE_CLEAR, plan_crop_from_dims, parse_mm, mm_text,
+    SETTINGS_PLANS_WORKSET, CURRENT_WORKSET,
 )
 from pymep_config import load_settings, save_settings
 
@@ -575,6 +576,30 @@ for sb in scope_boxes:
     sb_by_name.setdefault(_elem_name(sb), sb)
 seed_names = sorted(sb_by_name, key=lambda s: s.lower())
 
+# User worksets (workshared models only) for the boxes made or moved.
+worksets = {}
+try:
+    if doc.IsWorkshared:
+        for ws in FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset):
+            worksets.setdefault(ws.Name, ws.Id)
+except Exception:
+    worksets = {}
+workset_names = sorted(worksets, key=lambda s: s.lower())
+
+
+def _set_workset(el, ws_id):
+    # Move an element onto a workset. Returns an error text, or None.
+    if ws_id is None:
+        return None
+    try:
+        p = el.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM)
+        if p is None or p.IsReadOnly:
+            return "workset parameter not editable"
+        p.Set(ws_id.IntegerValue)
+    except Exception as ex:
+        return "workset not set: {0}".format(ex)
+    return None
+
 
 def _selected_family_instances():
     out_list = []
@@ -858,6 +883,16 @@ class PlansWindow(forms.WPFWindow):
         first = pick_seed_name(seed_names, remembered["seed"])
         if first is not None:
             self.CmbSeed.SelectedItem = first
+        self.CmbWorkset.Items.Clear()
+        self.CmbWorkset.Items.Add(CURRENT_WORKSET)
+        for n in workset_names:
+            self.CmbWorkset.Items.Add(n)
+        if remembered["workset"] in workset_names:
+            self.CmbWorkset.SelectedItem = remembered["workset"]
+        else:
+            self.CmbWorkset.SelectedIndex = 0
+        if not workset_names:
+            self.CmbWorkset.IsEnabled = False
 
         if not seed_names:
             self.RbExtScope.Content = (
@@ -1110,8 +1145,10 @@ class PlansWindow(forms.WPFWindow):
             source = "(selection)"
         else:
             source = self._current_type()["label"]
+        ws = self.CmbWorkset.SelectedItem
         self.result = {"chambers": chambers, "source": source,
-                       "seed": seed, "template": tmpl}
+                       "seed": seed, "template": tmpl,
+                       "workset": ws if ws in worksets else u""}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -1126,7 +1163,7 @@ if _HEADLESS:
     # values this dialog last remembered.
     _rem = plans_settings(_settings)
     extents = _HEADLESS.get("extents") or _rem["extents"]
-    crop_size_mode = sizing["mode"]
+    crop_size_mode = _HEADLESS.get("size_mode") or sizing["mode"]
     crop_w_ft = _rem["width"] / FT
     crop_d_ft = _rem["depth"] / FT
     crop_param_x = sizing["px"]
@@ -1134,15 +1171,20 @@ if _HEADLESS:
     crop_clear_ft = sizing["clear"] / FT
     _seed = None
     if extents == EXTENTS_SCOPE:
-        _sn = pick_seed_name(seed_names, _rem["seed"])
+        _sn = pick_seed_name(seed_names,
+                             _HEADLESS.get("seed") or _rem["seed"])
         _seed = sb_by_name.get(_sn) if _sn else None
         if _seed is None:
             extents = EXTENTS_CROP     # nothing to copy: exact crop instead
     _tl = _HEADLESS.get("template") or _rem["template"]
     if _tl not in template_choices:
         _tl = PLANS_TEMPLATE_ACTIVE
+    _ws = _HEADLESS.get("workset")
+    if _ws is None:
+        _ws = _rem["workset"]
     _result = {"chambers": list(_HEADLESS["chambers"]),
-               "source": "(pipeline)", "seed": _seed, "template": _tl}
+               "source": "(pipeline)", "seed": _seed, "template": _tl,
+               "workset": _ws if _ws in worksets else u""}
 else:
     win = PlansWindow(type_options, sel_insts, plans_settings(_settings))
     win.ShowDialog()
@@ -1154,6 +1196,8 @@ seed = _result["seed"]
 target_instances = _result["chambers"]
 picked_type_label = _result["source"]
 tmpl_label = _result["template"]
+workset_name = _result.get("workset") or u""
+workset_id = worksets.get(workset_name)
 if tmpl_label == PLANS_TEMPLATE_ACTIVE:
     tmpl_mode, tmpl_id = "active", None
 elif tmpl_label == PLANS_TEMPLATE_NONE:
@@ -1164,6 +1208,7 @@ else:
 try:
     _settings[SETTINGS_PLANS_TEMPLATE] = tmpl_label
     _settings[SETTINGS_PLANS_EXTENTS] = extents
+    _settings[SETTINGS_PLANS_WORKSET] = workset_name
     if seed is not None:
         _settings[SETTINGS_PLANS_SEED] = _elem_name(seed)
     if extents == EXTENTS_CROP:
@@ -1486,6 +1531,9 @@ try:
                 move = XYZ(centre.X - sb_c.X, centre.Y - sb_c.Y, dz)
                 ElementTransformUtils.MoveElement(doc, sb.Id, move)
                 moved_sb += 1
+                _wsn = _set_workset(sb, workset_id)
+                if _wsn:
+                    znote += "; " + _wsn
                 job["box_note"] = ("moved onto chamber ({0:.1f} m): {1}  "
                                    "({2})".format(
                                        (move.X ** 2 + move.Y ** 2) ** 0.5
@@ -1557,6 +1605,9 @@ try:
             job["box_note"] = "rename failed - box removed ({0})".format(ex)
             continue
 
+        _wsn = _set_workset(new_sb, workset_id)
+        if _wsn:
+            notes.append(_wsn)
         job["box"] = new_sb
         created_sb += 1
         note = "created: " + base
@@ -1631,7 +1682,9 @@ if extents == EXTENTS_CROP:
         _ext_desc = ("exact crop {0:.0f} x {1:.0f} mm, no scope boxes".format(
             crop_w_ft * FT, crop_d_ft * FT))
 else:
-    _ext_desc = "scope box copied from '{0}'".format(_elem_name(seed))
+    _ext_desc = "scope box copied from '{0}'{1}".format(
+        _elem_name(seed),
+        ", workset '{0}'".format(workset_name) if workset_name else "")
 out.print_md("**Plan extents:** {0}  |  **Plan template:** {1}".format(
     _ext_desc, tmpl_label))
 if template_notes:

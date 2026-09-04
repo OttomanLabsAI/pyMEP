@@ -246,6 +246,10 @@ class PlansSettings(unittest.TestCase):
         self.assertEqual(s["seed"], "")
         self.assertEqual(s["extents"], CS.EXTENTS_CROP)
         self.assertEqual((s["width"], s["depth"]), (3000.0, 3000.0))
+        self.assertEqual(s["workset"], "")
+        self.assertEqual(CS.plans_settings(
+            {CS.SETTINGS_PLANS_WORKSET: "Shared Levels and Grids"})["workset"],
+            "Shared Levels and Grids")
         s = CS.plans_settings({CS.SETTINGS_PLANS_EXTENTS: CS.EXTENTS_SCOPE,
                                CS.SETTINGS_PLANS_WIDTH: 2500,
                                CS.SETTINGS_PLANS_DEPTH: "bad"})

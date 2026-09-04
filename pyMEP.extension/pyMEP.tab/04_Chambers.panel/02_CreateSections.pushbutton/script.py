@@ -622,7 +622,8 @@ if _HEADLESS:
         "chambers": list(_HEADLESS["chambers"]), "source": "(pipeline)",
         "offset": _rem["offset"], "height": _rem["height"],
         "depth": _rem["depth"], "same": _rem["same"], "types": _types,
-        "cut_only": _rem["cut_only"], "size_mode": sizing["mode"],
+        "cut_only": _rem["cut_only"],
+        "size_mode": _HEADLESS.get("size_mode") or sizing["mode"],
         "px": sizing["px"], "py": sizing["py"], "ph": sizing["ph"],
         "clear": sizing["clear"],
     }

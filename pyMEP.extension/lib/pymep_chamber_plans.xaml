@@ -195,8 +195,18 @@
                                 <ComboBox x:Name="CmbSeed" Grid.Column="1"
                                           SelectionChanged="on_seed_changed"/>
                             </Grid>
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Style="{StaticResource FieldLabel}"
+                                           Text="Workset"/>
+                                <ComboBox x:Name="CmbWorkset" Grid.Column="1"/>
+                            </Grid>
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="Revit's API can copy, move and turn a scope box but cannot resize one, so every box is the seed's size. The copy is moved over the chamber, set as low as this plan's cut plane allows, turned so the chamber face nearest up is on top, and named after the Mark."/>
+                                       Text="Revit's API can copy, move and turn a scope box but cannot resize one, so every box is the seed's size. The copy is moved over the chamber, set as low as this plan's cut plane allows, turned so the chamber face nearest up is on top, named after the Mark and put on the workset above (workshared models only)."/>
                         </StackPanel>
                     </StackPanel>
                 </GroupBox>
