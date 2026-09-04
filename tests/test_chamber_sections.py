@@ -121,6 +121,28 @@ class UprightRotation(unittest.TestCase):
                                math.radians(45))
 
 
+class PlansSettings(unittest.TestCase):
+    def test_defaults_and_remembered(self):
+        s = CS.plans_settings({})
+        self.assertEqual(s["template"], CS.PLANS_TEMPLATE_ACTIVE)
+        self.assertEqual(s["seed"], "")
+        s = CS.plans_settings({CS.SETTINGS_PLANS_TEMPLATE: "CHAMBER PLAN",
+                               CS.SETTINGS_PLANS_SEED: "sample_scope_box"})
+        self.assertEqual(s["template"], "CHAMBER PLAN")
+        self.assertEqual(s["seed"], "sample_scope_box")
+        self.assertEqual(CS.plans_settings(None)["template"],
+                         CS.PLANS_TEMPLATE_ACTIVE)
+
+    def test_pick_seed_name(self):
+        names = ["LV1/Z1", "Sample_Scope_Box", "LV2/Z1"]
+        self.assertEqual(CS.pick_seed_name(names), "Sample_Scope_Box")
+        self.assertEqual(CS.pick_seed_name(names, "LV2/Z1"), "LV2/Z1")
+        self.assertEqual(CS.pick_seed_name(names, "gone"), "Sample_Scope_Box")
+        self.assertEqual(CS.pick_seed_name(["only"]), "only")
+        self.assertIsNone(CS.pick_seed_name(["a", "b"]))
+        self.assertIsNone(CS.pick_seed_name([]))
+
+
 class ParseMm(unittest.TestCase):
     def test_plain_numbers(self):
         self.assertEqual(CS.parse_mm("1500"), 1500.0)

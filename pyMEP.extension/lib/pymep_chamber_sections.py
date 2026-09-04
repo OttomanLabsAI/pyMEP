@@ -28,6 +28,13 @@ SETTINGS_SECTION_SIDE_TYPES = "chamber_section_side_types"
 SETTINGS_SECTION_SAME_TYPE = "chamber_section_same_type"
 SETTINGS_SECTION_CUT_ONLY = "chamber_section_cut_only"
 
+# Chamber Plans dialog
+SETTINGS_PLANS_TEMPLATE = "chamber_plans_template"
+SETTINGS_PLANS_SEED = "chamber_plans_seed"
+PLANS_TEMPLATE_ACTIVE = u"(same as the active view)"
+PLANS_TEMPLATE_NONE = u"(no template)"
+SEED_PREFERRED_NAME = u"sample_scope_box"
+
 DEFAULT_OFFSET_MM = 1500.0
 DEFAULT_HEIGHT_MM = 3000.0
 DEFAULT_DEPTH_MM = 3000.0
@@ -71,6 +78,33 @@ def section_settings(settings):
         "same": bool(settings.get(SETTINGS_SECTION_SAME_TYPE, True)),
         "cut_only": bool(settings.get(SETTINGS_SECTION_CUT_ONLY, True)),
     }
+
+
+def plans_settings(settings):
+    """The Chamber Plans dialog's remembered values: template (the
+    dropdown label - PLANS_TEMPLATE_ACTIVE, PLANS_TEMPLATE_NONE or a
+    template name) and seed (scope box name, '' for the default pick)."""
+    settings = settings or {}
+    tmpl = settings.get(SETTINGS_PLANS_TEMPLATE) or PLANS_TEMPLATE_ACTIVE
+    return {
+        "template": u"{0}".format(tmpl),
+        "seed": u"{0}".format(settings.get(SETTINGS_PLANS_SEED) or u""),
+    }
+
+
+def pick_seed_name(names, remembered=u""):
+    """Which scope box the Chamber Plans dialog should offer first: the
+    remembered one if it still exists, else 'sample_scope_box' (any case),
+    else the only box, else None (the user picks)."""
+    names = list(names or [])
+    if remembered and remembered in names:
+        return remembered
+    for n in names:
+        if u"{0}".format(n).strip().lower() == SEED_PREFERRED_NAME:
+            return n
+    if len(names) == 1:
+        return names[0]
+    return None
 
 
 def parse_mm(text):

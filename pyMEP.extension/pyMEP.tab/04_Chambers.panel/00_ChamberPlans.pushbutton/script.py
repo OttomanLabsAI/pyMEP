@@ -1,7 +1,13 @@
 # -*- coding: utf-8 -*-
 """Chamber Plans - one button for chamber scope boxes AND their plan views.
 
-For each chamber (current selection, or a family type you pick):
+One dialog (pymep_chamber_plans.xaml) asks for everything: WHICH chambers
+(the current selection, or a family type with a search box and a tick list
+of its instances by Mark), the SEED scope box to copy, and the VIEW
+TEMPLATE for the plan views - and shows live what will be created, moved
+or skipped before you press Create. The seed and template are remembered.
+
+For each chamber:
   0. NAME = the chamber's instance parameter "Mark", whole ("LV1/Z1" - the
      zone part is identity, LV numbers repeat across zones). Nothing else
      is read. A chamber with a blank Mark is NOT processed - it is listed
@@ -42,6 +48,12 @@ __title__  = "Chamber\nPlans"
 __author__ = "Glent Group"
 
 import math
+import os
+import sys
+
+# Reload pymep_* lib modules so the script picks up the latest helpers.
+for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
+    del sys.modules[_mod]
 
 import clr
 clr.AddReference("RevitAPI")
@@ -58,16 +70,21 @@ from pyrevit import revit, forms, script
 
 # Chamber names use the whole Mark (chamber_key trims it); the box
 # rotation snaps the chamber face nearest 'up' to the top of the plan.
+import pymep_chamber_sections as CS
 from pymep_chamber_sections import (
     chamber_key, upright_rotation, wrap_angle, RIGHT_ANGLE,
+    plans_settings, pick_seed_name, PLANS_TEMPLATE_ACTIVE,
+    PLANS_TEMPLATE_NONE, SETTINGS_PLANS_TEMPLATE, SETTINGS_PLANS_SEED,
 )
+from pymep_config import load_settings, save_settings
 
 doc = revit.doc
 uidoc = revit.uidoc
 view = doc.ActiveView
 out = script.get_output()
 
-SEED_PREFERRED_NAME = "sample_scope_box"
+XAML_PATH = os.path.join(os.path.dirname(os.path.abspath(CS.__file__)),
+                         "pymep_chamber_plans.xaml")
 
 
 # ---------------------------------------------------------------------------
@@ -393,7 +410,8 @@ def _apply_scope_box(v, sb):
 
 
 # ---------------------------------------------------------------------------
-# 1. Find a seed scope box to copy (API cannot create one from nothing)
+# 1. What the dialog offers: scope boxes (the seed), chamber types and the
+#    selection, plan view templates; and what the active view is.
 # ---------------------------------------------------------------------------
 scope_boxes = []
 for el in FilteredElementCollector(doc)\
@@ -409,35 +427,12 @@ if not scope_boxes:
                 "this again. The tool will copy it for each chamber and "
                 "position, rotate and rename each copy.", exitscript=True)
 
-seed_label_to_el = {}
+sb_by_name = {}
 for sb in scope_boxes:
-    seed_label_to_el[_elem_name(sb)] = sb
-
-# Prefer a seed named exactly "sample_scope_box" if present (case-insensitive),
-# so repeated runs always use the template and not a previously-created box.
-seed = None
-for nm, sb in seed_label_to_el.items():
-    if nm.strip().lower() == SEED_PREFERRED_NAME:
-        seed = sb
-        break
-
-if seed is None:
-    if len(scope_boxes) == 1:
-        seed = scope_boxes[0]
-    else:
-        pick = forms.SelectFromList.show(
-            sorted(seed_label_to_el.keys(), key=lambda s: s.lower()),
-            title="No 'sample_scope_box' found - pick a SEED scope box to copy",
-            button_name="Use this seed",
-            multiselect=False)
-        if not pick:
-            script.exit()
-        seed = seed_label_to_el[pick]
+    sb_by_name.setdefault(_elem_name(sb), sb)
+seed_names = sorted(sb_by_name, key=lambda s: s.lower())
 
 
-# ---------------------------------------------------------------------------
-# 2. Target chambers: selection (ask) or batch by family type
-# ---------------------------------------------------------------------------
 def _selected_family_instances():
     out_list = []
     try:
@@ -453,125 +448,60 @@ def _selected_family_instances():
             out_list.append(el)
     return out_list
 
+
 sel_insts = _selected_family_instances()
-use_selection = False
-if sel_insts:
-    use_selection = forms.alert(
-        "{0} family instance(s) are selected.\n\n"
-        "Create scope boxes + plans for the SELECTED chambers?\n\n"
-        "Yes = use selection.  No = pick a family type instead.".format(
-            len(sel_insts)),
-        yes=True, no=True)
 
-target_instances = []
-picked_type_label = ""
-if use_selection:
-    target_instances = sel_insts
-    picked_type_label = "(selection)"
-else:
-    inst_by_typeid = {}
-    sym_by_typeid = {}
-    for fi in FilteredElementCollector(doc).OfClass(FamilyInstance)\
-            .WhereElementIsNotElementType().ToElements():
-        if fi.Location is None or not hasattr(fi.Location, "Point") \
-                or fi.Location.Point is None:
-            continue
-        tid = fi.GetTypeId()
-        if tid is None or tid == ElementId.InvalidElementId:
-            continue
-        key = tid.IntegerValue
-        inst_by_typeid.setdefault(key, [])
-        inst_by_typeid[key].append(fi)
-        if key not in sym_by_typeid:
-            sym_by_typeid[key] = doc.GetElement(tid)
+inst_by_typeid = {}
+sym_by_typeid = {}
+for fi in FilteredElementCollector(doc).OfClass(FamilyInstance)\
+        .WhereElementIsNotElementType().ToElements():
+    if fi.Location is None or not hasattr(fi.Location, "Point") \
+            or fi.Location.Point is None:
+        continue
+    tid = fi.GetTypeId()
+    if tid is None or tid == ElementId.InvalidElementId:
+        continue
+    key = tid.IntegerValue
+    inst_by_typeid.setdefault(key, [])
+    inst_by_typeid[key].append(fi)
+    if key not in sym_by_typeid:
+        sym_by_typeid[key] = doc.GetElement(tid)
 
-    if not inst_by_typeid:
-        forms.alert("No placed point-based family instances found.",
-                    exitscript=True)
+if not inst_by_typeid:
+    forms.alert("No placed point-based family instances found.",
+                exitscript=True)
 
-    type_options = []
-    for key, insts in inst_by_typeid.items():
-        sym = sym_by_typeid.get(key)
-        if sym is None:
-            continue
-        type_options.append({
-            "label": "{0}   ({1} placed)".format(_type_label(sym), len(insts)),
-            "typeid": key,
-        })
-    type_options.sort(key=lambda d: d["label"].lower())
+type_options = []
+for key, insts in inst_by_typeid.items():
+    sym = sym_by_typeid.get(key)
+    if sym is None:
+        continue
+    type_options.append({
+        "label": "{0}   ({1} placed)".format(_type_label(sym), len(insts)),
+        "typeid": key,
+        "insts": insts,
+    })
+type_options.sort(key=lambda d: d["label"].lower())
 
-    picked = forms.SelectFromList.show(
-        [d["label"] for d in type_options],
-        title="Select chamber family TYPE (type to search)",
-        button_name="Use this family type",
-        multiselect=False)
-    if not picked:
-        script.exit()
-    for d in type_options:
-        if d["label"] == picked:
-            target_instances = inst_by_typeid[d["typeid"]]
-            picked_type_label = picked
-            break
-
-if not target_instances:
-    forms.alert("No chambers to process.", exitscript=True)
-
-
-# ---------------------------------------------------------------------------
-# 3. Jobs: one per chamber Mark. Chambers without a Mark are NOT processed.
-# ---------------------------------------------------------------------------
-no_mark = []             # (ident, instance)
-marked_instances = []
-for inst in target_instances:
-    if _get_mark(inst):
-        marked_instances.append(inst)
-    else:
-        no_mark.append(("Id {0} ({1})".format(
-            inst.Id.IntegerValue, _elem_name(inst)), inst))
-if not marked_instances:
-    forms.alert("None of the {0} chamber(s) has a Mark.\n\n"
-                "Scope boxes and plan views are named from the chamber's "
-                "instance parameter 'Mark'. Populate it, then run again."
-                .format(len(target_instances)), exitscript=True)
-target_instances = marked_instances
-
-sb_by_name = {}
-for sb in scope_boxes:
-    sb_by_name.setdefault(_elem_name(sb), sb)
-
+plan_templates = {}          # name -> template view (plan kinds only)
 view_names = set()
 for v in FilteredElementCollector(doc).OfClass(View):
+    nm = _elem_name(v)
     try:
-        view_names.add(v.Name)
+        is_tmpl = bool(v.IsTemplate)
     except Exception:
-        pass
-
-jobs = []                # one per distinct Mark
-dup_marks = []           # (mark, instance) sharing a Mark with an earlier job
-seen_bases = set()
-for inst in target_instances:
-    mark = _get_mark(inst)
-    base = _sanitize(chamber_key(mark))   # the whole Mark, trimmed
-    if base in seen_bases:
-        dup_marks.append((mark, inst))
+        is_tmpl = False
+    if is_tmpl:
+        try:
+            if v.ViewType in PLAN_TYPES and nm and nm != "?":
+                plan_templates.setdefault(nm, v)
+        except Exception:
+            pass
         continue
-    seen_bases.add(base)
-    job = {"inst": inst, "mark": mark, "base": base,
-           "centre": _world_centre(inst), "box": None, "box_note": "-",
-           "view_note": "-"}
-    sb = sb_by_name.get(base)
-    if sb is None or sb.Id.IntegerValue == seed.Id.IntegerValue:
-        job["box_state"] = "create"
-    else:
-        job["box"] = sb
-        over = _box_over_point(sb, job["centre"])
-        job["box_state"] = "misplaced" if over is False else "exists"
-    job["view_state"] = "exists" if base in view_names else "create"
-    jobs.append(job)
-
-planned_boxes = [j["base"] for j in jobs if j["box_state"] == "create"]
-moving_boxes = [j["base"] for j in jobs if j["box_state"] == "misplaced"]
-planned_views = [j["base"] for j in jobs if j["view_state"] == "create"]
+    if nm and nm != "?":
+        view_names.add(nm)
+template_choices = [PLANS_TEMPLATE_ACTIVE, PLANS_TEMPLATE_NONE] + \
+    sorted(plan_templates, key=lambda s: s.lower())
 
 # How the plan views will be made. Duplicating a callout / dependent /
 # assembly view gives another view of the same kind, which cannot carry a
@@ -602,57 +532,344 @@ else:
 
 
 # ---------------------------------------------------------------------------
-# 3b. Preview + confirm BEFORE anything is created.
+# 2. Jobs: one per chamber Mark - built live for the dialog's preview and
+#    again for the run. Chambers without a Mark are NOT processed.
 # ---------------------------------------------------------------------------
-if not planned_boxes and not planned_views and not moving_boxes:
-    extra = ""
-    if no_mark:
-        extra += ("\n\n{0} chamber(s) were skipped because their Mark is "
-                  "blank.".format(len(no_mark)))
-    forms.alert("Nothing to do.\n\n"
-                "Every chamber with a Mark already has a scope box over it "
-                "and a plan view of the same name." + extra,
-                exitscript=True)
+def _build_jobs(instances, seed):
+    # -> (jobs, no_mark, dup_marks)
+    no_mark = []             # (ident, instance)
+    dup_marks = []           # (mark, instance) sharing a Mark with a job
+    jobs = []
+    seen = set()
+    for inst in instances:
+        mark = _get_mark(inst)
+        if not mark:
+            no_mark.append(("Id {0} ({1})".format(
+                inst.Id.IntegerValue, _elem_name(inst)), inst))
+            continue
+        base = _sanitize(chamber_key(mark))   # the whole Mark, trimmed
+        if base in seen:
+            dup_marks.append((mark, inst))
+            continue
+        seen.add(base)
+        job = {"inst": inst, "mark": mark, "base": base,
+               "centre": _world_centre(inst), "box": None, "box_note": "-",
+               "view_note": "-"}
+        sb = sb_by_name.get(base)
+        if sb is None or (seed is not None
+                          and sb.Id.IntegerValue == seed.Id.IntegerValue):
+            job["box_state"] = "create"
+        else:
+            job["box"] = sb
+            over = _box_over_point(sb, job["centre"])
+            job["box_state"] = "misplaced" if over is False else "exists"
+        job["view_state"] = "exists" if base in view_names else "create"
+        jobs.append(job)
+    return jobs, no_mark, dup_marks
 
 
-def _name_list(names, cap=15):
+def _name_list(names, cap=8):
     lines = ["  - " + n for n in names[:cap]]
     if len(names) > cap:
         lines.append("  ... and {0} more".format(len(names) - cap))
     return lines
 
-_msg = ["This will create:", ""]
-_msg.append("Scope boxes: {0}".format(len(planned_boxes)))
-_msg.extend(_name_list(planned_boxes))
-if moving_boxes:
-    _msg.append("")
-    _msg.append("Existing scope boxes MOVED onto their chamber: {0}".format(
-        len(moving_boxes)))
-    _msg.extend(_name_list(moving_boxes))
-_msg.append("")
-_msg.append("Plan views: {0}".format(len(planned_views)))
-_msg.extend(_name_list(planned_views))
-if prefer_fresh:
-    _msg.append("")
-    _msg.append("The active view is a {0}, which cannot carry a scope box, "
-                "so the plan views are created FRESH on level '{1}' (with "
-                "the active view's template) instead of duplicated.".format(
-                    src_kind,
-                    _elem_name(src_level) if src_level is not None else "?"))
-if no_mark:
-    _msg.append("")
-    _msg.append("SKIPPED - blank Mark (populate it and re-run): {0}".format(
-        len(no_mark)))
-    _msg.extend(_name_list([ident for ident, _i in no_mark]))
-if dup_marks:
-    _msg.append("")
-    _msg.append("Duplicate Marks (one box + plan per Mark): {0}".format(
-        len(dup_marks)))
-    _msg.extend(_name_list(sorted(set(m for m, _i in dup_marks))))
-_msg.append("")
-_msg.append("Proceed?")
-if not forms.alert("\n".join(_msg), yes=True, no=True):
+
+def _plan_text(jobs, no_mark, dup_marks):
+    creating = [j["base"] for j in jobs if j["box_state"] == "create"]
+    moving = [j["base"] for j in jobs if j["box_state"] == "misplaced"]
+    views = [j["base"] for j in jobs if j["view_state"] == "create"]
+    lines = []
+    if not creating and not moving and not views:
+        lines.append("Nothing to do: every chamber with a Mark already has "
+                     "a scope box over it and a plan view of that name.")
+    lines.append("Scope boxes to create: {0}".format(len(creating)))
+    lines.extend(_name_list(creating))
+    if moving:
+        lines.append("Existing scope boxes moved onto their chamber: {0}"
+                     .format(len(moving)))
+        lines.extend(_name_list(moving))
+    lines.append("Plan views to create: {0}".format(len(views)))
+    lines.extend(_name_list(views))
+    if prefer_fresh:
+        lines.append("Plans are created FRESH on level '{0}' - the active "
+                     "view is a {1}, whose duplicates cannot carry a scope "
+                     "box.".format(
+                         _elem_name(src_level) if src_level is not None
+                         else "?", src_kind))
+    if no_mark:
+        lines.append("SKIPPED - blank Mark (populate it and re-run): {0}"
+                     .format(len(no_mark)))
+        lines.extend(_name_list([ident for ident, _i in no_mark]))
+    if dup_marks:
+        lines.append("Duplicate Marks (one box + plan per Mark): {0}".format(
+            len(dup_marks)))
+        lines.extend(_name_list(sorted(set(m for m, _i in dup_marks))))
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# 3. The dialog
+# ---------------------------------------------------------------------------
+class PlansWindow(forms.WPFWindow):
+
+    def __init__(self, types, selected, remembered):
+        forms.WPFWindow.__init__(self, XAML_PATH)
+        self.result = None
+        self._ready = False
+        self._filling = False
+        self._types = types
+        self._visible = []
+        self._boxes = []
+        self._sel = list(selected)
+
+        level_txt = ""
+        if src_level is not None:
+            level_txt = ", level '{0}'".format(_elem_name(src_level))
+        self.TxtInfo.Text = (
+            "Active view: {0} ({1}{2}). Up for the box rotation: {3}."
+            .format(_elem_name(view), src_kind, level_txt, up_label))
+
+        n_sel = len(self._sel)
+        if n_sel:
+            self.RbSelection.Content = (
+                "use the {0} selected chamber(s)".format(n_sel))
+            self.RbSelection.IsChecked = True
+        else:
+            self.RbSelection.Content = (
+                "use the selected chambers (nothing is selected)")
+            self.RbSelection.IsEnabled = False
+            self.RbType.IsChecked = True
+
+        self.CmbSeed.Items.Clear()
+        for n in seed_names:
+            self.CmbSeed.Items.Add(n)
+        first = pick_seed_name(seed_names, remembered["seed"])
+        if first is not None:
+            self.CmbSeed.SelectedItem = first
+        self.CmbTemplate.Items.Clear()
+        for n in template_choices:
+            self.CmbTemplate.Items.Add(n)
+        if remembered["template"] in template_choices:
+            self.CmbTemplate.SelectedItem = remembered["template"]
+        else:
+            self.CmbTemplate.SelectedIndex = 0
+
+        self._fill_types()
+        self._ready = True
+        self._sync()
+
+    # -- family type list ----------------------------------------------------
+    def _current_type(self):
+        try:
+            idx = self.LstTypes.SelectedIndex
+        except Exception:
+            return None
+        if idx < 0 or idx >= len(self._visible):
+            return None
+        return self._types[self._visible[idx]]
+
+    def _fill_types(self):
+        query = ""
+        try:
+            query = self.TxtTypeFilter.Text or ""
+        except Exception:
+            pass
+        keep = CS.filter_labels([d["label"] for d in self._types], query)
+        current = None
+        cur = self._current_type()
+        if cur is not None:
+            current = self._types.index(cur)
+        self._filling = True
+        try:
+            self._visible = keep
+            self.LstTypes.Items.Clear()
+            for i in keep:
+                self.LstTypes.Items.Add(self._types[i]["label"])
+            if current in keep:
+                self.LstTypes.SelectedIndex = keep.index(current)
+            elif len(keep) == 1:
+                self.LstTypes.SelectedIndex = 0
+        finally:
+            self._filling = False
+        self._fill_chambers(self._current_type())
+
+    def _fill_chambers(self, tdict):
+        from System.Windows.Controls import CheckBox
+        from System.Windows import Thickness
+        self.PnlChambers.Children.Clear()
+        self._boxes = []
+        rows = []
+        for fi in (tdict["insts"] if tdict else []):
+            mk = _get_mark(fi)
+            rows.append(("{0}   (Id {1})".format(mk if mk else "<no mark>",
+                                                  fi.Id.IntegerValue), fi))
+        rows.sort(key=lambda r: r[0].lower())
+        for label, fi in rows:
+            cb = CheckBox()
+            cb.Content = label
+            cb.IsChecked = True
+            cb.Margin = Thickness(0, 2, 0, 2)
+            cb.Checked += self._on_box
+            cb.Unchecked += self._on_box
+            self.PnlChambers.Children.Add(cb)
+            self._boxes.append((cb, fi))
+        self._sync()
+
+    def _ticked(self):
+        return [fi for cb, fi in self._boxes if cb.IsChecked]
+
+    def _set_all(self, on):
+        for cb, _fi in self._boxes:
+            cb.IsChecked = on
+        self._sync()
+
+    def _chambers(self):
+        if self.RbSelection.IsChecked and self._sel:
+            return list(self._sel)
+        return self._ticked()
+
+    def _seed(self):
+        try:
+            return sb_by_name.get(self.CmbSeed.SelectedItem)
+        except Exception:
+            return None
+
+    # -- state -> UI -----------------------------------------------------------
+    def _sync(self):
+        if not getattr(self, "_ready", False):
+            return
+        try:
+            by_type = bool(self.RbType.IsChecked)
+            self.PnlType.IsEnabled = by_type
+            if by_type:
+                total = len(self._boxes)
+                if total:
+                    self.TxtChamberCount.Text = (
+                        "{0} of {1} chamber(s) ticked.".format(
+                            len(self._ticked()), total))
+                else:
+                    self.TxtChamberCount.Text = (
+                        "Pick a chamber family type above.")
+            else:
+                self.TxtChamberCount.Text = (
+                    "Boxes and plans for the {0} selected chamber(s)."
+                    .format(len(self._sel)))
+            self.StatusText.Text = ""
+        except Exception:
+            pass
+        self._refresh_plan()
+
+    def _refresh_plan(self):
+        try:
+            chambers = self._chambers()
+            if not chambers:
+                self.TxtPlan.Text = "Pick or tick chambers above."
+                return
+            jobs, no_mark, dups = _build_jobs(chambers, self._seed())
+            self.TxtPlan.Text = _plan_text(jobs, no_mark, dups)
+        except Exception as ex:
+            self.TxtPlan.Text = "(could not preview: {0})".format(ex)
+
+    # -- handlers ----------------------------------------------------------------
+    def on_source_changed(self, sender, args):
+        self._sync()
+
+    def on_type_filter(self, sender, args):
+        if getattr(self, "_ready", False):
+            self._fill_types()
+
+    def on_type_selected(self, sender, args):
+        if not getattr(self, "_ready", False) or self._filling:
+            return
+        self._fill_chambers(self._current_type())
+
+    def on_tick_all(self, sender, args):
+        self._set_all(True)
+
+    def on_tick_none(self, sender, args):
+        self._set_all(False)
+
+    def on_seed_changed(self, sender, args):
+        if getattr(self, "_ready", False):
+            self._refresh_plan()
+
+    def _on_box(self, sender, args):
+        self._sync()
+
+    def on_go(self, sender, args):
+        chambers = self._chambers()
+        if not chambers:
+            if self.RbType.IsChecked and self._current_type() is None:
+                self.StatusText.Text = "Pick a chamber family type."
+            else:
+                self.StatusText.Text = "Tick at least one chamber."
+            return
+        seed = self._seed()
+        if seed is None:
+            self.StatusText.Text = "Pick the seed scope box to copy."
+            return
+        tmpl = self.CmbTemplate.SelectedItem
+        if not tmpl:
+            self.StatusText.Text = "Pick a plan view template option."
+            return
+        jobs, no_mark, dups = _build_jobs(chambers, seed)
+        if not jobs:
+            self.StatusText.Text = (
+                "None of the {0} chamber(s) has a Mark - scope boxes and "
+                "plans are named from the instance parameter 'Mark'."
+                .format(len(chambers)))
+            return
+        todo = [j for j in jobs if j["box_state"] != "exists"
+                or j["view_state"] == "create"]
+        if not todo:
+            self.StatusText.Text = (
+                "Nothing to do - every chamber with a Mark already has a "
+                "scope box over it and a plan view of that name.")
+            return
+        if self.RbSelection.IsChecked and self._sel:
+            source = "(selection)"
+        else:
+            source = self._current_type()["label"]
+        self.result = {"chambers": chambers, "source": source,
+                       "seed": seed, "template": tmpl}
+        self.Close()
+
+    def on_cancel(self, sender, args):
+        self.result = None
+        self.Close()
+
+
+_settings = load_settings()
+win = PlansWindow(type_options, sel_insts, plans_settings(_settings))
+win.ShowDialog()
+if not win.result:
     script.exit()
+
+seed = win.result["seed"]
+target_instances = win.result["chambers"]
+picked_type_label = win.result["source"]
+tmpl_label = win.result["template"]
+if tmpl_label == PLANS_TEMPLATE_ACTIVE:
+    tmpl_mode, tmpl_id = "active", None
+elif tmpl_label == PLANS_TEMPLATE_NONE:
+    tmpl_mode, tmpl_id = "none", None
+else:
+    tmpl_mode, tmpl_id = "named", plan_templates[tmpl_label].Id
+
+try:
+    _settings[SETTINGS_PLANS_TEMPLATE] = tmpl_label
+    _settings[SETTINGS_PLANS_SEED] = _elem_name(seed)
+    save_settings(_settings)
+except Exception:
+    pass
+
+jobs, no_mark, dup_marks = _build_jobs(target_instances, seed)
+if not jobs:
+    forms.alert("None of the {0} chamber(s) has a Mark.\n\n"
+                "Scope boxes and plan views are named from the chamber's "
+                "instance parameter 'Mark'. Populate it, then run again."
+                .format(len(target_instances)), exitscript=True)
 
 
 # ---------------------------------------------------------------------------
@@ -710,10 +927,14 @@ def _fresh_plan():
             continue
         if nv is None:
             continue
-        # Carry the active plan's look across: its template, else scale
-        # and detail level.
+        # The plan's look: the chosen template, or the active plan's own
+        # template, else its scale and detail level.
         try:
-            tid = view.ViewTemplateId
+            tid = None
+            if tmpl_mode == "named":
+                tid = tmpl_id
+            elif tmpl_mode == "active":
+                tid = view.ViewTemplateId
             if _valid_id(tid):
                 nv.ViewTemplateId = tid
             else:
@@ -768,6 +989,16 @@ def _make_plan(name, sb):
             _delete_quietly(nv)
             tried.append("{0}: rename failed ({1})".format(label, ex))
             continue
+        if label == "duplicate":
+            # A duplicate inherits the active plan's template; swap it for
+            # the chosen one, or take it off, as asked.
+            try:
+                if tmpl_mode == "named":
+                    nv.ViewTemplateId = tmpl_id
+                elif tmpl_mode == "none":
+                    nv.ViewTemplateId = ElementId.InvalidElementId
+            except Exception as ex:
+                template_notes.append((name, "{0}".format(ex)))
         ok, note = _apply_scope_box(nv, sb)
         if ok:
             try:
@@ -804,6 +1035,7 @@ moved_sb = 0
 existing_sb = 0
 created_views = 0
 view_failed = 0
+template_notes = []       # (view name, why the template was not applied)
 
 t = Transaction(doc, "pyMEP: Chamber plans ({0} chamber(s))".format(
     len(jobs)))
@@ -942,6 +1174,12 @@ out.print_md("**Target:** {0}  |  **Seed scope box:** {1}  |  "
              "**Active view:** {2} ({3}{4})".format(
                  picked_type_label, _elem_name(seed), _elem_name(view),
                  src_kind, ", scope box locked" if src_locked else ""))
+out.print_md("**Plan template:** {0}".format(tmpl_label))
+if template_notes:
+    out.print_md("**{0} plan view(s) did not take the template:**".format(
+        len(template_notes)))
+    for nm, why in template_notes:
+        out.print_md("- {0}: {1}".format(nm, why))
 out.print_md("**Up reference for box rotation:** {0}{1}".format(
     up_label,
     "  |  seed box skew of {0:.1f} deg taken out".format(

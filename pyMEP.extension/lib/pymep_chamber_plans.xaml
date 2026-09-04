@@ -1,0 +1,168 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Chamber Plans"
+        Width="640" Height="760" MinWidth="560" MinHeight="520"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Background="White">
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Padding" Value="10,8,10,10"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,6,10,0"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="DialogButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+        <Style x:Key="SmallButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="56"/>
+            <Setter Property="Margin" Value="6,0,0,0"/>
+            <Setter Property="Padding" Value="8,2"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#F4F4F4" Padding="14,10">
+            <StackPanel>
+                <TextBlock FontSize="15" FontWeight="SemiBold"
+                           Text="Chamber Plans"/>
+                <TextBlock x:Name="TxtInfo"
+                           Style="{StaticResource Hint}"
+                           Text="A scope box and a plan view per chamber, named by the chamber's Mark."/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="14,12,14,0">
+                <GroupBox Header="Chambers">
+                    <StackPanel>
+                        <RadioButton x:Name="RbSelection" GroupName="Source"
+                                     Margin="0,4,0,0"
+                                     Content="use the selected chamber(s)"
+                                     Checked="on_source_changed"/>
+                        <RadioButton x:Name="RbType" GroupName="Source"
+                                     Margin="0,6,0,0"
+                                     Content="pick a chamber family type"
+                                     Checked="on_source_changed"/>
+                        <StackPanel x:Name="PnlType" Margin="18,4,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="60"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Style="{StaticResource FieldLabel}"
+                                           Text="Search"/>
+                                <TextBox x:Name="TxtTypeFilter" Grid.Column="1"
+                                         TextChanged="on_type_filter"/>
+                            </Grid>
+                            <ListBox x:Name="LstTypes" Height="100"
+                                     Margin="0,6,0,0"
+                                     SelectionChanged="on_type_selected"/>
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           VerticalAlignment="Center"
+                                           Text="Chambers of that type (tick the ones to do)"/>
+                                <Button x:Name="BtnAll" Grid.Column="1"
+                                        Content="All"
+                                        Style="{StaticResource SmallButton}"
+                                        Click="on_tick_all"/>
+                                <Button x:Name="BtnNone" Grid.Column="2"
+                                        Content="None"
+                                        Style="{StaticResource SmallButton}"
+                                        Click="on_tick_none"/>
+                            </Grid>
+                            <Border BorderBrush="#ABADB3" BorderThickness="1"
+                                    Margin="0,4,0,0" Background="White">
+                                <ScrollViewer Height="100"
+                                              VerticalScrollBarVisibility="Auto">
+                                    <StackPanel x:Name="PnlChambers"
+                                                Margin="6,4,6,4"/>
+                                </ScrollViewer>
+                            </Border>
+                            <TextBlock x:Name="TxtChamberCount"
+                                       Style="{StaticResource Hint}"
+                                       Text=""/>
+                        </StackPanel>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Scope box and plan view">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="130"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0"
+                                       Style="{StaticResource FieldLabel}"
+                                       Text="Seed scope box"/>
+                            <ComboBox x:Name="CmbSeed" Grid.Row="0" Grid.Column="1"
+                                      SelectionChanged="on_seed_changed"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0"
+                                       Style="{StaticResource FieldLabel}"
+                                       Text="Plan view template"/>
+                            <ComboBox x:Name="CmbTemplate" Grid.Row="1" Grid.Column="1"/>
+                        </Grid>
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Revit cannot create a scope box from nothing, so the seed is COPIED for each chamber: moved over the chamber in plan (it keeps the seed's vertical extent, so it stays visible in this plan), turned so the chamber face nearest up is on top, and named after the Mark. The template goes on every plan view made; '(same as the active view)' keeps what a duplicate inherits and gives a fresh plan the active view's template."/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="What will happen">
+                    <TextBlock x:Name="TxtPlan" TextWrapping="Wrap"
+                               FontFamily="Consolas" FontSize="12" Text=""/>
+                </GroupBox>
+
+                <TextBlock x:Name="StatusText" Foreground="#B00020"
+                           TextWrapping="Wrap" Margin="0,0,0,8" Text=""/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" Background="#F4F4F4" Padding="14,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnGo" Content="Create"
+                        Style="{StaticResource DialogButton}" IsDefault="True"
+                        Click="on_go"/>
+                <Button x:Name="BtnCancel" Content="Cancel"
+                        Style="{StaticResource DialogButton}" IsCancel="True"
+                        Click="on_cancel"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
