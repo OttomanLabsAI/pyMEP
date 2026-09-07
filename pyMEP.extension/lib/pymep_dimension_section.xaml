@@ -105,7 +105,23 @@
                     <StackPanel>
                         <ComboBox x:Name="CmbDimType"/>
                         <TextBlock Style="{StaticResource Hint}"
-                                   Text="A linear dimension type from this project. Both strings in every section use it. Remembered for next time."/>
+                                   Text="A linear dimension type from this project. Every string in every section uses it. Remembered for next time."/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Chamber levels">
+                    <StackPanel>
+                        <CheckBox x:Name="ChkZPlanes" Margin="0,4,0,0"
+                                  Content="dimension the chamber's z1, z2, z3... reference planes"/>
+                        <StackPanel Margin="18,4,0,0">
+                            <RadioButton x:Name="RbZChain" GroupName="ZMode"
+                                         Content="chain through every plane: z1 - z2 - z3 ... to the highest"/>
+                            <RadioButton x:Name="RbZDirect" GroupName="ZMode"
+                                         Margin="0,4,0,0"
+                                         Content="one overall dimension: z1 straight to the highest"/>
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Finds the chamber family's reference planes named z followed by a number (they must be named in the family and set as a reference), and runs one string through them in number order, to the right of the chamber. Skipped when fewer than two are found."/>
                     </StackPanel>
                 </GroupBox>
 

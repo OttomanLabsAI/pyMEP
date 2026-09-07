@@ -179,6 +179,34 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(CS.chunks([1, 2, 3], 0), [[1], [2], [3]])
 
 
+class ZPlanes(unittest.TestCase):
+    def test_numbers(self):
+        self.assertEqual(CS.z_plane_number("z1"), 1)
+        self.assertEqual(CS.z_plane_number("Z5"), 5)
+        self.assertEqual(CS.z_plane_number("z12"), 12)
+        self.assertEqual(CS.z_plane_number(" z 3 "), 3)
+        self.assertEqual(CS.z_plane_number("z05"), 5)
+        for bad in (None, "", "z", "zz1", "z1a", "x1", "Left", "EXT_RIGHT",
+                    "z-1"):
+            self.assertIsNone(CS.z_plane_number(bad), bad)
+
+    def test_order(self):
+        self.assertEqual(CS.z_plane_order(["z3", "Left", "z1", "Z10", "z2"]),
+                         ["z1", "z2", "z3", "Z10"])
+        self.assertEqual(CS.z_plane_order(["z01", "z1"]), ["z01"])
+        self.assertEqual(CS.z_plane_order([]), [])
+
+    def test_setting(self):
+        self.assertTrue(CS.dim_settings({})["z_planes"])
+        self.assertFalse(CS.dim_settings(
+            {CS.SETTINGS_DIM_Z_PLANES: False})["z_planes"])
+        self.assertEqual(CS.dim_settings({})["z_mode"], CS.Z_CHAIN)
+        self.assertEqual(CS.dim_settings(
+            {CS.SETTINGS_DIM_Z_MODE: CS.Z_DIRECT})["z_mode"], CS.Z_DIRECT)
+        self.assertEqual(CS.dim_settings(
+            {CS.SETTINGS_DIM_Z_MODE: "odd"})["z_mode"], CS.Z_CHAIN)
+
+
 class DimSettings(unittest.TestCase):
     def test_remembered_and_default(self):
         self.assertEqual(CS.dim_settings({})["dim_type"], "RHD_2.5")

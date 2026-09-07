@@ -441,6 +441,11 @@ class PipeWindow(forms.WPFWindow):
         self.ChkDims.IsChecked = bool(rem["dims"])
         _fill(self.CmbDimType, dim_names,
               CS.pick_dim_type_name(dim_names, rem_dim["dim_type"]))
+        self.ChkZPlanes.IsChecked = bool(rem_dim["z_planes"])
+        if rem_dim["z_mode"] == CS.Z_DIRECT:
+            self.RbZDirect.IsChecked = True
+        else:
+            self.RbZChain.IsChecked = True
 
         self._fill_types()
         self._ready = True
@@ -559,6 +564,9 @@ class PipeWindow(forms.WPFWindow):
             self.PnlPerSide.Visibility = (Visibility.Collapsed if same
                                           else Visibility.Visible)
             self.CmbDimType.IsEnabled = bool(self.ChkDims.IsChecked)
+            self.ChkZPlanes.IsEnabled = bool(self.ChkDims.IsChecked)
+            self.PnlZMode.IsEnabled = bool(self.ChkDims.IsChecked and
+                                           self.ChkZPlanes.IsChecked)
             self.StatusText.Text = ""
         except Exception:
             pass
@@ -714,6 +722,8 @@ class PipeWindow(forms.WPFWindow):
         # 5 dimensions
         o["dims"] = bool(self.ChkDims.IsChecked)
         o["dim_type"] = self.CmbDimType.SelectedItem
+        o["z_planes"] = bool(self.ChkZPlanes.IsChecked)
+        o["z_mode"] = CS.Z_DIRECT if self.RbZDirect.IsChecked else CS.Z_CHAIN
         if o["dims"] and dim_names and not o["dim_type"]:
             return self._fail("Dimensions tab: pick a dimension type.")
         self.result = o
@@ -769,6 +779,8 @@ try:
     S[CS.SETTINGS_PIPE_DIMS] = opt["dims"]
     if opt["dim_type"]:
         S[CS.SETTINGS_DIM_TYPE] = opt["dim_type"]
+    S[CS.SETTINGS_DIM_Z_PLANES] = opt["z_planes"]
+    S[CS.SETTINGS_DIM_Z_MODE] = opt["z_mode"]
     save_settings(S)
 except Exception as ex:
     out.print_md("- Could not save the settings: {0}".format(ex))
@@ -940,7 +952,9 @@ try:
                 raise KeyboardInterrupt()
             ok, why, res = _run_step("Step 4 - Dimension Section", STEP_DIMS,
                                      "dims", {"views": views,
-                                              "dim_type": opt["dim_type"]})
+                                              "dim_type": opt["dim_type"],
+                                              "z_planes": opt["z_planes"],
+                                              "z_mode": opt["z_mode"]})
             summary.append(("Dimension Section",
                             "{0} string(s) in {1} section(s)".format(
                                 res.get("strings", 0),

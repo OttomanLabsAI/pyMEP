@@ -459,8 +459,18 @@
                                                Text="Dimension type"/>
                                     <ComboBox x:Name="CmbDimType" Grid.Column="1"/>
                                 </Grid>
+                                <CheckBox x:Name="ChkZPlanes" Margin="0,8,0,0"
+                                          Content="also dimension the chamber's z1, z2, z3... reference planes"
+                                          Checked="on_dims" Unchecked="on_dims"/>
+                                <StackPanel x:Name="PnlZMode" Margin="18,4,0,0">
+                                    <RadioButton x:Name="RbZChain" GroupName="ZMode"
+                                                 Content="chain through every plane: z1 - z2 - z3 ... to the highest"/>
+                                    <RadioButton x:Name="RbZDirect" GroupName="ZMode"
+                                                 Margin="0,4,0,0"
+                                                 Content="one overall dimension: z1 straight to the highest"/>
+                                </StackPanel>
                                 <TextBlock Style="{StaticResource Hint}"
-                                           Text="Two chained dimensions through the pipe centrelines in every new section: the column spacing above the bank and the row spacing to its left."/>
+                                           Text="Two chained dimensions through the pipe centrelines in every new section: the column spacing above the bank and the row spacing to its left. The chamber levels string runs through the family's z-numbered reference planes, right of the chamber."/>
                             </StackPanel>
                         </GroupBox>
                     </StackPanel>

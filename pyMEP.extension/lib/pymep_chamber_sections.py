@@ -12,6 +12,8 @@ sections are named after its KEY, which is the WHOLE Mark, trimmed -
 "LV1/Z1" stays "LV1/Z1". The zone part matters: LV numbers repeat across
 zones, so the Mark before the slash alone would collide."""
 
+import re
+
 
 def chamber_key(mark):
     """The naming key of a Mark: the whole Mark, trimmed ('LV1/Z1' ->
@@ -56,6 +58,10 @@ DEFAULT_PIPE_PER_SHEET = 2
 
 # Dimension Section dialog
 SETTINGS_DIM_TYPE = "dimension_section_dim_type"
+SETTINGS_DIM_Z_PLANES = "dimension_section_z_planes"
+SETTINGS_DIM_Z_MODE = "dimension_section_z_mode"    # Z_CHAIN | Z_DIRECT
+Z_CHAIN = "chain"
+Z_DIRECT = "direct"
 DEFAULT_DIM_TYPE_NAME = u"RHD_2.5"
 
 # Chamber Plans dialog
@@ -166,10 +172,40 @@ def chunks(items, size):
 
 
 def dim_settings(settings):
-    """The Dimension Section dialog's remembered dimension type name."""
+    """The Dimension Section dialog's remembered values: the dimension
+    type name and whether to dimension the chamber's z planes."""
     settings = settings or {}
+    mode = settings.get(SETTINGS_DIM_Z_MODE)
+    if mode not in (Z_CHAIN, Z_DIRECT):
+        mode = Z_CHAIN
     return {"dim_type": u"{0}".format(settings.get(SETTINGS_DIM_TYPE)
-                                      or DEFAULT_DIM_TYPE_NAME)}
+                                      or DEFAULT_DIM_TYPE_NAME),
+            "z_planes": bool(settings.get(SETTINGS_DIM_Z_PLANES, True)),
+            "z_mode": mode}
+
+
+_Z_PLANE_RE = re.compile(r"^\s*[zZ]\s*0*(\d+)\s*$")
+
+
+def z_plane_number(name):
+    """The number of a chamber reference plane named z1, z2, Z10, z05...
+    None for any other name."""
+    if not name:
+        return None
+    m = _Z_PLANE_RE.match(u"{0}".format(name))
+    return int(m.group(1)) if m else None
+
+
+def z_plane_order(names):
+    """The z-plane names sorted by their number, lowest first, duplicates
+    (z1 and z01) keeping the first seen. Names that are not z planes are
+    dropped."""
+    seen = {}
+    for n in names or []:
+        k = z_plane_number(n)
+        if k is not None and k not in seen:
+            seen[k] = n
+    return [seen[k] for k in sorted(seen)]
 
 
 def pick_dim_type_name(names, remembered=u""):

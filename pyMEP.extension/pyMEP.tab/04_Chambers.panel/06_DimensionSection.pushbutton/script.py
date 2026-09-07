@@ -19,6 +19,12 @@ WHAT it does in each section:
     dimension goes to the LEFT of the bank through one centreline per row
     (the row spacing). A single row or a single column gets no dimension
     in that direction.
+  * CHAMBER LEVELS (optional, on by default): the chamber family's
+    reference planes named z1, z2, z3... are found by name and dimensioned
+    to the right of the chamber, either as one chain through every plane
+    in number order or as one overall dimension from z1 straight to the
+    highest - the dialog asks which. The planes must be named in the
+    family and set as a reference. Skipped when fewer than two are found.
   * The dimension type is picked in the dialog (remembered; the house
     'RHD_2.5' is offered first when the project has it).
 
@@ -43,7 +49,7 @@ from Autodesk.Revit.DB import (
     Transaction, ViewType, BuiltInCategory, XYZ, Options, Curve,
     GeometryInstance, ReferenceArray, Line, FilteredElementCollector,
     FamilyInstance, View, ViewSheet, DimensionType, DimensionStyleType,
-    Element,
+    Element, FamilyInstanceReferenceType,
 )
 
 from pyrevit import revit, forms, script
@@ -70,6 +76,7 @@ COL_TOL_MM = 50.0           # ducts within this are the same column
 ROW_TOL_MM = 50.0           # ducts within this are the same row
 DIM_OFFSET_MM = 600.0       # column string this far above the bank
 VDIM_OFFSET_MM = 900.0      # row string this far left of the bank
+ZDIM_OFFSET_MM = 900.0      # z-plane string this far right of the chamber
 
 
 def _cat_int(elem):
@@ -214,6 +221,56 @@ def _inside_model_bb(el, pt, margin_ft):
             mbb.Min.Z - margin_ft <= pt.Z <= mbb.Max.Z + margin_ft)
 
 
+def _z_planes(inst):
+    # [(name, Reference)] of the family instance's reference planes named
+    # z<number>, lowest number first. Named planes are reported by the
+    # instance as strong or weak references.
+    names = []
+    for kind in ("StrongReference", "WeakReference"):
+        rt = getattr(FamilyInstanceReferenceType, kind, None)
+        if rt is None:
+            continue
+        try:
+            refs = inst.GetReferences(rt)
+        except Exception:
+            continue
+        for r in refs:
+            try:
+                nm = inst.GetReferenceName(r)
+            except Exception:
+                nm = None
+            if CS.z_plane_number(nm) is not None:
+                names.append(nm)
+    out_list = []
+    for nm in CS.z_plane_order(names):
+        try:
+            ref = inst.GetReferenceByName(nm)
+        except Exception:
+            ref = None
+        if ref is not None:
+            out_list.append((nm, ref))
+    return out_list
+
+
+def _bbox_frame(el, along_right, along_up):
+    # (min_r, max_r, min_u, max_u) of an element's model box in the frame.
+    try:
+        bb = el.get_BoundingBox(None)
+    except Exception:
+        bb = None
+    if bb is None:
+        return None
+    rs = []
+    us = []
+    for x in (bb.Min.X, bb.Max.X):
+        for y in (bb.Min.Y, bb.Max.Y):
+            for z in (bb.Min.Z, bb.Max.Z):
+                p = XYZ(x, y, z)
+                rs.append(along_right(p))
+                us.append(along_up(p))
+    return min(rs), max(rs), min(us), max(us)
+
+
 def _group(items, key, tol):
     # Cluster (el, point) items whose key() values lie within tol of a
     # cluster's first member. Returns clusters sorted by key.
@@ -233,9 +290,9 @@ def _group(items, key, tol):
 # ---------------------------------------------------------------------------
 # 2. One section: analyse + dimension (inside the caller's transaction)
 # ---------------------------------------------------------------------------
-def dimension_view(v, dim_type):
+def dimension_view(v, dim_type, z_planes=True, z_mode=CS.Z_CHAIN):
     res = {"view": _name(v), "ducts": 0, "cols": 0, "rows": 0,
-           "col": "-", "row": "-", "notes": []}
+           "col": "-", "row": "-", "z": "-", "notes": []}
     right = v.RightDirection
     up = v.UpDirection
     view_dir = v.ViewDirection
@@ -250,6 +307,11 @@ def dimension_view(v, dim_type):
     chamber = _find_chamber(v)
     res["chamber"] = _name(chamber) if chamber is not None else ""
     margin_ft = DUCT_MARGIN_MM / MM_PER_FOOT
+
+    # --- chamber levels: z1, z2, ... reference planes, right of the chamber
+    if z_planes:
+        res["z"] = _dimension_z_planes(v, dim_type, chamber, along_right,
+                                       along_up, right, up, z_mode)
 
     ducts = []
     rejected = 0
@@ -356,6 +418,66 @@ def dimension_view(v, dim_type):
     return res
 
 
+def _dimension_z_planes(v, dim_type, chamber, along_right, along_up, right,
+                        up, z_mode=CS.Z_CHAIN):
+    # The chamber's z planes in number order: one chain through all of
+    # them, or one overall dimension from the first to the last. Tried
+    # along the view's up direction first (level planes), then along right
+    # (if the family's z planes turn out vertical). Returns the row text.
+    if chamber is None:
+        return "no chamber in view"
+    planes = _z_planes(chamber)
+    if len(planes) < 2:
+        return ("no z planes on '{0}'".format(_name(chamber)) if not planes
+                else "only {0} found".format(planes[0][0]))
+    used = planes if z_mode == CS.Z_CHAIN else [planes[0], planes[-1]]
+    arr = ReferenceArray()
+    for _nm, ref in used:
+        arr.Append(ref)
+    ext = _bbox_frame(chamber, along_right, along_up)
+    if ext is None:
+        return "chamber has no bounding box"
+    min_r, max_r, min_u, max_u = ext
+    try:
+        cbb = chamber.get_BoundingBox(None)
+        anchor = XYZ((cbb.Min.X + cbb.Max.X) * 0.5,
+                     (cbb.Min.Y + cbb.Max.Y) * 0.5,
+                     (cbb.Min.Z + cbb.Max.Z) * 0.5)
+    except Exception:
+        return "chamber has no centre"
+    off = ZDIM_OFFSET_MM / MM_PER_FOOT
+
+    def at(r_val, u_val):
+        dr = r_val - along_right(anchor)
+        du = u_val - along_up(anchor)
+        return XYZ(anchor.X + right.X * dr + up.X * du,
+                   anchor.Y + right.Y * dr + up.Y * du,
+                   anchor.Z + right.Z * dr + up.Z * du)
+
+    label = "{0} to {1} ({2})".format(
+        planes[0][0], planes[-1][0],
+        "chain of {0}".format(len(planes)) if z_mode == CS.Z_CHAIN
+        else "direct")
+    attempts = (
+        ("vertical", at(max_r + off, min_u - 1.0), at(max_r + off, max_u + 1.0)),
+        ("horizontal", at(min_r - 1.0, min_u - off), at(max_r + 1.0, min_u - off)),
+    )
+    last = ""
+    for how, p0, p1 in attempts:
+        try:
+            line = Line.CreateBound(p0, p1)
+            if dim_type is not None:
+                d = doc.Create.NewDimension(v, line, arr, dim_type)
+            else:
+                d = doc.Create.NewDimension(v, line, arr)
+            if d is not None:
+                return "created {0}, {1}".format(label, how)
+            last = "NewDimension returned nothing"
+        except Exception as ex:
+            last = "{0}".format(ex)
+    return "NOT created {0} - {1}".format(label, last)
+
+
 # ---------------------------------------------------------------------------
 # 3. Which sections, and the dimension types on offer
 # ---------------------------------------------------------------------------
@@ -440,6 +562,11 @@ class DimWindow(forms.WPFWindow):
         first = CS.pick_dim_type_name(dim_names, remembered["dim_type"])
         if first is not None:
             self.CmbDimType.SelectedItem = first
+        self.ChkZPlanes.IsChecked = bool(remembered["z_planes"])
+        if remembered["z_mode"] == CS.Z_DIRECT:
+            self.RbZDirect.IsChecked = True
+        else:
+            self.RbZChain.IsChecked = True
         self._rebuild()
         self._ready = True
 
@@ -520,7 +647,10 @@ class DimWindow(forms.WPFWindow):
         if dim_names and not name:
             self.StatusText.Text = "Pick a dimension type."
             return
-        self.result = {"views": views, "dim_type": name}
+        self.result = {"views": views, "dim_type": name,
+                       "z_planes": bool(self.ChkZPlanes.IsChecked),
+                       "z_mode": (CS.Z_DIRECT if self.RbZDirect.IsChecked
+                                  else CS.Z_CHAIN)}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -535,6 +665,10 @@ if _HEADLESS:
         dim_names, CS.dim_settings(_settings)["dim_type"])
     if dim_name not in dim_types:
         dim_name = CS.pick_dim_type_name(dim_names, dim_name)
+    want_z = _HEADLESS.get("z_planes")
+    if want_z is None:
+        want_z = CS.dim_settings(_settings)["z_planes"]
+    z_mode = _HEADLESS.get("z_mode") or CS.dim_settings(_settings)["z_mode"]
 else:
     win = DimWindow(CS.dim_settings(_settings))
     win.ShowDialog()
@@ -542,11 +676,15 @@ else:
         script.exit()
     target_views = win.result["views"]
     dim_name = win.result["dim_type"]
+    want_z = win.result["z_planes"]
+    z_mode = win.result["z_mode"]
 dim_type = dim_types.get(dim_name) if dim_name else None
 try:
     if dim_name:
         _settings[CS.SETTINGS_DIM_TYPE] = dim_name
-        save_settings(_settings)
+    _settings[CS.SETTINGS_DIM_Z_PLANES] = bool(want_z)
+    _settings[CS.SETTINGS_DIM_Z_MODE] = z_mode
+    save_settings(_settings)
 except Exception:
     pass
 
@@ -561,11 +699,12 @@ t.Start()
 try:
     for v in target_views:
         try:
-            results.append(dimension_view(v, dim_type))
+            results.append(dimension_view(v, dim_type, want_z, z_mode))
         except Exception as ex:
             results.append({"view": _name(v), "ducts": 0, "cols": 0,
                             "rows": 0, "col": "FAILED", "row": "FAILED",
-                            "chamber": "", "notes": ["{0}".format(ex)]})
+                            "z": "FAILED", "chamber": "",
+                            "notes": ["{0}".format(ex)]})
     t.Commit()
 except Exception as ex:
     t.RollBack()
@@ -576,6 +715,7 @@ except Exception as ex:
 # 6. Report
 # ---------------------------------------------------------------------------
 made = sum(1 for r in results for k in ("col", "row") if r[k] == "created")
+made += sum(1 for r in results if str(r.get("z", "")).startswith("created"))
 out.print_md("### Dimension section")
 out.print_md("**Sections:** {0}  |  **Dimension type:** {1}  |  "
              "**Strings created:** {2}".format(
@@ -587,10 +727,12 @@ rows = []
 for r in results:
     rows.append([r["view"], r.get("chamber") or "-", str(r["ducts"]),
                  "{0} x {1}".format(r["cols"], r["rows"]), r["col"], r["row"],
+                 r.get("z", "-") if want_z else "off",
                  "; ".join(r["notes"]) if r["notes"] else ""])
 out.print_table(table_data=rows,
                 columns=["Section", "Chamber", "Ducts", "Cols x rows",
-                         "Column spacing", "Row spacing", "Notes"])
+                         "Column spacing", "Row spacing", "Chamber levels",
+                         "Notes"])
 
 if _HEADLESS:
     _PIPE["out_dims"] = {"sections": len(results), "strings": made}
