@@ -572,6 +572,29 @@ def dim_rules(settings):
 
 CUSTOM_SET_LABEL = u"(custom - the list below)"
 
+# Where a string sits: this far off the chamber's extent ON PAPER (times
+# the view scale in the model), each further string on the same side one
+# step further out.
+STRING_GAP_PAPER_MM = 10.0
+STRING_STEP_PAPER_MM = 7.0
+
+
+def string_offset_mm(scale, slot, gap=STRING_GAP_PAPER_MM,
+                     step=STRING_STEP_PAPER_MM):
+    """Model-mm offset of the slot-th string (0 = first) on one side of
+    the chamber in a view drawn at 1:scale. A bad scale counts as 1:1."""
+    try:
+        sc = float(scale)
+    except (TypeError, ValueError):
+        sc = 1.0
+    if sc <= 0:
+        sc = 1.0
+    try:
+        k = max(0, int(slot))
+    except (TypeError, ValueError):
+        k = 0
+    return sc * (float(gap) + float(step) * k)
+
 
 def normalise_dim_set(raw):
     """A saved dimension set cleaned: {'rules': [rule...]}. A set saved

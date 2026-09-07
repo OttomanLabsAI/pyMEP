@@ -22,6 +22,13 @@ is remembered, and can be saved under a name and picked from a dropdown):
     (read back from the string's own segments). z strings go to the right
     of the chamber, x and y strings below it, stacked when there are
     several.
+  * WHERE the strings sit: 10 mm on paper (times the view scale) off the
+    chamber's extent, each further string on a side 7 mm further out. The
+    extent is taken from the chamber's OUTERMOST NAMED REFERENCE PLANES -
+    x or y planes across the view, z planes up it - read back off a
+    throwaway dimension through them, because a family's bounding box
+    often reaches well beyond what is drawn. The box is the fallback when
+    the view cannot dimension those planes.
   * PIPE / CONDUIT / DUCT CENTRELINE STRINGS. A rule picks the categories
     and the strings: every run of those categories visible in the section
     (inside the chamber's footprint when a chamber family is in view) is
@@ -81,9 +88,9 @@ DUCT_CATS = (
 DUCT_MARGIN_MM = 300.0      # allow ducts just outside the chamber shell
 COL_TOL_MM = 50.0           # ducts within this are the same column
 ROW_TOL_MM = 50.0           # ducts within this are the same row
-DIM_OFFSET_MM = 600.0       # column string this far above the bank
-VDIM_OFFSET_MM = 900.0      # row string this far left of the bank
-ZDIM_OFFSET_MM = 900.0      # z-plane string this far right of the chamber
+# Strings sit CS.STRING_GAP_PAPER_MM (on paper, times the view scale) off
+# the chamber's extent, further strings on a side CS.STRING_STEP_PAPER_MM
+# apart - see CS.string_offset_mm.
 
 
 def _cat_int(elem):
@@ -301,6 +308,85 @@ def _bbox_frame(el, along_right, along_up):
     return min(rs), max(rs), min(us), max(us)
 
 
+def _frame_at(chamber, along_right, along_up, right, up):
+    # A function (r, u) -> model XYZ on the section plane through the
+    # chamber's centre, or None when the chamber has no box.
+    try:
+        cbb = chamber.get_BoundingBox(None)
+        anchor = XYZ((cbb.Min.X + cbb.Max.X) * 0.5,
+                     (cbb.Min.Y + cbb.Max.Y) * 0.5,
+                     (cbb.Min.Z + cbb.Max.Z) * 0.5)
+    except Exception:
+        return None
+    a_r = along_right(anchor)
+    a_u = along_up(anchor)
+
+    def at(r_val, u_val):
+        dr = r_val - a_r
+        du = u_val - a_u
+        return XYZ(anchor.X + right.X * dr + up.X * du,
+                   anchor.Y + right.Y * dr + up.Y * du,
+                   anchor.Z + right.Z * dr + up.Z * du)
+    return at
+
+
+def _plane_extent(v, chamber, along_right, along_up, at, box):
+    # (min_r, max_r, min_u, max_u, across_from_planes, up_from_planes):
+    # the chamber's extent from its outermost named reference planes - x
+    # or y planes across the view, z planes up it - each read back off a
+    # throwaway dimension through them. A direction the view cannot
+    # dimension keeps the box extent.
+    min_r, max_r, min_u, max_u = box
+
+    def probe(axes, line, along):
+        for axis in axes:
+            found = _named_planes(chamber, axis)
+            if len(found) < 2:
+                continue
+            planes = [found[n] for n in sorted(found)]
+            for cand in (planes, [planes[0], planes[-1]]):
+                d = None
+                try:
+                    arr = ReferenceArray()
+                    for _nm, ref in cand:
+                        arr.Append(ref)
+                    d = doc.Create.NewDimension(v, line, arr)
+                except Exception:
+                    d = None
+                if d is None:
+                    continue
+                pos = _ref_positions(d, along)
+                try:
+                    doc.Delete(d.Id)
+                except Exception:
+                    pass
+                if len(pos) >= 2:
+                    return min(pos), max(pos)
+        return None
+
+    try:
+        h_line = Line.CreateBound(at(min_r - 1.0, min_u - 1.0),
+                                  at(max_r + 1.0, min_u - 1.0))
+        v_line = Line.CreateBound(at(max_r + 1.0, min_u - 1.0),
+                                  at(max_r + 1.0, max_u + 1.0))
+    except Exception:
+        return min_r, max_r, min_u, max_u, False, False
+    h = probe(("x", "y"), h_line, along_right)
+    u = probe(("z",), v_line, along_up)
+    if h is not None:
+        min_r, max_r = h
+    if u is not None:
+        min_u, max_u = u
+    return min_r, max_r, min_u, max_u, h is not None, u is not None
+
+
+def _view_scale(v):
+    try:
+        return int(v.Scale) or 1
+    except Exception:
+        return 1
+
+
 def _group(items, key, tol):
     # Cluster (el, point) items whose key() values lie within tol of a
     # cluster's first member. Returns clusters sorted by key.
@@ -343,6 +429,29 @@ def dimension_view(v, dim_type, rules):
     chamber = _find_chamber(v)
     res["chamber"] = _name(chamber) if chamber is not None else ""
 
+    # The chamber's extent the strings are placed off: its outermost
+    # named reference planes where this view can dimension them, else its
+    # box. Worked out once per view.
+    ext = None
+    at = None
+    if chamber is not None:
+        box = _visible_extent(v, chamber, along_right, along_up)
+        at = _frame_at(chamber, along_right, along_up, right, up)
+        if box is not None and at is not None and rules:
+            e = _plane_extent(v, chamber, along_right, along_up, at, box)
+            ext = e[:4]
+            if not e[4] and not e[5]:
+                res["notes"].append("extent from the chamber's box (no x/y "
+                                    "or z planes could be dimensioned here)")
+            elif not e[4]:
+                res["notes"].append("extent across the view from the box "
+                                    "(no x/y planes dimensionable here)")
+            elif not e[5]:
+                res["notes"].append("extent up the view from the box (no z "
+                                    "planes dimensionable here)")
+        elif box is not None:
+            ext = box
+
     # One string per rule, in list order; strings on the same side of the
     # chamber stack outward through the slot counters.
     slots = {"vertical": 0, "horizontal": 0, "pipe_col": 0, "pipe_row": 0}
@@ -354,10 +463,10 @@ def dimension_view(v, dim_type, rules):
             text, n = _dimension_pipes(v, dim_type, chamber, rule,
                                        along_right, along_up, right, up,
                                        plane_origin, view_dir, slots,
-                                       res["notes"])
+                                       res["notes"], ext)
         else:
             text = _dimension_rule(v, dim_type, chamber, rule, along_right,
-                                   along_up, right, up, slots)
+                                   along_up, right, up, slots, ext, at)
             n = 1 if ": created" in text else 0
         res["strings"].append(text)
         res["made"] += n
@@ -365,9 +474,10 @@ def dimension_view(v, dim_type, rules):
 
 
 def _dimension_pipes(v, dim_type, chamber, rule, along_right, along_up,
-                     right, up, plane_origin, view_dir, slots, notes):
-    # The centreline strings for one rule: column spacing above the bank,
-    # row spacing to its left. Returns (row text, strings created).
+                     right, up, plane_origin, view_dir, slots, notes, ext):
+    # The centreline strings for one rule: column spacing above the
+    # chamber (or the bank when it sticks out / there is no chamber), row
+    # spacing to the left of it. Returns (row text, strings created).
     label = " + ".join(c + "s" for c in rule["cats"])
     cats = set(CAT_BY_KEY[c] for c in rule["cats"])
     margin_ft = DUCT_MARGIN_MM / MM_PER_FOOT
@@ -402,6 +512,10 @@ def _dimension_pipes(v, dim_type, chamber, rule, along_right, along_up,
 
     bank_top_u = max(along_up(c) for _el, c in ducts)
     bank_left_r = min(along_right(c) for _el, c in ducts)
+    if ext is not None:
+        bank_top_u = max(bank_top_u, ext[3])
+        bank_left_r = min(bank_left_r, ext[0])
+    scale = _view_scale(v)
 
     def refs_of(reps):
         arr = ReferenceArray()
@@ -440,7 +554,7 @@ def _dimension_pipes(v, dim_type, chamber, rule, along_right, along_up,
             else:
                 left_pt = pts[0]
                 lift = (bank_top_u - along_up(left_pt)) + \
-                    DIM_OFFSET_MM * (1 + slots["pipe_col"]) / MM_PER_FOOT
+                    CS.string_offset_mm(scale, slots["pipe_col"]) / MM_PER_FOOT
                 o = XYZ(left_pt.X + up.X * lift, left_pt.Y + up.Y * lift,
                         left_pt.Z + up.Z * lift)
                 span = along_right(pts[-1]) - along_right(left_pt)
@@ -472,8 +586,7 @@ def _dimension_pipes(v, dim_type, chamber, rule, along_right, along_up,
             else:
                 low_pt = pts[0]
                 shift = (along_right(low_pt) - bank_left_r) + \
-                    (VDIM_OFFSET_MM + DIM_OFFSET_MM * slots["pipe_row"]) / \
-                    MM_PER_FOOT
+                    CS.string_offset_mm(scale, slots["pipe_row"]) / MM_PER_FOOT
                 o = XYZ(low_pt.X - right.X * shift, low_pt.Y - right.Y * shift,
                         low_pt.Z - right.Z * shift)
                 vspan = along_up(pts[-1]) - along_up(low_pt)
@@ -571,8 +684,9 @@ def _ref_positions(d, along):
 
 
 def _dimension_rule(v, dim_type, chamber, rule, along_right, along_up, right,
-                    up, slots):
-    # One reference-plane string for one rule. Returns the row text.
+                    up, slots, ext, at):
+    # One reference-plane string for one rule, placed off the chamber
+    # extent `ext` (min_r, max_r, min_u, max_u). Returns the row text.
     rule = CS.normalise_rule(rule) or rule
     axis = rule["axis"]
     label = "{0} {1}".format(axis, rule["spec"])
@@ -591,39 +705,27 @@ def _dimension_rule(v, dim_type, chamber, rule, along_right, along_up, right,
         return "{0}: only {1} usable plane(s){2}".format(
             label, len(planes),
             " (missing " + ", ".join(missing) + ")" if missing else "")
-    ext = _visible_extent(v, chamber, along_right, along_up)
     if ext is None:
         return label + ": chamber has no bounding box"
-    min_r, max_r, min_u, max_u = ext
-    try:
-        cbb = chamber.get_BoundingBox(None)
-        anchor = XYZ((cbb.Min.X + cbb.Max.X) * 0.5,
-                     (cbb.Min.Y + cbb.Max.Y) * 0.5,
-                     (cbb.Min.Z + cbb.Max.Z) * 0.5)
-    except Exception:
+    if at is None:
         return label + ": chamber has no centre"
-
-    def at(r_val, u_val):
-        dr = r_val - along_right(anchor)
-        du = u_val - along_up(anchor)
-        return XYZ(anchor.X + right.X * dr + up.X * du,
-                   anchor.Y + right.Y * dr + up.Y * du,
-                   anchor.Z + right.Z * dr + up.Z * du)
-
-    base = ZDIM_OFFSET_MM / MM_PER_FOOT
-    step = DIM_OFFSET_MM / MM_PER_FOOT
+    min_r, max_r, min_u, max_u = ext
+    # 'inside the outline' is judged against what the view shows of the
+    # chamber (its box), not the plane extent the string is placed off.
+    box = _visible_extent(v, chamber, along_right, along_up) or ext
+    scale = _view_scale(v)
     natural = "vertical" if axis == "z" else "horizontal"
     order = [natural, "horizontal" if natural == "vertical" else "vertical"]
     tol = 100.0 / MM_PER_FOOT
     last = ""
     for how in order:
-        off = base + step * slots[how]
+        off = CS.string_offset_mm(scale, slots[how]) / MM_PER_FOOT
         if how == "vertical":
             p0, p1 = at(max_r + off, min_u - 1.0), at(max_r + off, max_u + 1.0)
-            along, low, high = along_up, min_u, max_u
+            along, low, high = along_up, box[2], box[3]
         else:
             p0, p1 = at(min_r - 1.0, min_u - off), at(max_r + 1.0, min_u - off)
-            along, low, high = along_right, min_r, max_r
+            along, low, high = along_right, box[0], box[1]
         try:
             line = Line.CreateBound(p0, p1)
         except Exception as ex:

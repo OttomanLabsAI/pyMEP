@@ -327,6 +327,24 @@ class PlaneRules(unittest.TestCase):
         self.assertEqual(CS.outside_span([], 0.0, 4.0), [])
 
 
+class StringOffset(unittest.TestCase):
+    """Dimension strings sit a paper distance off the chamber, scaled."""
+
+    def test_offsets_follow_the_scale(self):
+        self.assertEqual(CS.string_offset_mm(20, 0), 200.0)
+        self.assertEqual(CS.string_offset_mm(20, 1), 340.0)
+        self.assertEqual(CS.string_offset_mm(20, 2), 480.0)
+        self.assertEqual(CS.string_offset_mm(50, 0), 500.0)
+        self.assertEqual(CS.string_offset_mm(50, 3), 1550.0)
+
+    def test_bad_input(self):
+        self.assertEqual(CS.string_offset_mm(None, 0), 10.0)
+        self.assertEqual(CS.string_offset_mm(0, 0), 10.0)
+        self.assertEqual(CS.string_offset_mm(20, -3), 200.0)
+        self.assertEqual(CS.string_offset_mm(20, None), 200.0)
+        self.assertEqual(CS.string_offset_mm(20, 0, gap=5, step=4), 100.0)
+
+
 class DimSets(unittest.TestCase):
     """Named sets of dimensions: saved, listed, matched and removed."""
 
