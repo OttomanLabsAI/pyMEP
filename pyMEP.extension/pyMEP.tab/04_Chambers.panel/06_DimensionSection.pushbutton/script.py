@@ -25,10 +25,12 @@ is remembered, and can be saved under a name and picked from a dropdown):
   * WHERE the strings sit: 10 mm on paper (times the view scale) off the
     chamber's extent, each further string on a side 7 mm further out. The
     extent is taken from the chamber's OUTERMOST NAMED REFERENCE PLANES -
-    x or y planes across the view, z planes up it - read back off a
-    throwaway dimension through them, because a family's bounding box
-    often reaches well beyond what is drawn. The box is the fallback when
-    the view cannot dimension those planes.
+    x or y planes across the view, z planes up it - each plane's position
+    read from its geometry (a throwaway sketch plane hosted on it),
+    because a family's bounding box often reaches well beyond what is
+    drawn. A direction that gives nothing that way is read back off a
+    throwaway dimension through the planes; the box is the last resort,
+    and the report's notes say which was used when it is not the planes.
   * PIPE / CONDUIT / DUCT CENTRELINE STRINGS. A rule picks the categories
     and the strings: every run of those categories visible in the section
     (inside the chamber's footprint when a chamber family is in view) is
@@ -62,7 +64,7 @@ from Autodesk.Revit.DB import (
     Transaction, ViewType, BuiltInCategory, XYZ, Options, Curve,
     GeometryInstance, ReferenceArray, Line, FilteredElementCollector,
     FamilyInstance, View, ViewSheet, DimensionType, DimensionStyleType,
-    Element, FamilyInstanceReferenceType,
+    Element, FamilyInstanceReferenceType, SketchPlane,
 )
 
 from pyrevit import revit, forms, script
@@ -330,13 +332,55 @@ def _frame_at(chamber, along_right, along_up, right, up):
     return at
 
 
-def _plane_extent(v, chamber, along_right, along_up, at, box):
-    # (min_r, max_r, min_u, max_u, across_from_planes, up_from_planes):
-    # the chamber's extent from its outermost named reference planes - x
-    # or y planes across the view, z planes up it - each read back off a
-    # throwaway dimension through them. A direction the view cannot
-    # dimension keeps the box extent.
+def _plane_geometry(ref):
+    # (normal, origin) of a family reference plane, read through a
+    # throwaway sketch plane hosted on it. None when Revit will not host
+    # one on that reference.
+    sp = None
+    try:
+        sp = SketchPlane.Create(doc, ref)
+        pl = sp.GetPlane()
+        return pl.Normal, pl.Origin
+    except Exception:
+        return None
+    finally:
+        if sp is not None:
+            try:
+                doc.Delete(sp.Id)
+            except Exception:
+                pass
+
+
+def _plane_extent(v, chamber, along_right, along_up, right, up, at, box):
+    # (min_r, max_r, min_u, max_u, how_across, how_up): the chamber's
+    # extent from its outermost named reference planes - x or y planes
+    # across the view, z planes up it. Each plane's position comes from
+    # its geometry (a throwaway sketch plane on it); a direction that
+    # gives no planes that way is tried with a throwaway dimension
+    # through them, read back after a regenerate; failing both it keeps
+    # the box extent. how_* is 'planes', 'probe' or 'box'.
     min_r, max_r, min_u, max_u = box
+    across, upward = [], []
+    for axis in ("x", "y", "z"):
+        for _n, (_nm, ref) in _named_planes(chamber, axis).items():
+            geo = _plane_geometry(ref)
+            if geo is None:
+                continue
+            normal, origin = geo
+            try:
+                if abs(normal.DotProduct(right)) > 0.99:
+                    across.append(along_right(origin))
+                elif abs(normal.DotProduct(up)) > 0.99:
+                    upward.append(along_up(origin))
+            except Exception:
+                continue
+    how_r = how_u = "box"
+    if len(across) >= 2:
+        min_r, max_r, how_r = min(across), max(across), "planes"
+    if len(upward) >= 2:
+        min_u, max_u, how_u = min(upward), max(upward), "planes"
+    if how_r == "planes" and how_u == "planes":
+        return min_r, max_r, min_u, max_u, how_r, how_u
 
     def probe(axes, line, along):
         for axis in axes:
@@ -355,6 +399,10 @@ def _plane_extent(v, chamber, along_right, along_up, at, box):
                     d = None
                 if d is None:
                     continue
+                try:
+                    doc.Regenerate()
+                except Exception:
+                    pass
                 pos = _ref_positions(d, along)
                 try:
                     doc.Delete(d.Id)
@@ -370,14 +418,16 @@ def _plane_extent(v, chamber, along_right, along_up, at, box):
         v_line = Line.CreateBound(at(max_r + 1.0, min_u - 1.0),
                                   at(max_r + 1.0, max_u + 1.0))
     except Exception:
-        return min_r, max_r, min_u, max_u, False, False
-    h = probe(("x", "y"), h_line, along_right)
-    u = probe(("z",), v_line, along_up)
-    if h is not None:
-        min_r, max_r = h
-    if u is not None:
-        min_u, max_u = u
-    return min_r, max_r, min_u, max_u, h is not None, u is not None
+        return min_r, max_r, min_u, max_u, how_r, how_u
+    if how_r != "planes":
+        h = probe(("x", "y"), h_line, along_right)
+        if h is not None:
+            min_r, max_r, how_r = h[0], h[1], "probe"
+    if how_u != "planes":
+        u = probe(("z",), v_line, along_up)
+        if u is not None:
+            min_u, max_u, how_u = u[0], u[1], "probe"
+    return min_r, max_r, min_u, max_u, how_r, how_u
 
 
 def _view_scale(v):
@@ -438,17 +488,12 @@ def dimension_view(v, dim_type, rules):
         box = _visible_extent(v, chamber, along_right, along_up)
         at = _frame_at(chamber, along_right, along_up, right, up)
         if box is not None and at is not None and rules:
-            e = _plane_extent(v, chamber, along_right, along_up, at, box)
+            e = _plane_extent(v, chamber, along_right, along_up, right, up,
+                              at, box)
             ext = e[:4]
-            if not e[4] and not e[5]:
-                res["notes"].append("extent from the chamber's box (no x/y "
-                                    "or z planes could be dimensioned here)")
-            elif not e[4]:
-                res["notes"].append("extent across the view from the box "
-                                    "(no x/y planes dimensionable here)")
-            elif not e[5]:
-                res["notes"].append("extent up the view from the box (no z "
-                                    "planes dimensionable here)")
+            if e[4] != "planes" or e[5] != "planes":
+                res["notes"].append("extent across: {0}, up: {1}".format(
+                    e[4], e[5]))
         elif box is not None:
             ext = box
 
@@ -741,6 +786,10 @@ def _dimension_rule(v, dim_type, chamber, rule, along_right, along_up, right,
             # off the string and remake it without them (numbers are taken
             # to rise with position, z1 lowest, x1 leftmost).
             geo = used if rule["mode"] == CS.Z_CHAIN else [used[0], used[-1]]
+            try:
+                doc.Regenerate()
+            except Exception:
+                pass
             pos = _ref_positions(d, along)
             if len(pos) == len(geo):
                 out_ranks = CS.outside_span(pos, low, high, tol)
