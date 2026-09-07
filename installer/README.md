@@ -29,8 +29,12 @@ installer with `-PyRevitSetupPath`.
 ## Which pyRevit
 
 `installer\pyrevit-version.txt` pins the pyRevit release that gets bundled.
-Change it when you move the office to a newer pyRevit. The build fails
-loudly if that release has no `pyRevit_<ver>_signed.exe` asset.
+pyRevit's release tags carry the full build string (`v6.5.3.26176+2017`),
+so the pin is matched as a prefix and the newest build of that version is
+taken; put a full tag in the file to pin one exact build. Change it when
+you move the office to a newer pyRevit. The build fails loudly, listing
+the newest tags, if nothing matches or the release has no
+`pyRevit_<build>_signed.exe` asset.
 
 ## What the installer does, step by step
 
