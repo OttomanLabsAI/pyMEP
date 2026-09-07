@@ -210,6 +210,93 @@ class ZPlanes(unittest.TestCase):
             {CS.SETTINGS_DIM_Z_SKIP: False})["z_skip"])
 
 
+class PlaneRules(unittest.TestCase):
+    def test_plane_number_per_axis(self):
+        self.assertEqual(CS.plane_number("x3", "x"), 3)
+        self.assertEqual(CS.plane_number("Y02", "y"), 2)
+        self.assertEqual(CS.plane_number("z 5", "Z"), 5)
+        self.assertIsNone(CS.plane_number("x3", "y"))
+        self.assertIsNone(CS.plane_number("Left", "x"))
+        self.assertIsNone(CS.plane_number("", "x"))
+
+    def test_parse_spec(self):
+        self.assertEqual(CS.parse_plane_spec("all")["kind"], "all")
+        self.assertEqual(CS.parse_plane_spec("")["kind"], "all")
+        self.assertEqual(CS.parse_plane_spec("1-"),
+                         {"kind": "from", "start": 1, "nums": []})
+        self.assertEqual(CS.parse_plane_spec("1-5")["nums"], [1, 2, 3, 4, 5])
+        self.assertEqual(CS.parse_plane_spec("5-3")["nums"], [5, 4, 3])
+        self.assertEqual(CS.parse_plane_spec("2,3,5")["nums"], [2, 3, 5])
+        self.assertEqual(CS.parse_plane_spec("2; 3 5")["nums"], [2, 3, 5])
+        self.assertEqual(CS.parse_plane_spec("1-3,5,3")["nums"], [1, 2, 3, 5])
+        for bad in ("a", "1-b", "1,,x", "-", "1--3"):
+            self.assertIsNone(CS.parse_plane_spec(bad), bad)
+
+    def test_wanted_numbers(self):
+        have = [5, 2, 3, 7]
+        self.assertEqual(CS.wanted_numbers(CS.parse_plane_spec("all"), have),
+                         [2, 3, 5, 7])
+        self.assertEqual(CS.wanted_numbers(CS.parse_plane_spec("3-"), have),
+                         [3, 5, 7])
+        self.assertEqual(CS.wanted_numbers(CS.parse_plane_spec("1-5"), have),
+                         [1, 2, 3, 4, 5])
+        self.assertEqual(CS.wanted_numbers(None, have), [])
+
+    def test_normalise_and_label(self):
+        r = CS.normalise_rule({"axis": "Z", "spec": " 1-5 ", "mode": "odd"})
+        self.assertEqual(r, {"axis": "z", "spec": "1-5", "mode": CS.Z_CHAIN,
+                             "skip": True, "inside": True})
+        self.assertEqual(CS.rule_label(r),
+                         "z  1-5  chain  (skip missing)  (inside the outline)")
+        self.assertEqual(CS.rule_label({"axis": "x", "spec": "all",
+                                        "mode": CS.Z_DIRECT, "skip": False,
+                                        "inside": False}),
+                         "x  all  direct  (all or nothing)")
+        self.assertIsNone(CS.normalise_rule({"axis": "w", "spec": "1-5"}))
+        self.assertIsNone(CS.normalise_rule({"axis": "x", "spec": "a-b"}))
+        self.assertIsNone(CS.normalise_rule("nope"))
+        self.assertEqual(CS.rule_label("nope"), "(invalid rule)")
+
+    def test_rules_settings_and_migration(self):
+        self.assertEqual(CS.dim_rules({}), [{"axis": "z", "spec": "1-",
+                                             "mode": CS.Z_CHAIN,
+                                             "skip": True, "inside": True}])
+        self.assertEqual(CS.dim_rules({CS.SETTINGS_DIM_Z_PLANES: False}), [])
+        self.assertEqual(CS.dim_rules(
+            {CS.SETTINGS_DIM_Z_MODE: CS.Z_DIRECT})[0]["mode"], CS.Z_DIRECT)
+        saved = {CS.SETTINGS_DIM_RULES: [
+            {"axis": "x", "spec": "2,3,5", "mode": "chain", "skip": False},
+            {"axis": "q", "spec": "1-2"}, "junk"]}
+        self.assertEqual(CS.dim_rules(saved), [
+            {"axis": "x", "spec": "2,3,5", "mode": CS.Z_CHAIN, "skip": False,
+             "inside": True}])
+
+    def test_positions_from_segments(self):
+        up = lambda p: p[2]
+        # three refs at z = 0, 1.5, 5 -> segments (0-1.5) and (1.5-5)
+        origins = [(0, 0, 0.75), (0, 0, 3.25)]
+        values = [1.5, 3.5]
+        self.assertEqual(CS.positions_from_segments(origins, values,
+                                                    (0, 0, 1), up),
+                         [0.0, 1.5, 5.0])
+        # a single-segment (two-reference) dimension
+        self.assertEqual(CS.positions_from_segments([(0, 0, 2)], [4.0],
+                                                    (0, 0, 1), up),
+                         [0.0, 4.0])
+        # the line drawn the other way round still gives the same points
+        self.assertEqual(sorted(CS.positions_from_segments(
+            [(0, 0, 3.25), (0, 0, 0.75)], [3.5, 1.5], (0, 0, -1), up)),
+            [0.0, 1.5, 5.0])
+
+    def test_outside_span(self):
+        self.assertEqual(CS.outside_span([0.0, 1.5, 5.0], 0.0, 4.0), [2])
+        self.assertEqual(CS.outside_span([5.0, 1.5, -1.0], 0.0, 4.0), [0, 2])
+        self.assertEqual(CS.outside_span([0.0, 4.1], 0.0, 4.0, tol=0.2), [])
+        self.assertEqual(CS.outside_span([], 0.0, 4.0), [])
+        self.assertTrue(CS.dim_pipes({}))
+        self.assertFalse(CS.dim_pipes({CS.SETTINGS_DIM_PIPES: False}))
+
+
 class DimSettings(unittest.TestCase):
     def test_remembered_and_default(self):
         self.assertEqual(CS.dim_settings({})["dim_type"], "RHD_2.5")

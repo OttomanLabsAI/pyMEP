@@ -19,16 +19,18 @@ WHAT it does in each section:
     dimension goes to the LEFT of the bank through one centreline per row
     (the row spacing). A single row or a single column gets no dimension
     in that direction.
-  * CHAMBER LEVELS (optional, on by default): the chamber family's
-    reference planes named z1, z2, z3... are found by name and dimensioned
-    to the right of the chamber, either as one chain through every plane
-    in number order or as one overall dimension from z1 straight to the
-    highest - the dialog asks which. A view can only dimension the planes
-    it sees; with 'skip the planes this view cannot dimension' on (the
-    default) the ones Revit refuses are dropped and the rest are used,
-    smallest number first (z2, z3, z5...). The planes must be named in
-    the family and set as a reference. Fewer than two usable planes is
-    reported and skipped.
+  * REFERENCE PLANE STRINGS from a list of RULES you build in the dialog
+    (+ opens the editor, Add to list saves; Edit / Remove; the list is
+    remembered). A rule names the planes by axis - the chamber family's
+    reference planes named x1, x2..., y1, y2... or z1, z2... - and by
+    number: '1-5' (z1 to z5), '1-' (z1 up to the highest found), 'all', or
+    a list '2,3,5'; chain through each plane or one overall dimension
+    first-to-last; 'dimension anyway' uses the planes that exist and that
+    this view can take when some are missing; 'inside the outline' drops a
+    plane that reaches beyond the chamber's visible box (read back from
+    the string's own segments). z strings go to the right of the chamber,
+    x and y strings below it, stacked when there are several.
+  * The pipe centreline strings can be turned off.
   * The dimension type is picked in the dialog (remembered; the house
     'RHD_2.5' is offered first when the project has it).
 
@@ -59,6 +61,7 @@ from Autodesk.Revit.DB import (
 from pyrevit import revit, forms, script
 
 import pymep_chamber_sections as CS
+from pymep_dim_rules_ui import RuleList
 from pymep_config import load_settings, save_settings
 
 doc = revit.doc
@@ -225,11 +228,11 @@ def _inside_model_bb(el, pt, margin_ft):
             mbb.Min.Z - margin_ft <= pt.Z <= mbb.Max.Z + margin_ft)
 
 
-def _z_planes(inst):
-    # [(name, Reference)] of the family instance's reference planes named
-    # z<number>, lowest number first. Named planes are reported by the
-    # instance as strong or weak references.
-    names = []
+def _named_planes(inst, axis):
+    # {number: (name, Reference)} of the family instance's reference planes
+    # named <axis><number>. Named planes are reported by the instance as
+    # strong or weak references.
+    found = {}
     for kind in ("StrongReference", "WeakReference"):
         rt = getattr(FamilyInstanceReferenceType, kind, None)
         if rt is None:
@@ -243,17 +246,40 @@ def _z_planes(inst):
                 nm = inst.GetReferenceName(r)
             except Exception:
                 nm = None
-            if CS.z_plane_number(nm) is not None:
-                names.append(nm)
-    out_list = []
-    for nm in CS.z_plane_order(names):
+            n = CS.plane_number(nm, axis)
+            if n is None or n in found:
+                continue
+            try:
+                ref = inst.GetReferenceByName(nm)
+            except Exception:
+                ref = None
+            if ref is not None:
+                found[n] = (nm, ref)
+    return found
+
+
+def _visible_extent(v, el, along_right, along_up):
+    # (min_r, max_r, min_u, max_u) of what the view shows of the element:
+    # its view-specific bounding box when Revit gives one, else its model
+    # box. None when neither can be read.
+    try:
+        bb = el.get_BoundingBox(v)
+    except Exception:
+        bb = None
+    if bb is not None:
         try:
-            ref = inst.GetReferenceByName(nm)
+            tf = bb.Transform
+            rs, us = [], []
+            for x in (bb.Min.X, bb.Max.X):
+                for y in (bb.Min.Y, bb.Max.Y):
+                    for z in (bb.Min.Z, bb.Max.Z):
+                        p = tf.OfPoint(XYZ(x, y, z))
+                        rs.append(along_right(p))
+                        us.append(along_up(p))
+            return min(rs), max(rs), min(us), max(us)
         except Exception:
-            ref = None
-        if ref is not None:
-            out_list.append((nm, ref))
-    return out_list
+            pass
+    return _bbox_frame(el, along_right, along_up)
 
 
 def _bbox_frame(el, along_right, along_up):
@@ -294,10 +320,9 @@ def _group(items, key, tol):
 # ---------------------------------------------------------------------------
 # 2. One section: analyse + dimension (inside the caller's transaction)
 # ---------------------------------------------------------------------------
-def dimension_view(v, dim_type, z_planes=True, z_mode=CS.Z_CHAIN,
-                   z_skip=True):
+def dimension_view(v, dim_type, pipes=True, rules=None):
     res = {"view": _name(v), "ducts": 0, "cols": 0, "rows": 0,
-           "col": "-", "row": "-", "z": "-", "notes": []}
+           "col": "-", "row": "-", "planes": [], "notes": []}
     right = v.RightDirection
     up = v.UpDirection
     view_dir = v.ViewDirection
@@ -313,10 +338,15 @@ def dimension_view(v, dim_type, z_planes=True, z_mode=CS.Z_CHAIN,
     res["chamber"] = _name(chamber) if chamber is not None else ""
     margin_ft = DUCT_MARGIN_MM / MM_PER_FOOT
 
-    # --- chamber levels: z1, z2, ... reference planes, right of the chamber
-    if z_planes:
-        res["z"] = _dimension_z_planes(v, dim_type, chamber, along_right,
-                                       along_up, right, up, z_mode, z_skip)
+    # --- reference plane strings from the rules ---
+    slots = {"vertical": 0, "horizontal": 0}
+    for rule in (rules or []):
+        res["planes"].append(_dimension_rule(v, dim_type, chamber, rule,
+                                             along_right, along_up, right,
+                                             up, slots))
+    if not pipes:
+        res["col"] = res["row"] = "off"
+        return res
 
     ducts = []
     rejected = 0
@@ -423,23 +453,108 @@ def dimension_view(v, dim_type, z_planes=True, z_mode=CS.Z_CHAIN,
     return res
 
 
-def _dimension_z_planes(v, dim_type, chamber, along_right, along_up, right,
-                        up, z_mode=CS.Z_CHAIN, z_skip=True):
-    # The chamber's z planes in number order: one chain through them, or
-    # one overall dimension from the first to the last. Tried along the
-    # view's up direction first (level planes), then along right (if the
-    # family's z planes turn out vertical). With z_skip, the planes this
-    # view cannot dimension (parallel to it, or outside its crop) are found
-    # by probing and dropped. Returns the row text.
+def _make_string(v, dim_type, line, planes, rule):
+    # One dimension along `line` through `planes` [(name, ref)], honouring
+    # the rule's chain / direct mode. When Revit refuses and the rule says
+    # 'dimension anyway', each plane is probed with a throwaway dimension
+    # and the ones this view can take are used. Returns
+    # (dimension or None, planes used, names skipped, error text).
+    def make(refs):
+        arr = ReferenceArray()
+        picked = refs if rule["mode"] == CS.Z_CHAIN else [refs[0], refs[-1]]
+        for _nm, ref in picked:
+            arr.Append(ref)
+        if dim_type is not None:
+            return doc.Create.NewDimension(v, line, arr, dim_type)
+        return doc.Create.NewDimension(v, line, arr)
+
+    try:
+        d = make(planes)
+        if d is not None:
+            return d, planes, [], ""
+        err = "NewDimension returned nothing"
+    except Exception as ex:
+        err = "{0}".format(ex)
+    if not rule["skip"]:
+        return None, planes, [], err
+    usable = []
+    for i, p in enumerate(planes):
+        for j, q in enumerate(planes):
+            if i == j:
+                continue
+            try:
+                arr = ReferenceArray()
+                arr.Append(p[1])
+                arr.Append(q[1])
+                probe = doc.Create.NewDimension(v, line, arr)
+            except Exception:
+                continue
+            if probe is not None:
+                try:
+                    doc.Delete(probe.Id)
+                except Exception:
+                    pass
+                usable.append(p)
+                break
+    skipped = [p[0] for p in planes if p not in usable]
+    if len(usable) < 2:
+        return None, usable, skipped, (
+            "only {0} can be dimensioned here".format(usable[0][0])
+            if usable else "none of the planes can be dimensioned here")
+    try:
+        d = make(usable)
+    except Exception as ex:
+        return None, usable, skipped, "{0}".format(ex)
+    return d, usable, skipped, ("" if d is not None
+                                else "NewDimension returned nothing")
+
+
+def _ref_positions(d, along):
+    # Where a dimension's references sit along an axis, read back from its
+    # own segments (geometric order). [] when it cannot be read.
+    try:
+        crv = d.Curve
+        dv = crv.Direction
+        line_dir = (dv.X, dv.Y, dv.Z)
+        origins, values = [], []
+        if d.NumberOfSegments > 1:
+            for seg in d.Segments:
+                o = seg.Origin
+                origins.append((o.X, o.Y, o.Z))
+                values.append(float(seg.Value or 0.0))
+        else:
+            o = d.Origin
+            origins.append((o.X, o.Y, o.Z))
+            values.append(float(d.Value or 0.0))
+        return CS.positions_from_segments(origins, values, line_dir, along)
+    except Exception:
+        return []
+
+
+def _dimension_rule(v, dim_type, chamber, rule, along_right, along_up, right,
+                    up, slots):
+    # One reference-plane string for one rule. Returns the row text.
+    rule = CS.normalise_rule(rule) or rule
+    axis = rule["axis"]
+    label = "{0} {1}".format(axis, rule["spec"])
     if chamber is None:
-        return "no chamber in view"
-    planes = _z_planes(chamber)
+        return label + ": no chamber in view"
+    found = _named_planes(chamber, axis)
+    if not found:
+        return "{0}: no {1} planes on '{2}'".format(label, axis, _name(chamber))
+    wanted = CS.wanted_numbers(CS.parse_plane_spec(rule["spec"]), found.keys())
+    missing = ["{0}{1}".format(axis, n) for n in wanted if n not in found]
+    if missing and not rule["skip"]:
+        return "{0}: NOT created - {1} not in the family".format(
+            label, ", ".join(missing))
+    planes = [found[n] for n in sorted(n for n in wanted if n in found)]
     if len(planes) < 2:
-        return ("no z planes on '{0}'".format(_name(chamber)) if not planes
-                else "only {0} found".format(planes[0][0]))
-    ext = _bbox_frame(chamber, along_right, along_up)
+        return "{0}: only {1} usable plane(s){2}".format(
+            label, len(planes),
+            " (missing " + ", ".join(missing) + ")" if missing else "")
+    ext = _visible_extent(v, chamber, along_right, along_up)
     if ext is None:
-        return "chamber has no bounding box"
+        return label + ": chamber has no bounding box"
     min_r, max_r, min_u, max_u = ext
     try:
         cbb = chamber.get_BoundingBox(None)
@@ -447,8 +562,7 @@ def _dimension_z_planes(v, dim_type, chamber, along_right, along_up, right,
                      (cbb.Min.Y + cbb.Max.Y) * 0.5,
                      (cbb.Min.Z + cbb.Max.Z) * 0.5)
     except Exception:
-        return "chamber has no centre"
-    off = ZDIM_OFFSET_MM / MM_PER_FOOT
+        return label + ": chamber has no centre"
 
     def at(r_val, u_val):
         dr = r_val - along_right(anchor)
@@ -457,87 +571,69 @@ def _dimension_z_planes(v, dim_type, chamber, along_right, along_up, right,
                    anchor.Y + right.Y * dr + up.Y * du,
                    anchor.Z + right.Z * dr + up.Z * du)
 
-    attempts = (
-        ("vertical", at(max_r + off, min_u - 1.0), at(max_r + off, max_u + 1.0)),
-        ("horizontal", at(min_r - 1.0, min_u - off), at(max_r + 1.0, min_u - off)),
-    )
-
-    def make(line, refs):
-        arr = ReferenceArray()
-        for _nm, ref in refs:
-            arr.Append(ref)
-        if dim_type is not None:
-            return doc.Create.NewDimension(v, line, arr, dim_type)
-        return doc.Create.NewDimension(v, line, arr)
-
-    def usable(line):
-        # The planes this view can dimension along `line`: a plane counts
-        # when a probe dimension between it and some other plane succeeds
-        # (the probe is deleted again).
-        ok = []
-        for i, p in enumerate(planes):
-            good = False
-            for j, q in enumerate(planes):
-                if i == j:
-                    continue
-                try:
-                    d = make(line, [p, q])
-                except Exception:
-                    continue
-                if d is not None:
-                    try:
-                        doc.Delete(d.Id)
-                    except Exception:
-                        pass
-                    good = True
-                    break
-            if good:
-                ok.append(p)
-        return ok
-
+    base = ZDIM_OFFSET_MM / MM_PER_FOOT
+    step = DIM_OFFSET_MM / MM_PER_FOOT
+    natural = "vertical" if axis == "z" else "horizontal"
+    order = [natural, "horizontal" if natural == "vertical" else "vertical"]
+    tol = 100.0 / MM_PER_FOOT
     last = ""
-    for how, p0, p1 in attempts:
+    for how in order:
+        off = base + step * slots[how]
+        if how == "vertical":
+            p0, p1 = at(max_r + off, min_u - 1.0), at(max_r + off, max_u + 1.0)
+            along, low, high = along_up, min_u, max_u
+        else:
+            p0, p1 = at(min_r - 1.0, min_u - off), at(max_r + 1.0, min_u - off)
+            along, low, high = along_right, min_r, max_r
         try:
             line = Line.CreateBound(p0, p1)
         except Exception as ex:
             last = "{0}".format(ex)
             continue
-        chosen = planes
-        skipped = []
-        # 1) everything at once; 2) if refused and skipping is on, probe
-        #    each plane and use the ones this view can take.
-        try:
-            d = make(line, chosen if z_mode == CS.Z_CHAIN
-                     else [chosen[0], chosen[-1]])
-        except Exception as ex:
-            d = None
-            last = "{0}".format(ex)
-            if z_skip:
-                chosen = usable(line)
-                skipped = [p[0] for p in planes if p not in chosen]
-                if len(chosen) >= 2:
+        d, used, skipped, err = _make_string(v, dim_type, line, planes, rule)
+        if d is None:
+            last = err
+            continue
+        dropped = []
+        if rule["inside"]:
+            # Planes beyond the chamber's visible box: read their positions
+            # off the string and remake it without them (numbers are taken
+            # to rise with position, z1 lowest, x1 leftmost).
+            geo = used if rule["mode"] == CS.Z_CHAIN else [used[0], used[-1]]
+            pos = _ref_positions(d, along)
+            if len(pos) == len(geo):
+                out_ranks = CS.outside_span(pos, low, high, tol)
+                if out_ranks:
+                    drop_names = set(geo[r][0] for r in out_ranks
+                                     if r < len(geo))
+                    keep = [p for p in used if p[0] not in drop_names]
                     try:
-                        d = make(line, chosen if z_mode == CS.Z_CHAIN
-                                 else [chosen[0], chosen[-1]])
-                    except Exception as ex2:
-                        d = None
-                        last = "{0}".format(ex2)
-                elif chosen:
-                    last = "only {0} can be dimensioned here".format(
-                        chosen[0][0])
-                else:
-                    last = "none of the z planes can be dimensioned here"
-        if d is not None:
-            label = "{0} to {1} ({2})".format(
-                chosen[0][0], chosen[-1][0],
-                "chain of {0}".format(len(chosen)) if z_mode == CS.Z_CHAIN
-                else "direct")
-            note = "created {0}, {1}".format(label, how)
-            if skipped:
-                note += ", skipped {0}".format(", ".join(skipped))
-            return note
-    label = "{0} to {1}".format(planes[0][0], planes[-1][0])
-    return "NOT created {0} - {1}".format(label, last)
+                        doc.Delete(d.Id)
+                    except Exception:
+                        pass
+                    d = None
+                    dropped = sorted(drop_names)
+                    if len(keep) >= 2:
+                        d, used, skipped2, err = _make_string(
+                            v, dim_type, line, keep, rule)
+                        skipped = skipped + skipped2
+                    if d is None:
+                        last = (err or "fewer than two planes left inside "
+                                "the outline")
+                        continue
+        slots[how] += 1
+        text = "{0}: created {1} to {2} ({3}, {4})".format(
+            label, used[0][0], used[-1][0],
+            "chain of {0}".format(len(used)) if rule["mode"] == CS.Z_CHAIN
+            else "direct", how)
+        if skipped:
+            text += ", skipped " + ", ".join(skipped)
+        if dropped:
+            text += ", outside the outline: " + ", ".join(dropped)
+        if missing:
+            text += ", not in family: " + ", ".join(missing)
+        return text
+    return "{0}: NOT created - {1}".format(label, last)
 
 
 # ---------------------------------------------------------------------------
@@ -624,12 +720,8 @@ class DimWindow(forms.WPFWindow):
         first = CS.pick_dim_type_name(dim_names, remembered["dim_type"])
         if first is not None:
             self.CmbDimType.SelectedItem = first
-        self.ChkZPlanes.IsChecked = bool(remembered["z_planes"])
-        if remembered["z_mode"] == CS.Z_DIRECT:
-            self.RbZDirect.IsChecked = True
-        else:
-            self.RbZChain.IsChecked = True
-        self.ChkZSkip.IsChecked = bool(remembered["z_skip"])
+        self.ChkPipes.IsChecked = bool(remembered["pipes"])
+        self._rules = RuleList(self, remembered["rules"])
         self._rebuild()
         self._ready = True
 
@@ -697,6 +789,21 @@ class DimWindow(forms.WPFWindow):
     def on_tick_none(self, sender, args):
         self._set_all(False)
 
+    def on_rule_add(self, sender, args):
+        self._rules.on_add()
+
+    def on_rule_edit(self, sender, args):
+        self._rules.on_edit()
+
+    def on_rule_remove(self, sender, args):
+        self._rules.on_remove()
+
+    def on_rule_save(self, sender, args):
+        self._rules.on_save()
+
+    def on_rule_cancel(self, sender, args):
+        self._rules.on_cancel()
+
     def on_go(self, sender, args):
         if active_is_section:
             views = [active]
@@ -710,11 +817,14 @@ class DimWindow(forms.WPFWindow):
         if dim_names and not name:
             self.StatusText.Text = "Pick a dimension type."
             return
-        self.result = {"views": views, "dim_type": name,
-                       "z_planes": bool(self.ChkZPlanes.IsChecked),
-                       "z_mode": (CS.Z_DIRECT if self.RbZDirect.IsChecked
-                                  else CS.Z_CHAIN),
-                       "z_skip": bool(self.ChkZSkip.IsChecked)}
+        pipes = bool(self.ChkPipes.IsChecked)
+        rules = list(self._rules.rules)
+        if not pipes and not rules:
+            self.StatusText.Text = ("Nothing to add - tick the pipe strings "
+                                    "or add a reference plane rule.")
+            return
+        self.result = {"views": views, "dim_type": name, "pipes": pipes,
+                       "rules": rules}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -729,30 +839,31 @@ if _HEADLESS:
         dim_names, CS.dim_settings(_settings)["dim_type"])
     if dim_name not in dim_types:
         dim_name = CS.pick_dim_type_name(dim_names, dim_name)
-    want_z = _HEADLESS.get("z_planes")
-    if want_z is None:
-        want_z = CS.dim_settings(_settings)["z_planes"]
-    z_mode = _HEADLESS.get("z_mode") or CS.dim_settings(_settings)["z_mode"]
-    z_skip = _HEADLESS.get("z_skip")
-    if z_skip is None:
-        z_skip = CS.dim_settings(_settings)["z_skip"]
+    want_pipes = _HEADLESS.get("pipes")
+    if want_pipes is None:
+        want_pipes = CS.dim_pipes(_settings)
+    rules = _HEADLESS.get("rules")
+    if rules is None:
+        rules = CS.dim_rules(_settings)
+    rules = [r for r in (CS.normalise_rule(x) for x in rules) if r]
 else:
-    win = DimWindow(CS.dim_settings(_settings))
+    _rem = CS.dim_settings(_settings)
+    _rem["pipes"] = CS.dim_pipes(_settings)
+    _rem["rules"] = CS.dim_rules(_settings)
+    win = DimWindow(_rem)
     win.ShowDialog()
     if not win.result:
         script.exit()
     target_views = win.result["views"]
     dim_name = win.result["dim_type"]
-    want_z = win.result["z_planes"]
-    z_mode = win.result["z_mode"]
-    z_skip = win.result["z_skip"]
+    want_pipes = win.result["pipes"]
+    rules = win.result["rules"]
 dim_type = dim_types.get(dim_name) if dim_name else None
 try:
     if dim_name:
         _settings[CS.SETTINGS_DIM_TYPE] = dim_name
-    _settings[CS.SETTINGS_DIM_Z_PLANES] = bool(want_z)
-    _settings[CS.SETTINGS_DIM_Z_MODE] = z_mode
-    _settings[CS.SETTINGS_DIM_Z_SKIP] = bool(z_skip)
+    _settings[CS.SETTINGS_DIM_PIPES] = bool(want_pipes)
+    _settings[CS.SETTINGS_DIM_RULES] = [dict(r) for r in rules]
     save_settings(_settings)
 except Exception:
     pass
@@ -768,12 +879,11 @@ t.Start()
 try:
     for v in target_views:
         try:
-            results.append(dimension_view(v, dim_type, want_z, z_mode,
-                                          z_skip))
+            results.append(dimension_view(v, dim_type, want_pipes, rules))
         except Exception as ex:
             results.append({"view": _name(v), "ducts": 0, "cols": 0,
                             "rows": 0, "col": "FAILED", "row": "FAILED",
-                            "z": "FAILED", "chamber": "",
+                            "planes": ["FAILED"], "chamber": "",
                             "notes": ["{0}".format(ex)]})
     t.Commit()
 except Exception as ex:
@@ -785,11 +895,15 @@ except Exception as ex:
 # 6. Report
 # ---------------------------------------------------------------------------
 made = sum(1 for r in results for k in ("col", "row") if r[k] == "created")
-made += sum(1 for r in results if str(r.get("z", "")).startswith("created"))
+made += sum(1 for r in results for t in r.get("planes", [])
+            if ": created" in str(t))
 out.print_md("### Dimension section")
 out.print_md("**Sections:** {0}  |  **Dimension type:** {1}  |  "
-             "**Strings created:** {2}".format(
-                 len(results), dim_name or "(view default)", made))
+             "**Strings created:** {2}  |  **Pipe strings:** {3}  |  "
+             "**Plane rules:** {4}".format(
+                 len(results), dim_name or "(view default)", made,
+                 "on" if want_pipes else "off",
+                 "; ".join(CS.rule_label(r) for r in rules) or "none"))
 if dim_name and dim_type is None:
     out.print_md("- Dimension type '{0}' was not found; the view default "
                  "was used.".format(dim_name))
@@ -797,11 +911,11 @@ rows = []
 for r in results:
     rows.append([r["view"], r.get("chamber") or "-", str(r["ducts"]),
                  "{0} x {1}".format(r["cols"], r["rows"]), r["col"], r["row"],
-                 r.get("z", "-") if want_z else "off",
+                 " | ".join(r.get("planes") or []) or "-",
                  "; ".join(r["notes"]) if r["notes"] else ""])
 out.print_table(table_data=rows,
                 columns=["Section", "Chamber", "Ducts", "Cols x rows",
-                         "Column spacing", "Row spacing", "Chamber levels",
+                         "Column spacing", "Row spacing", "Plane strings",
                          "Notes"])
 
 if _HEADLESS:

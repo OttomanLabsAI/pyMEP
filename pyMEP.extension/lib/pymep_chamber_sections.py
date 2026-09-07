@@ -61,6 +61,9 @@ SETTINGS_DIM_TYPE = "dimension_section_dim_type"
 SETTINGS_DIM_Z_PLANES = "dimension_section_z_planes"
 SETTINGS_DIM_Z_MODE = "dimension_section_z_mode"    # Z_CHAIN | Z_DIRECT
 SETTINGS_DIM_Z_SKIP = "dimension_section_z_skip"    # skip planes a view can't take
+SETTINGS_DIM_RULES = "dimension_section_rules"      # list of plane-string rules
+SETTINGS_DIM_PIPES = "dimension_section_pipes"      # pipe centreline strings on/off
+DIM_AXES = ("z", "x", "y")
 Z_CHAIN = "chain"
 Z_DIRECT = "direct"
 DEFAULT_DIM_TYPE_NAME = u"RHD_2.5"
@@ -404,3 +407,169 @@ def upright_rotation(chamber_angle, up_reference=0.0):
     chosen: the view stays as close to north-up as the chamber allows."""
     return up_reference + wrap_angle(chamber_angle - up_reference,
                                      RIGHT_ANGLE)
+
+
+# ---------------------------------------------------------------------------
+# Reference-plane dimension RULES: "z 1-5 chain", "x all", "y 2,3,5 direct"
+# ---------------------------------------------------------------------------
+_PLANE_RE = re.compile(r"^\s*([xyzXYZ])\s*0*(\d+)\s*$")
+
+
+def plane_number(name, axis):
+    """The number of a reference plane named <axis><number> (x1, Y02,
+    z 5 ...) for the given axis letter, else None."""
+    if not name or not axis:
+        return None
+    m = _PLANE_RE.match(u"{0}".format(name))
+    if not m or m.group(1).lower() != axis.lower():
+        return None
+    return int(m.group(2))
+
+
+def parse_plane_spec(spec):
+    """Which plane numbers a rule wants. Accepts:
+        'all' or ''   -> every plane found, in number order
+        '1-'          -> from 1 up to the highest found
+        '1-5'         -> 1, 2, 3, 4, 5 (a descending range is reversed)
+        '2,3,5'       -> exactly those (commas, spaces or semicolons)
+        '1-3,5'       -> ranges and numbers mixed
+    Returns {"kind": "all" | "from" | "exact", "start": int, "nums": [..]}
+    or None when the text makes no sense."""
+    text = u"{0}".format(spec or u"").strip().lower()
+    if text in (u"", u"all", u"*"):
+        return {"kind": "all", "start": None, "nums": []}
+    m = re.match(r"^(\d+)\s*-\s*$", text)
+    if m:
+        return {"kind": "from", "start": int(m.group(1)), "nums": []}
+    nums = []
+    for part in re.split(r"[,;\s]+", text):
+        if not part:
+            continue
+        m = re.match(r"^(\d+)\s*-\s*(\d+)$", part)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            step = 1 if b >= a else -1
+            for n in range(a, b + step, step):
+                if n not in nums:
+                    nums.append(n)
+            continue
+        if not part.isdigit():
+            return None
+        n = int(part)
+        if n not in nums:
+            nums.append(n)
+    if not nums:
+        return None
+    return {"kind": "exact", "start": None, "nums": nums}
+
+
+def wanted_numbers(parsed, available):
+    """The plane numbers a parsed spec asks for, given the numbers that
+    exist on the chamber (any order). 'all' and 'from' only ever name
+    planes that exist; 'exact' names what was typed, missing or not."""
+    have = sorted(set(int(n) for n in (available or [])))
+    if parsed is None:
+        return []
+    if parsed["kind"] == "all":
+        return have
+    if parsed["kind"] == "from":
+        return [n for n in have if n >= parsed["start"]]
+    return list(parsed["nums"])
+
+
+def normalise_rule(rule):
+    """A rule dict cleaned up: axis in DIM_AXES, spec text, mode
+    'chain' | 'direct', skip bool. None when the axis or spec is bad."""
+    if not isinstance(rule, dict):
+        return None
+    axis = u"{0}".format(rule.get("axis") or u"").strip().lower()
+    if axis not in DIM_AXES:
+        return None
+    spec = u"{0}".format(rule.get("spec") if rule.get("spec") is not None
+                         else u"all").strip()
+    if parse_plane_spec(spec) is None:
+        return None
+    mode = rule.get("mode")
+    if mode not in (Z_CHAIN, Z_DIRECT):
+        mode = Z_CHAIN
+    return {"axis": axis, "spec": spec or u"all", "mode": mode,
+            "skip": bool(rule.get("skip", True)),
+            "inside": bool(rule.get("inside", True))}
+
+
+def rule_label(rule):
+    """'z  1-5  chain  (skip missing)' for the list box."""
+    r = normalise_rule(rule)
+    if r is None:
+        return u"(invalid rule)"
+    return u"{0}  {1}  {2}{3}{4}".format(
+        r["axis"], r["spec"],
+        u"chain" if r["mode"] == Z_CHAIN else u"direct",
+        u"  (skip missing)" if r["skip"] else u"  (all or nothing)",
+        u"  (inside the outline)" if r["inside"] else u"")
+
+
+def default_rules(settings=None):
+    """The rule list to start from when none is saved: the old single z
+    setting carried over (z, from 1 to the highest, its chain / direct and
+    skip choices), or nothing when the old z string was turned off."""
+    old = dim_settings(settings)
+    if not old["z_planes"]:
+        return []
+    return [{"axis": "z", "spec": "1-", "mode": old["z_mode"],
+             "skip": old["z_skip"], "inside": True}]
+
+
+def dim_rules(settings):
+    """The saved plane-string rules, cleaned; the carried-over default
+    when nothing is saved yet."""
+    settings = settings or {}
+    raw = settings.get(SETTINGS_DIM_RULES)
+    if not isinstance(raw, list):
+        return default_rules(settings)
+    out = []
+    for r in raw:
+        n = normalise_rule(r)
+        if n is not None:
+            out.append(n)
+    return out
+
+
+def dim_pipes(settings):
+    """Whether the pipe centreline strings are on (default yes)."""
+    settings = settings or {}
+    return bool(settings.get(SETTINGS_DIM_PIPES, True))
+
+
+def positions_from_segments(origins, values, line_dir, along):
+    """Where a chain dimension's references sit along an axis.
+
+    origins / values: each segment's midpoint (3-tuples) and length, in
+    geometric order along line_dir (a unit 3-tuple); along: a function
+    mapping a 3-tuple to the axis coordinate of interest. Returns the N+1
+    reference positions on that axis, in geometric order. A two-reference
+    dimension has one segment (its own origin and value)."""
+    pts = []
+    for i, (o, v) in enumerate(zip(origins, values)):
+        half = 0.5 * float(v or 0.0)
+        start = (o[0] - line_dir[0] * half, o[1] - line_dir[1] * half,
+                 o[2] - line_dir[2] * half)
+        end = (o[0] + line_dir[0] * half, o[1] + line_dir[1] * half,
+               o[2] + line_dir[2] * half)
+        if i == 0:
+            pts.append(along(start))
+        pts.append(along(end))
+    return pts
+
+
+def outside_span(positions, low, high, tol=0.0):
+    """Indexes (into positions, sorted ascending first) that fall outside
+    [low - tol, high + tol] - the planes a chain reaches to that lie beyond
+    the chamber's visible box."""
+    order = sorted(range(len(positions)), key=lambda i: positions[i])
+    out = []
+    for rank, i in enumerate(order):
+        p = positions[i]
+        if p < low - tol or p > high + tol:
+            out.append(rank)
+    return out
