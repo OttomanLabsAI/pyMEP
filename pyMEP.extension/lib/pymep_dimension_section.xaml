@@ -54,7 +54,7 @@
                            Text="Dimension Section"/>
                 <TextBlock x:Name="TxtInfo"
                            Style="{StaticResource Hint}"
-                           Text="Two chained dimensions through the pipe centrelines: column spacing above the bank, row spacing to its left."/>
+                           Text="Adds the strings in the list below to each section: reference plane strings and pipe / conduit / duct centreline strings."/>
             </StackPanel>
         </Border>
 
@@ -152,11 +152,8 @@
                         </Border>
                         <TextBlock x:Name="TxtSetStatus" Style="{StaticResource Hint}"
                                    Margin="0,4,0,0" TextWrapping="Wrap" Text=""/>
-                        <CheckBox x:Name="ChkPipes" Margin="0,10,0,0"
-                                  Checked="on_pipes_changed" Unchecked="on_pipes_changed"
-                                  Content="pipe centreline strings: column spacing above the bank, row spacing to its left"/>
                         <TextBlock Margin="0,10,0,0"
-                                   Text="Reference plane strings - the chamber family's planes named x1, x2..., y1, y2... or z1, z2...:"/>
+                                   Text="Strings to add - reference planes (the chamber family's x1, x2..., y1, y2... or z1, z2...) or pipe / conduit / duct centrelines:"/>
                         <Grid Margin="0,4,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -176,6 +173,18 @@
                                 BorderThickness="1" Padding="10,8" Margin="0,8,0,0"
                                 Background="#FAFAFA" Visibility="Collapsed">
                             <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource FieldLabel}"
+                                               Margin="0,0,10,0" Text="String"/>
+                                    <RadioButton x:Name="RbKindPlanes" GroupName="RuleKind"
+                                                 VerticalAlignment="Center" Checked="on_kind_changed"
+                                                 Content="reference planes"/>
+                                    <RadioButton x:Name="RbKindPipes" GroupName="RuleKind"
+                                                 Margin="14,0,0,0" VerticalAlignment="Center"
+                                                 Checked="on_kind_changed"
+                                                 Content="pipe / conduit / duct centrelines"/>
+                                </StackPanel>
+                                <StackPanel x:Name="PnlPlanesFields" Margin="0,6,0,0">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Style="{StaticResource FieldLabel}"
                                                Margin="0,0,10,0" Text="Planes"/>
@@ -215,6 +224,25 @@
                                           Content="dimension anyway when a plane is missing or this view cannot take it - use the ones it can"/>
                                 <CheckBox x:Name="ChkRuleInside" Margin="0,6,0,0"
                                           Content="only planes within the chamber's visible outline - drop one that reaches beyond what is drawn"/>
+                                </StackPanel>
+                                <StackPanel x:Name="PnlPipesFields" Margin="0,6,0,0" Visibility="Collapsed">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Style="{StaticResource FieldLabel}"
+                                                   Margin="0,0,10,0" Text="Of"/>
+                                        <CheckBox x:Name="ChkCatPipe" VerticalAlignment="Center"
+                                                  Content="pipes"/>
+                                        <CheckBox x:Name="ChkCatConduit" Margin="14,0,0,0"
+                                                  VerticalAlignment="Center" Content="conduits"/>
+                                        <CheckBox x:Name="ChkCatDuct" Margin="14,0,0,0"
+                                                  VerticalAlignment="Center" Content="ducts"/>
+                                    </StackPanel>
+                                    <CheckBox x:Name="ChkPipeCols" Margin="0,8,0,0"
+                                              Content="column spacing - one string above the bank through the top centreline of each column"/>
+                                    <CheckBox x:Name="ChkPipeRows" Margin="0,6,0,0"
+                                              Content="row spacing - one string to the left of the bank through the leftmost centreline of each row"/>
+                                    <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                               Text="Only runs passing through the chamber count; a single column or a single row gets no string."/>
+                                </StackPanel>
                                 <Grid Margin="0,8,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>

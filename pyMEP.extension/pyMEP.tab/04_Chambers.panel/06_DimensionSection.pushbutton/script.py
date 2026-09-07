@@ -9,28 +9,28 @@ WHERE it runs:
     sections - the ones placed on the open sheet when you start from a
     sheet, or every section in the project - plus the dimension type.
 
-WHAT it does in each section:
-  * Every pipe, conduit and duct visible in the section (inside the
-    chamber's footprint when a chamber family is in view) is located where
-    it crosses the section plane.
-  * The runs are grouped into COLUMNS (same position across the view) and
-    ROWS (same height). One chained dimension goes ABOVE the bank through
-    one centreline per column (the column spacing), and one chained
-    dimension goes to the LEFT of the bank through one centreline per row
-    (the row spacing). A single row or a single column gets no dimension
-    in that direction.
-  * REFERENCE PLANE STRINGS from a list of RULES you build in the dialog
-    (+ opens the editor, Add to list saves; Edit / Remove; the list is
-    remembered). A rule names the planes by axis - the chamber family's
-    reference planes named x1, x2..., y1, y2... or z1, z2... - and by
-    number: '1-5' (z1 to z5), '1-' (z1 up to the highest found), 'all', or
-    a list '2,3,5'; chain through each plane or one overall dimension
-    first-to-last; 'dimension anyway' uses the planes that exist and that
-    this view can take when some are missing; 'inside the outline' drops a
-    plane that reaches beyond the chamber's visible box (read back from
-    the string's own segments). z strings go to the right of the chamber,
-    x and y strings below it, stacked when there are several.
-  * The pipe centreline strings can be turned off.
+WHAT it does in each section - the STRINGS in a list of RULES you build in
+the dialog (+ opens the editor, Add to list saves; Edit / Remove; the list
+is remembered, and can be saved under a name and picked from a dropdown):
+  * REFERENCE PLANE STRINGS. A rule names the planes by axis - the chamber
+    family's reference planes named x1, x2..., y1, y2... or z1, z2... -
+    and by number: '1-5' (z1 to z5), '1-' (z1 up to the highest found),
+    'all', or a list '2,3,5'; chain through each plane or one overall
+    dimension first-to-last; 'dimension anyway' uses the planes that exist
+    and that this view can take when some are missing; 'inside the
+    outline' drops a plane that reaches beyond the chamber's visible box
+    (read back from the string's own segments). z strings go to the right
+    of the chamber, x and y strings below it, stacked when there are
+    several.
+  * PIPE / CONDUIT / DUCT CENTRELINE STRINGS. A rule picks the categories
+    and the strings: every run of those categories visible in the section
+    (inside the chamber's footprint when a chamber family is in view) is
+    located where it crosses the section plane and grouped into COLUMNS
+    (same position across the view) and ROWS (same height). The column
+    string goes ABOVE the bank through one centreline per column, the row
+    string to the LEFT of the bank through one centreline per row. A
+    single column or a single row gets no string. Nothing is added unless
+    such a rule is in the list.
   * The dimension type is picked in the dialog (remembered; the house
     'RHD_2.5' is offered first when the project has it).
 
@@ -320,9 +320,15 @@ def _group(items, key, tol):
 # ---------------------------------------------------------------------------
 # 2. One section: analyse + dimension (inside the caller's transaction)
 # ---------------------------------------------------------------------------
-def dimension_view(v, dim_type, pipes=True, rules=None):
-    res = {"view": _name(v), "ducts": 0, "cols": 0, "rows": 0,
-           "col": "-", "row": "-", "planes": [], "notes": []}
+CAT_BY_KEY = {
+    "pipe": int(BuiltInCategory.OST_PipeCurves),
+    "conduit": int(BuiltInCategory.OST_Conduit),
+    "duct": int(BuiltInCategory.OST_DuctCurves),
+}
+
+
+def dimension_view(v, dim_type, rules):
+    res = {"view": _name(v), "strings": [], "made": 0, "notes": []}
     right = v.RightDirection
     up = v.UpDirection
     view_dir = v.ViewDirection
@@ -336,22 +342,39 @@ def dimension_view(v, dim_type, pipes=True, rules=None):
 
     chamber = _find_chamber(v)
     res["chamber"] = _name(chamber) if chamber is not None else ""
-    margin_ft = DUCT_MARGIN_MM / MM_PER_FOOT
 
-    # --- reference plane strings from the rules ---
-    slots = {"vertical": 0, "horizontal": 0}
+    # One string per rule, in list order; strings on the same side of the
+    # chamber stack outward through the slot counters.
+    slots = {"vertical": 0, "horizontal": 0, "pipe_col": 0, "pipe_row": 0}
     for rule in (rules or []):
-        res["planes"].append(_dimension_rule(v, dim_type, chamber, rule,
-                                             along_right, along_up, right,
-                                             up, slots))
-    if not pipes:
-        res["col"] = res["row"] = "off"
-        return res
+        rule = CS.normalise_rule(rule)
+        if rule is None:
+            continue
+        if rule["kind"] == CS.RULE_PIPES:
+            text, n = _dimension_pipes(v, dim_type, chamber, rule,
+                                       along_right, along_up, right, up,
+                                       plane_origin, view_dir, slots,
+                                       res["notes"])
+        else:
+            text = _dimension_rule(v, dim_type, chamber, rule, along_right,
+                                   along_up, right, up, slots)
+            n = 1 if ": created" in text else 0
+        res["strings"].append(text)
+        res["made"] += n
+    return res
 
+
+def _dimension_pipes(v, dim_type, chamber, rule, along_right, along_up,
+                     right, up, plane_origin, view_dir, slots, notes):
+    # The centreline strings for one rule: column spacing above the bank,
+    # row spacing to its left. Returns (row text, strings created).
+    label = " + ".join(c + "s" for c in rule["cats"])
+    cats = set(CAT_BY_KEY[c] for c in rule["cats"])
+    margin_ft = DUCT_MARGIN_MM / MM_PER_FOOT
     ducts = []
     rejected = 0
     for el in FilteredElementCollector(doc, v.Id).WhereElementIsNotElementType():
-        if _cat_int(el) not in DUCT_CATS:
+        if _cat_int(el) not in cats:
             continue
         c = _section_cross_point(el, plane_origin, view_dir)
         if c is None:
@@ -360,22 +383,18 @@ def dimension_view(v, dim_type, pipes=True, rules=None):
             rejected += 1
             continue
         ducts.append((el, c))
-    res["ducts"] = len(ducts)
     if rejected:
-        res["notes"].append("{0} duct(s) outside the chamber ignored".format(
-            rejected))
+        notes.append("{0} {1} outside the chamber ignored".format(
+            rejected, label))
     if not ducts:
-        res["col"] = res["row"] = "no ducts in view"
-        return res
+        return "{0}: none in view".format(label), 0
 
     ducts.sort(key=lambda d: along_right(d[1]))
     columns = _group(ducts, along_right, COL_TOL_MM / MM_PER_FOOT)
     rows = _group(ducts, along_up, ROW_TOL_MM / MM_PER_FOOT)
-    res["cols"] = len(columns)
-    res["rows"] = len(rows)
 
-    # One representative per column (its topmost duct) and per row (its
-    # leftmost duct), so each chain shows one spacing only.
+    # One representative per column (its topmost run) and per row (its
+    # leftmost run), so each chain shows one spacing only.
     col_reps = [max(cl["items"], key=lambda d: along_up(d[1]))
                 for cl in columns]
     row_reps = [min(rw["items"], key=lambda d: along_right(d[1]))
@@ -402,55 +421,75 @@ def dimension_view(v, dim_type, pipes=True, rules=None):
             return doc.Create.NewDimension(v, line, arr, dim_type)
         return doc.Create.NewDimension(v, line, arr)
 
+    parts = ["{0} run(s), {1} column(s) x {2} row(s)".format(
+        len(ducts), len(columns), len(rows))]
+    made = 0
+
     # --- column spacing, above the bank ---
-    if len(columns) < 2:
-        res["col"] = "skipped (single column)"
-    else:
-        arr, pts, missing = refs_of(col_reps)
-        if missing:
-            res["notes"].append("{0} column(s) gave no centreline "
-                                "reference".format(missing))
-        if arr.Size < 2:
-            res["col"] = "NOT created - fewer than two references"
+    if rule["cols"]:
+        if len(columns) < 2:
+            parts.append("columns skipped (single column)")
         else:
-            left_pt = pts[0]
-            lift = (bank_top_u - along_up(left_pt)) + DIM_OFFSET_MM / MM_PER_FOOT
-            o = XYZ(left_pt.X + up.X * lift, left_pt.Y + up.Y * lift,
-                    left_pt.Z + up.Z * lift)
-            span = along_right(pts[-1]) - along_right(left_pt)
-            e = XYZ(o.X + right.X * (span + 1.0), o.Y + right.Y * (span + 1.0),
-                    o.Z + right.Z * (span + 1.0))
-            try:
-                d = make(Line.CreateBound(o, e), arr)
-                res["col"] = "created" if d is not None else "NOT created"
-            except Exception as ex:
-                res["col"] = "NOT created - {0}".format(ex)
+            arr, pts, missing = refs_of(col_reps)
+            if missing:
+                notes.append("{0} column(s) gave no centreline "
+                             "reference".format(missing))
+            if arr.Size < 2:
+                parts.append("columns NOT created - fewer than two "
+                             "references")
+            else:
+                left_pt = pts[0]
+                lift = (bank_top_u - along_up(left_pt)) + \
+                    DIM_OFFSET_MM * (1 + slots["pipe_col"]) / MM_PER_FOOT
+                o = XYZ(left_pt.X + up.X * lift, left_pt.Y + up.Y * lift,
+                        left_pt.Z + up.Z * lift)
+                span = along_right(pts[-1]) - along_right(left_pt)
+                e = XYZ(o.X + right.X * (span + 1.0),
+                        o.Y + right.Y * (span + 1.0),
+                        o.Z + right.Z * (span + 1.0))
+                try:
+                    d = make(Line.CreateBound(o, e), arr)
+                    if d is not None:
+                        parts.append("columns created")
+                        made += 1
+                        slots["pipe_col"] += 1
+                    else:
+                        parts.append("columns NOT created")
+                except Exception as ex:
+                    parts.append("columns NOT created - {0}".format(ex))
 
     # --- row spacing, left of the bank ---
-    if len(rows) < 2:
-        res["row"] = "skipped (single row)"
-    else:
-        arr, pts, missing = refs_of(row_reps)
-        if missing:
-            res["notes"].append("{0} row(s) gave no centreline "
-                                "reference".format(missing))
-        if arr.Size < 2:
-            res["row"] = "NOT created - fewer than two references"
+    if rule["rows"]:
+        if len(rows) < 2:
+            parts.append("rows skipped (single row)")
         else:
-            low_pt = pts[0]
-            shift = (along_right(low_pt) - bank_left_r) + \
-                VDIM_OFFSET_MM / MM_PER_FOOT
-            o = XYZ(low_pt.X - right.X * shift, low_pt.Y - right.Y * shift,
-                    low_pt.Z - right.Z * shift)
-            vspan = along_up(pts[-1]) - along_up(low_pt)
-            e = XYZ(o.X + up.X * (vspan + 1.0), o.Y + up.Y * (vspan + 1.0),
-                    o.Z + up.Z * (vspan + 1.0))
-            try:
-                d = make(Line.CreateBound(o, e), arr)
-                res["row"] = "created" if d is not None else "NOT created"
-            except Exception as ex:
-                res["row"] = "NOT created - {0}".format(ex)
-    return res
+            arr, pts, missing = refs_of(row_reps)
+            if missing:
+                notes.append("{0} row(s) gave no centreline "
+                             "reference".format(missing))
+            if arr.Size < 2:
+                parts.append("rows NOT created - fewer than two references")
+            else:
+                low_pt = pts[0]
+                shift = (along_right(low_pt) - bank_left_r) + \
+                    (VDIM_OFFSET_MM + DIM_OFFSET_MM * slots["pipe_row"]) / \
+                    MM_PER_FOOT
+                o = XYZ(low_pt.X - right.X * shift, low_pt.Y - right.Y * shift,
+                        low_pt.Z - right.Z * shift)
+                vspan = along_up(pts[-1]) - along_up(low_pt)
+                e = XYZ(o.X + up.X * (vspan + 1.0), o.Y + up.Y * (vspan + 1.0),
+                        o.Z + up.Z * (vspan + 1.0))
+                try:
+                    d = make(Line.CreateBound(o, e), arr)
+                    if d is not None:
+                        parts.append("rows created")
+                        made += 1
+                        slots["pipe_row"] += 1
+                    else:
+                        parts.append("rows NOT created")
+                except Exception as ex:
+                    parts.append("rows NOT created - {0}".format(ex))
+    return "{0}: {1}".format(label, ", ".join(parts)), made
 
 
 def _make_string(v, dim_type, line, planes, rule):
@@ -720,7 +759,6 @@ class DimWindow(forms.WPFWindow):
         first = CS.pick_dim_type_name(dim_names, remembered["dim_type"])
         if first is not None:
             self.CmbDimType.SelectedItem = first
-        self.ChkPipes.IsChecked = bool(remembered["pipes"])
         self._rules = RuleList(self, remembered["rules"],
                                settings=_settings, save=save_settings)
         self._rebuild()
@@ -822,10 +860,10 @@ class DimWindow(forms.WPFWindow):
     def on_set_delete(self, sender, args):
         self._rules.on_set_delete()
 
-    def on_pipes_changed(self, sender, args):
+    def on_kind_changed(self, sender, args):
         r = getattr(self, "_rules", None)
         if r is not None:
-            r.on_pipes_changed()
+            r.on_kind_changed()
 
     def on_go(self, sender, args):
         if active_is_section:
@@ -840,14 +878,12 @@ class DimWindow(forms.WPFWindow):
         if dim_names and not name:
             self.StatusText.Text = "Pick a dimension type."
             return
-        pipes = bool(self.ChkPipes.IsChecked)
         rules = list(self._rules.rules)
-        if not pipes and not rules:
-            self.StatusText.Text = ("Nothing to add - tick the pipe strings "
-                                    "or add a reference plane rule.")
+        if not rules:
+            self.StatusText.Text = ("Nothing to add - use + to put a string "
+                                    "in the list.")
             return
-        self.result = {"views": views, "dim_type": name, "pipes": pipes,
-                       "rules": rules}
+        self.result = {"views": views, "dim_type": name, "rules": rules}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -862,16 +898,12 @@ if _HEADLESS:
         dim_names, CS.dim_settings(_settings)["dim_type"])
     if dim_name not in dim_types:
         dim_name = CS.pick_dim_type_name(dim_names, dim_name)
-    want_pipes = _HEADLESS.get("pipes")
-    if want_pipes is None:
-        want_pipes = CS.dim_pipes(_settings)
     rules = _HEADLESS.get("rules")
     if rules is None:
         rules = CS.dim_rules(_settings)
     rules = [r for r in (CS.normalise_rule(x) for x in rules) if r]
 else:
     _rem = CS.dim_settings(_settings)
-    _rem["pipes"] = CS.dim_pipes(_settings)
     _rem["rules"] = CS.dim_rules(_settings)
     win = DimWindow(_rem)
     win.ShowDialog()
@@ -879,13 +911,11 @@ else:
         script.exit()
     target_views = win.result["views"]
     dim_name = win.result["dim_type"]
-    want_pipes = win.result["pipes"]
     rules = win.result["rules"]
 dim_type = dim_types.get(dim_name) if dim_name else None
 try:
     if dim_name:
         _settings[CS.SETTINGS_DIM_TYPE] = dim_name
-    _settings[CS.SETTINGS_DIM_PIPES] = bool(want_pipes)
     _settings[CS.SETTINGS_DIM_RULES] = [dict(r) for r in rules]
     save_settings(_settings)
 except Exception:
@@ -902,11 +932,10 @@ t.Start()
 try:
     for v in target_views:
         try:
-            results.append(dimension_view(v, dim_type, want_pipes, rules))
+            results.append(dimension_view(v, dim_type, rules))
         except Exception as ex:
-            results.append({"view": _name(v), "ducts": 0, "cols": 0,
-                            "rows": 0, "col": "FAILED", "row": "FAILED",
-                            "planes": ["FAILED"], "chamber": "",
+            results.append({"view": _name(v), "strings": ["FAILED"],
+                            "made": 0, "chamber": "",
                             "notes": ["{0}".format(ex)]})
     t.Commit()
 except Exception as ex:
@@ -917,29 +946,22 @@ except Exception as ex:
 # ---------------------------------------------------------------------------
 # 6. Report
 # ---------------------------------------------------------------------------
-made = sum(1 for r in results for k in ("col", "row") if r[k] == "created")
-made += sum(1 for r in results for t in r.get("planes", [])
-            if ": created" in str(t))
+made = sum(r.get("made", 0) for r in results)
 out.print_md("### Dimension section")
 out.print_md("**Sections:** {0}  |  **Dimension type:** {1}  |  "
-             "**Strings created:** {2}  |  **Pipe strings:** {3}  |  "
-             "**Plane rules:** {4}".format(
+             "**Strings created:** {2}  |  **Rules:** {3}".format(
                  len(results), dim_name or "(view default)", made,
-                 "on" if want_pipes else "off",
                  "; ".join(CS.rule_label(r) for r in rules) or "none"))
 if dim_name and dim_type is None:
     out.print_md("- Dimension type '{0}' was not found; the view default "
                  "was used.".format(dim_name))
 rows = []
 for r in results:
-    rows.append([r["view"], r.get("chamber") or "-", str(r["ducts"]),
-                 "{0} x {1}".format(r["cols"], r["rows"]), r["col"], r["row"],
-                 " | ".join(r.get("planes") or []) or "-",
+    rows.append([r["view"], r.get("chamber") or "-",
+                 " | ".join(r.get("strings") or []) or "-",
                  "; ".join(r["notes"]) if r["notes"] else ""])
 out.print_table(table_data=rows,
-                columns=["Section", "Chamber", "Ducts", "Cols x rows",
-                         "Column spacing", "Row spacing", "Plane strings",
-                         "Notes"])
+                columns=["Section", "Chamber", "Strings", "Notes"])
 
 if _HEADLESS:
     _PIPE["out_dims"] = {"sections": len(results), "strings": made}

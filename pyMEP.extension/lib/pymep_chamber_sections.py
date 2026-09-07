@@ -62,9 +62,11 @@ SETTINGS_DIM_Z_PLANES = "dimension_section_z_planes"
 SETTINGS_DIM_Z_MODE = "dimension_section_z_mode"    # Z_CHAIN | Z_DIRECT
 SETTINGS_DIM_Z_SKIP = "dimension_section_z_skip"    # skip planes a view can't take
 SETTINGS_DIM_RULES = "dimension_section_rules"      # list of plane-string rules
-SETTINGS_DIM_PIPES = "dimension_section_pipes"      # pipe centreline strings on/off
-SETTINGS_DIM_SETS = "dimension_section_sets"        # {name: {"pipes", "rules"}} saved sets
+SETTINGS_DIM_SETS = "dimension_section_sets"        # {name: {"rules": [...]}} saved sets
 DIM_AXES = ("z", "x", "y")
+RULE_PLANES = "planes"      # rule kind: reference-plane string
+RULE_PIPES = "pipes"        # rule kind: pipe / conduit / duct centreline strings
+PIPE_CATS = ("pipe", "conduit", "duct")
 Z_CHAIN = "chain"
 Z_DIRECT = "direct"
 DEFAULT_DIM_TYPE_NAME = u"RHD_2.5"
@@ -478,10 +480,36 @@ def wanted_numbers(parsed, available):
     return list(parsed["nums"])
 
 
+def pipes_rule(cats=None, cols=True, rows=True):
+    """A centreline-string rule: which categories (default all three) and
+    which strings (column spacing above the bank, row spacing left of it).
+    None when nothing is left to draw."""
+    return normalise_rule({"kind": RULE_PIPES, "cats": cats, "cols": cols,
+                           "rows": rows})
+
+
 def normalise_rule(rule):
-    """A rule dict cleaned up: axis in DIM_AXES, spec text, mode
-    'chain' | 'direct', skip bool. None when the axis or spec is bad."""
+    """A rule dict cleaned up. Kind 'planes' (the default): axis in
+    DIM_AXES, spec text, mode 'chain' | 'direct', skip and inside bools.
+    Kind 'pipes': cats (subset of PIPE_CATS in that order), cols and rows
+    bools. None when the rule is unusable."""
     if not isinstance(rule, dict):
+        return None
+    kind = u"{0}".format(rule.get("kind") or RULE_PLANES).strip().lower()
+    if kind == RULE_PIPES:
+        raw = rule.get("cats")
+        if raw is None:
+            raw = PIPE_CATS
+        if hasattr(raw, "strip"):        # one name given as text
+            raw = [raw]
+        have = set(u"{0}".format(c).strip().lower() for c in raw)
+        cats = [c for c in PIPE_CATS if c in have]
+        cols = bool(rule.get("cols", True))
+        rows = bool(rule.get("rows", True))
+        if not cats or not (cols or rows):
+            return None
+        return {"kind": RULE_PIPES, "cats": cats, "cols": cols, "rows": rows}
+    if kind != RULE_PLANES:
         return None
     axis = u"{0}".format(rule.get("axis") or u"").strip().lower()
     if axis not in DIM_AXES:
@@ -493,16 +521,22 @@ def normalise_rule(rule):
     mode = rule.get("mode")
     if mode not in (Z_CHAIN, Z_DIRECT):
         mode = Z_CHAIN
-    return {"axis": axis, "spec": spec or u"all", "mode": mode,
-            "skip": bool(rule.get("skip", True)),
+    return {"kind": RULE_PLANES, "axis": axis, "spec": spec or u"all",
+            "mode": mode, "skip": bool(rule.get("skip", True)),
             "inside": bool(rule.get("inside", True))}
 
 
 def rule_label(rule):
-    """'z  1-5  chain  (skip missing)' for the list box."""
+    """'z  1-5  chain  (skip missing)' or 'pipes + conduits  centrelines:
+    columns above + rows left' for the list box."""
     r = normalise_rule(rule)
     if r is None:
         return u"(invalid rule)"
+    if r["kind"] == RULE_PIPES:
+        strings = ([u"columns above"] if r["cols"] else []) + \
+                  ([u"rows left"] if r["rows"] else [])
+        return u"{0}  centrelines: {1}".format(
+            u" + ".join(c + u"s" for c in r["cats"]), u" + ".join(strings))
     return u"{0}  {1}  {2}{3}{4}".format(
         r["axis"], r["spec"],
         u"chain" if r["mode"] == Z_CHAIN else u"direct",
@@ -517,8 +551,8 @@ def default_rules(settings=None):
     old = dim_settings(settings)
     if not old["z_planes"]:
         return []
-    return [{"axis": "z", "spec": "1-", "mode": old["z_mode"],
-             "skip": old["z_skip"], "inside": True}]
+    return [{"kind": RULE_PLANES, "axis": "z", "spec": "1-",
+             "mode": old["z_mode"], "skip": old["z_skip"], "inside": True}]
 
 
 def dim_rules(settings):
@@ -536,18 +570,14 @@ def dim_rules(settings):
     return out
 
 
-def dim_pipes(settings):
-    """Whether the pipe centreline strings are on (default yes)."""
-    settings = settings or {}
-    return bool(settings.get(SETTINGS_DIM_PIPES, True))
-
-
 CUSTOM_SET_LABEL = u"(custom - the list below)"
 
 
 def normalise_dim_set(raw):
-    """A saved dimension set cleaned: {'pipes': bool, 'rules': [rule...]}.
-    None when it is not a dict."""
+    """A saved dimension set cleaned: {'rules': [rule...]}. A set saved
+    when the pipe strings were a separate tick ('pipes': True) gets a
+    centreline rule put first, so it still draws what it did. None when
+    it is not a dict."""
     if not isinstance(raw, dict):
         return None
     rules = []
@@ -555,7 +585,9 @@ def normalise_dim_set(raw):
         n = normalise_rule(r)
         if n is not None:
             rules.append(n)
-    return {"pipes": bool(raw.get("pipes", True)), "rules": rules}
+    if raw.get("pipes") and not any(r["kind"] == RULE_PIPES for r in rules):
+        rules.insert(0, pipes_rule())
+    return {"rules": rules}
 
 
 def clean_set_name(name):
@@ -590,31 +622,35 @@ def same_dim_set(a, b):
     b = normalise_dim_set(b)
     if a is None or b is None:
         return False
-    return a["pipes"] == b["pipes"] and a["rules"] == b["rules"]
+    return a["rules"] == b["rules"]
 
 
-def matching_dim_set(sets, pipes, rules):
-    """The name of the saved set equal to (pipes, rules), or None: what the
-    dropdown shows when the dialog opens with the last-used dimensions."""
-    want = {"pipes": pipes, "rules": rules}
+def matching_dim_set(sets, rules):
+    """The name of the saved set equal to this rule list, or None: what
+    the dropdown shows when the dialog opens with the last-used list."""
+    want = {"rules": rules}
     for name in dim_set_names(sets):
         if same_dim_set(sets[name], want):
             return name
     return None
 
 
-def store_dim_set(settings, name, pipes, rules):
-    """Save (pipes, rules) under name in settings. Returns (name, replaced)
+def _plain_sets(sets):
+    # JSON-friendly copy for the settings file
+    return dict((k, {"rules": [dict(r) for r in v["rules"]]})
+                for k, v in sets.items())
+
+
+def store_dim_set(settings, name, rules):
+    """Save the rule list under name in settings. Returns (name, replaced)
     with the cleaned name, or (None, False) when the name is blank."""
     key = clean_set_name(name)
     if not key:
         return None, False
     sets = dim_sets(settings)
     replaced = key in sets
-    sets[key] = normalise_dim_set({"pipes": pipes, "rules": rules})
-    settings[SETTINGS_DIM_SETS] = dict(
-        (k, {"pipes": v["pipes"], "rules": [dict(r) for r in v["rules"]]})
-        for k, v in sets.items())
+    sets[key] = normalise_dim_set({"rules": rules})
+    settings[SETTINGS_DIM_SETS] = _plain_sets(sets)
     return key, replaced
 
 
@@ -625,9 +661,7 @@ def drop_dim_set(settings, name):
     if key not in sets:
         return False
     del sets[key]
-    settings[SETTINGS_DIM_SETS] = dict(
-        (k, {"pipes": v["pipes"], "rules": [dict(r) for r in v["rules"]]})
-        for k, v in sets.items())
+    settings[SETTINGS_DIM_SETS] = _plain_sets(sets)
     return True
 
 

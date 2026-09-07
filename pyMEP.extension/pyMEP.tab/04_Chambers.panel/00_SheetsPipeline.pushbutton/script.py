@@ -442,7 +442,6 @@ class PipeWindow(forms.WPFWindow):
         self.ChkDims.IsChecked = bool(rem["dims"])
         _fill(self.CmbDimType, dim_names,
               CS.pick_dim_type_name(dim_names, rem_dim["dim_type"]))
-        self.ChkPipes.IsChecked = CS.dim_pipes(_settings)
         self._rules = RuleList(self, CS.dim_rules(_settings),
                                settings=_settings, save=save_settings)
 
@@ -563,7 +562,7 @@ class PipeWindow(forms.WPFWindow):
             self.PnlPerSide.Visibility = (Visibility.Collapsed if same
                                           else Visibility.Visible)
             dims_on = bool(self.ChkDims.IsChecked)
-            for ctl in (self.CmbDimType, self.ChkPipes, self.LstRules,
+            for ctl in (self.CmbDimType, self.LstRules,
                         self.BtnRuleAdd, self.BtnRuleEdit, self.BtnRuleRemove,
                         self.PnlRuleEditor, self.CmbDimSet, self.BtnSetSave,
                         self.PnlSetSave):
@@ -637,10 +636,10 @@ class PipeWindow(forms.WPFWindow):
     def on_set_delete(self, sender, args):
         self._rules.on_set_delete()
 
-    def on_pipes_changed(self, sender, args):
+    def on_kind_changed(self, sender, args):
         r = getattr(self, "_rules", None)
         if r is not None:
-            r.on_pipes_changed()
+            r.on_kind_changed()
 
     def _fail(self, text):
         self.StatusText.Text = text
@@ -763,11 +762,10 @@ class PipeWindow(forms.WPFWindow):
         # 5 dimensions
         o["dims"] = bool(self.ChkDims.IsChecked)
         o["dim_type"] = self.CmbDimType.SelectedItem
-        o["pipes"] = bool(self.ChkPipes.IsChecked)
         o["rules"] = list(self._rules.rules)
-        if o["dims"] and not o["pipes"] and not o["rules"]:
-            return self._fail("Dimensions tab: tick the pipe strings or add "
-                              "a reference plane rule (or untick dimensions).")
+        if o["dims"] and not o["rules"]:
+            return self._fail("Dimensions tab: use + to put a string in the "
+                              "list (or untick dimensions).")
         if o["dims"] and dim_names and not o["dim_type"]:
             return self._fail("Dimensions tab: pick a dimension type.")
         self.result = o
@@ -823,7 +821,6 @@ try:
     S[CS.SETTINGS_PIPE_DIMS] = opt["dims"]
     if opt["dim_type"]:
         S[CS.SETTINGS_DIM_TYPE] = opt["dim_type"]
-    S[CS.SETTINGS_DIM_PIPES] = opt["pipes"]
     S[CS.SETTINGS_DIM_RULES] = [dict(r) for r in opt["rules"]]
     save_settings(S)
 except Exception as ex:
@@ -997,7 +994,6 @@ try:
             ok, why, res = _run_step("Step 4 - Dimension Section", STEP_DIMS,
                                      "dims", {"views": views,
                                               "dim_type": opt["dim_type"],
-                                              "pipes": opt["pipes"],
                                               "rules": opt["rules"]})
             summary.append(("Dimension Section",
                             "{0} string(s) in {1} section(s)".format(

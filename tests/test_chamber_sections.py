@@ -244,7 +244,8 @@ class PlaneRules(unittest.TestCase):
 
     def test_normalise_and_label(self):
         r = CS.normalise_rule({"axis": "Z", "spec": " 1-5 ", "mode": "odd"})
-        self.assertEqual(r, {"axis": "z", "spec": "1-5", "mode": CS.Z_CHAIN,
+        self.assertEqual(r, {"kind": CS.RULE_PLANES, "axis": "z",
+                             "spec": "1-5", "mode": CS.Z_CHAIN,
                              "skip": True, "inside": True})
         self.assertEqual(CS.rule_label(r),
                          "z  1-5  chain  (skip missing)  (inside the outline)")
@@ -255,10 +256,36 @@ class PlaneRules(unittest.TestCase):
         self.assertIsNone(CS.normalise_rule({"axis": "w", "spec": "1-5"}))
         self.assertIsNone(CS.normalise_rule({"axis": "x", "spec": "a-b"}))
         self.assertIsNone(CS.normalise_rule("nope"))
+        self.assertIsNone(CS.normalise_rule({"kind": "odd", "axis": "z"}))
         self.assertEqual(CS.rule_label("nope"), "(invalid rule)")
 
+    def test_pipes_rule(self):
+        r = CS.pipes_rule()
+        self.assertEqual(r, {"kind": CS.RULE_PIPES,
+                             "cats": ["pipe", "conduit", "duct"],
+                             "cols": True, "rows": True})
+        self.assertEqual(CS.rule_label(r),
+                         "pipes + conduits + ducts  centrelines: "
+                         "columns above + rows left")
+        # categories come back in the fixed order, unknown ones dropped
+        r = CS.normalise_rule({"kind": "PIPES", "cats": ["Duct", "pipe", "x"],
+                               "rows": False})
+        self.assertEqual(r["cats"], ["pipe", "duct"])
+        self.assertEqual(CS.rule_label(r),
+                         "pipes + ducts  centrelines: columns above")
+        self.assertEqual(CS.normalise_rule({"kind": "pipes",
+                                            "cats": "conduit"})["cats"],
+                         ["conduit"])
+        # nothing to draw -> not a rule
+        self.assertIsNone(CS.pipes_rule(cats=["nope"]))
+        self.assertIsNone(CS.pipes_rule(cols=False, rows=False))
+        # a pipes rule has no plane fields
+        self.assertNotIn("axis", CS.pipes_rule())
+
     def test_rules_settings_and_migration(self):
-        self.assertEqual(CS.dim_rules({}), [{"axis": "z", "spec": "1-",
+        # nothing saved: the z string only - no centreline rule by default
+        self.assertEqual(CS.dim_rules({}), [{"kind": CS.RULE_PLANES,
+                                             "axis": "z", "spec": "1-",
                                              "mode": CS.Z_CHAIN,
                                              "skip": True, "inside": True}])
         self.assertEqual(CS.dim_rules({CS.SETTINGS_DIM_Z_PLANES: False}), [])
@@ -268,8 +295,13 @@ class PlaneRules(unittest.TestCase):
             {"axis": "x", "spec": "2,3,5", "mode": "chain", "skip": False},
             {"axis": "q", "spec": "1-2"}, "junk"]}
         self.assertEqual(CS.dim_rules(saved), [
-            {"axis": "x", "spec": "2,3,5", "mode": CS.Z_CHAIN, "skip": False,
-             "inside": True}])
+            {"kind": CS.RULE_PLANES, "axis": "x", "spec": "2,3,5",
+             "mode": CS.Z_CHAIN, "skip": False, "inside": True}])
+        # a saved centreline rule rides along with the plane rules
+        saved = {CS.SETTINGS_DIM_RULES: [{"kind": "pipes", "cats": ["pipe"]},
+                                         {"axis": "z", "spec": "1-"}]}
+        self.assertEqual([r["kind"] for r in CS.dim_rules(saved)],
+                         [CS.RULE_PIPES, CS.RULE_PLANES])
 
     def test_positions_from_segments(self):
         up = lambda p: p[2]
@@ -293,8 +325,6 @@ class PlaneRules(unittest.TestCase):
         self.assertEqual(CS.outside_span([5.0, 1.5, -1.0], 0.0, 4.0), [0, 2])
         self.assertEqual(CS.outside_span([0.0, 4.1], 0.0, 4.0, tol=0.2), [])
         self.assertEqual(CS.outside_span([], 0.0, 4.0), [])
-        self.assertTrue(CS.dim_pipes({}))
-        self.assertFalse(CS.dim_pipes({CS.SETTINGS_DIM_PIPES: False}))
 
 
 class DimSets(unittest.TestCase):
@@ -309,18 +339,30 @@ class DimSets(unittest.TestCase):
         self.assertIsNone(CS.normalise_dim_set(None))
         self.assertIsNone(CS.normalise_dim_set([1]))
         got = CS.normalise_dim_set({"rules": [self.RZ, {"axis": "q"}]})
-        self.assertEqual(got, {"pipes": True,
-                               "rules": [CS.normalise_rule(self.RZ)]})
-        self.assertEqual(CS.normalise_dim_set({"pipes": 0}),
-                         {"pipes": False, "rules": []})
+        self.assertEqual(got, {"rules": [CS.normalise_rule(self.RZ)]})
+        self.assertEqual(CS.normalise_dim_set({}), {"rules": []})
         self.assertEqual(CS.clean_set_name(u"  Levels\n only "), u"Levels only")
         self.assertEqual(CS.clean_set_name(None), u"")
 
+    def test_old_pipe_tick_becomes_a_rule(self):
+        # sets saved while the pipe strings were a separate tick
+        got = CS.normalise_dim_set({"pipes": True, "rules": [self.RZ]})
+        self.assertEqual([r["kind"] for r in got["rules"]],
+                         [CS.RULE_PIPES, CS.RULE_PLANES])
+        self.assertEqual(got["rules"][0], CS.pipes_rule())
+        got = CS.normalise_dim_set({"pipes": False, "rules": [self.RZ]})
+        self.assertEqual([r["kind"] for r in got["rules"]], [CS.RULE_PLANES])
+        # not doubled when a centreline rule is already in the list
+        got = CS.normalise_dim_set({"pipes": True,
+                                    "rules": [CS.pipes_rule(cats=["duct"])]})
+        self.assertEqual(len(got["rules"]), 1)
+        self.assertEqual(got["rules"][0]["cats"], ["duct"])
+
     def test_dim_sets_cleaned_and_ordered(self):
         settings = {CS.SETTINGS_DIM_SETS: {
-            u"b set": {"pipes": True, "rules": [self.RZ]},
-            u"A set": {"pipes": False, "rules": []},
-            u"   ": {"pipes": True, "rules": []},
+            u"b set": {"rules": [self.RZ]},
+            u"A set": {"rules": []},
+            u"   ": {"rules": []},
             u"broken": "not a set"}}
         sets = CS.dim_sets(settings)
         self.assertEqual(sorted(sets), [u"A set", u"b set"])
@@ -330,21 +372,19 @@ class DimSets(unittest.TestCase):
 
     def test_store_replace_and_drop(self):
         settings = {}
-        self.assertEqual(CS.store_dim_set(settings, u"  ", True, []),
-                         (None, False))
+        self.assertEqual(CS.store_dim_set(settings, u"  ", []), (None, False))
         self.assertNotIn(CS.SETTINGS_DIM_SETS, settings)
-        self.assertEqual(CS.store_dim_set(settings, u" Levels ", True,
-                                          [self.RZ]), (u"Levels", False))
-        self.assertEqual(CS.store_dim_set(settings, u"Levels", False,
-                                          [self.RZ, self.RX]),
+        self.assertEqual(CS.store_dim_set(settings, u" Levels ", [self.RZ]),
+                         (u"Levels", False))
+        self.assertEqual(CS.store_dim_set(settings, u"Levels",
+                                          [CS.pipes_rule(), self.RZ, self.RX]),
                          (u"Levels", True))
         sets = CS.dim_sets(settings)
-        self.assertEqual(sets[u"Levels"]["pipes"], False)
-        self.assertEqual([r["axis"] for r in sets[u"Levels"]["rules"]],
-                         ["z", "x"])
-        # what is stored is plain dicts / lists (JSON friendly)
+        self.assertEqual([r["kind"] for r in sets[u"Levels"]["rules"]],
+                         [CS.RULE_PIPES, CS.RULE_PLANES, CS.RULE_PLANES])
+        # what is stored is plain dicts / lists (JSON friendly), no tick
         raw = settings[CS.SETTINGS_DIM_SETS][u"Levels"]
-        self.assertIsInstance(raw["rules"], list)
+        self.assertEqual(sorted(raw), ["rules"])
         self.assertIsInstance(raw["rules"][0], dict)
         self.assertTrue(CS.drop_dim_set(settings, u"Levels"))
         self.assertFalse(CS.drop_dim_set(settings, u"Levels"))
@@ -352,20 +392,21 @@ class DimSets(unittest.TestCase):
 
     def test_matching_set(self):
         settings = {}
-        CS.store_dim_set(settings, u"Levels", True, [self.RZ])
-        CS.store_dim_set(settings, u"Plan", False, [self.RX])
+        CS.store_dim_set(settings, u"Levels", [self.RZ])
+        CS.store_dim_set(settings, u"Plan", [CS.pipes_rule(), self.RX])
         sets = CS.dim_sets(settings)
-        self.assertEqual(CS.matching_dim_set(sets, True,
+        self.assertEqual(CS.matching_dim_set(sets,
                                              [CS.normalise_rule(self.RZ)]),
                          u"Levels")
-        self.assertEqual(CS.matching_dim_set(sets, False, [self.RX]), u"Plan")
-        # pipes differ -> no match; rule order matters
-        self.assertIsNone(CS.matching_dim_set(sets, False, [self.RZ]))
-        self.assertIsNone(CS.matching_dim_set(sets, True, [self.RZ, self.RX]))
-        self.assertIsNone(CS.matching_dim_set({}, True, []))
-        self.assertTrue(CS.same_dim_set({"pipes": 1, "rules": [self.RZ]},
-                                        {"pipes": True, "rules": [self.RZ]}))
-        self.assertFalse(CS.same_dim_set(None, {"pipes": True, "rules": []}))
+        self.assertEqual(CS.matching_dim_set(sets, [CS.pipes_rule(), self.RX]),
+                         u"Plan")
+        # rule order matters; an extra rule is no match
+        self.assertIsNone(CS.matching_dim_set(sets, [self.RX, CS.pipes_rule()]))
+        self.assertIsNone(CS.matching_dim_set(sets, [self.RZ, self.RX]))
+        self.assertIsNone(CS.matching_dim_set({}, []))
+        self.assertTrue(CS.same_dim_set({"rules": [self.RZ]},
+                                        {"rules": [CS.normalise_rule(self.RZ)]}))
+        self.assertFalse(CS.same_dim_set(None, {"rules": []}))
 
 
 class DimSettings(unittest.TestCase):

@@ -3,15 +3,22 @@
 dialog and the pipeline's Dimensions tab: a list box of rules, a '+' that
 opens an editor, Edit / Remove, and the editor's Add-to-list / Cancel.
 
+A rule is either a reference-plane string (axis, numbers, chain / direct,
+skip, inside) or a pipe / conduit / duct centreline string (categories,
+column spacing above the bank, row spacing left of it); the editor shows
+one set of fields or the other.
+
 The window must carry these named controls (same names in both XAMLs):
   LstRules, BtnRuleAdd, BtnRuleEdit, BtnRuleRemove, PnlRuleEditor,
+  RbKindPlanes, RbKindPipes, PnlPlanesFields, PnlPipesFields,
   RbAxisZ, RbAxisX, RbAxisY, TxtSpec, RbRuleChain, RbRuleDirect,
-  ChkRuleSkip, ChkRuleInside, TxtRuleStatus, BtnRuleSave, BtnRuleCancel
-and, for the named SETS of dimensions (pipe tick + rule list saved under a
-name, picked from a dropdown):
-  ChkPipes, CmbDimSet, BtnSetSave, BtnSetDelete, PnlSetSave, TxtSetName,
+  ChkRuleSkip, ChkRuleInside, ChkCatPipe, ChkCatConduit, ChkCatDuct,
+  ChkPipeCols, ChkPipeRows, TxtRuleStatus, BtnRuleSave, BtnRuleCancel
+and, for the named SETS of dimensions (a rule list saved under a name,
+picked from a dropdown):
+  CmbDimSet, BtnSetSave, BtnSetDelete, PnlSetSave, TxtSetName,
   BtnSetSaveOk, BtnSetSaveCancel, TxtSetStatus
-and forward its on_rule_* / on_set_* / on_pipes_changed handlers to the
+and forward its on_rule_* / on_kind_changed / on_set_* handlers to the
 matching methods here. Sets are written to the settings file the moment
 they are saved or deleted, so they survive a cancelled dialog.
 
@@ -38,7 +45,7 @@ class RuleList(object):
         self.hide_editor()
         self.hide_set_save()
         self.fill_sets(CS.matching_dim_set(CS.dim_sets(self.settings),
-                                           self.pipes(), self.rules))
+                                           self.rules))
 
     # -- list ------------------------------------------------------------
     def refresh(self, select=-1):
@@ -67,17 +74,29 @@ class RuleList(object):
         w = self.win
         r = CS.normalise_rule(rule) if rule else None
         if r is None:
-            r = {"axis": "z", "spec": u"1-", "mode": CS.Z_CHAIN,
-                 "skip": True, "inside": True}
+            r = {"kind": CS.RULE_PLANES, "axis": "z", "spec": u"1-",
+                 "mode": CS.Z_CHAIN, "skip": True, "inside": True}
+        pipes = r["kind"] == CS.RULE_PIPES
+        planes = r if not pipes else {"axis": "z", "spec": u"1-",
+                                      "mode": CS.Z_CHAIN, "skip": True,
+                                      "inside": True}
+        cent = r if pipes else CS.pipes_rule()
         try:
-            (w.RbAxisZ if r["axis"] == "z" else
-             w.RbAxisX if r["axis"] == "x" else w.RbAxisY).IsChecked = True
-            w.TxtSpec.Text = r["spec"]
-            (w.RbRuleChain if r["mode"] == CS.Z_CHAIN
+            (w.RbKindPipes if pipes else w.RbKindPlanes).IsChecked = True
+            (w.RbAxisZ if planes["axis"] == "z" else
+             w.RbAxisX if planes["axis"] == "x" else w.RbAxisY).IsChecked = True
+            w.TxtSpec.Text = planes["spec"]
+            (w.RbRuleChain if planes["mode"] == CS.Z_CHAIN
              else w.RbRuleDirect).IsChecked = True
-            w.ChkRuleSkip.IsChecked = bool(r["skip"])
-            w.ChkRuleInside.IsChecked = bool(r["inside"])
+            w.ChkRuleSkip.IsChecked = bool(planes["skip"])
+            w.ChkRuleInside.IsChecked = bool(planes["inside"])
+            w.ChkCatPipe.IsChecked = "pipe" in cent["cats"]
+            w.ChkCatConduit.IsChecked = "conduit" in cent["cats"]
+            w.ChkCatDuct.IsChecked = "duct" in cent["cats"]
+            w.ChkPipeCols.IsChecked = bool(cent["cols"])
+            w.ChkPipeRows.IsChecked = bool(cent["rows"])
             w.TxtRuleStatus.Text = u""
+            self.sync_kind()
             w.BtnRuleSave.Content = (u"Save" if self._editing is not None
                                      else u"Add to list")
             w.PnlRuleEditor.Visibility = Visibility.Visible
@@ -92,8 +111,49 @@ class RuleList(object):
             pass
         self._editing = None
 
+    def _kind(self):
+        try:
+            if self.win.RbKindPipes.IsChecked:
+                return CS.RULE_PIPES
+        except Exception:
+            pass
+        return CS.RULE_PLANES
+
+    def sync_kind(self):
+        """Show the plane fields or the centreline fields."""
+        from System.Windows import Visibility
+        pipes = self._kind() == CS.RULE_PIPES
+        try:
+            self.win.PnlPlanesFields.Visibility = (
+                Visibility.Collapsed if pipes else Visibility.Visible)
+            self.win.PnlPipesFields.Visibility = (
+                Visibility.Visible if pipes else Visibility.Collapsed)
+        except Exception:
+            pass
+
+    def on_kind_changed(self):
+        self.sync_kind()
+
     def _read_editor(self):
         w = self.win
+        if self._kind() == CS.RULE_PIPES:
+            cats = []
+            try:
+                if w.ChkCatPipe.IsChecked:
+                    cats.append("pipe")
+                if w.ChkCatConduit.IsChecked:
+                    cats.append("conduit")
+                if w.ChkCatDuct.IsChecked:
+                    cats.append("duct")
+                cols = bool(w.ChkPipeCols.IsChecked)
+                rows = bool(w.ChkPipeRows.IsChecked)
+            except Exception:
+                cols = rows = False
+            if not cats:
+                return None, u"Tick at least one of pipes, conduits, ducts."
+            if not (cols or rows):
+                return None, u"Tick the column string, the row string or both."
+            return CS.pipes_rule(cats, cols, rows), u""
         axis = "z"
         try:
             if w.RbAxisX.IsChecked:
@@ -164,12 +224,6 @@ class RuleList(object):
         self.hide_editor()
 
     # -- named sets -------------------------------------------------------------
-    def pipes(self):
-        try:
-            return bool(self.win.ChkPipes.IsChecked)
-        except Exception:
-            return True
-
     def sets(self):
         return CS.dim_sets(self.settings)
 
@@ -218,15 +272,11 @@ class RuleList(object):
         self._loading = False
 
     def load_set(self, name):
-        """Replace the pipe tick and the rule list with the saved set."""
+        """Replace the rule list with the saved set."""
         one = self.sets().get(name)
         if one is None:
             return
         self._loading = True
-        try:
-            self.win.ChkPipes.IsChecked = bool(one["pipes"])
-        except Exception:
-            pass
         self.rules = [dict(r) for r in one["rules"]]
         self.hide_editor()
         self.hide_set_save()
@@ -293,8 +343,7 @@ class RuleList(object):
             typed = self.win.TxtSetName.Text
         except Exception:
             typed = u""
-        name, replaced = CS.store_dim_set(self.settings, typed, self.pipes(),
-                                          self.rules)
+        name, replaced = CS.store_dim_set(self.settings, typed, self.rules)
         if name is None:
             self._status(u"Give the set a name.")
             return
@@ -320,6 +369,3 @@ class RuleList(object):
         self.fill_sets(None)
         self._status(u"Set '{0}' deleted - the list below is kept.".format(
             name))
-
-    def on_pipes_changed(self):
-        self.mark_custom()
