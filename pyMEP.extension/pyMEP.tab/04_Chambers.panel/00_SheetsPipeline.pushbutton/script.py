@@ -443,7 +443,8 @@ class PipeWindow(forms.WPFWindow):
         _fill(self.CmbDimType, dim_names,
               CS.pick_dim_type_name(dim_names, rem_dim["dim_type"]))
         self.ChkPipes.IsChecked = CS.dim_pipes(_settings)
-        self._rules = RuleList(self, CS.dim_rules(_settings))
+        self._rules = RuleList(self, CS.dim_rules(_settings),
+                               settings=_settings, save=save_settings)
 
         self._fill_types()
         self._ready = True
@@ -564,8 +565,12 @@ class PipeWindow(forms.WPFWindow):
             dims_on = bool(self.ChkDims.IsChecked)
             for ctl in (self.CmbDimType, self.ChkPipes, self.LstRules,
                         self.BtnRuleAdd, self.BtnRuleEdit, self.BtnRuleRemove,
-                        self.PnlRuleEditor):
+                        self.PnlRuleEditor, self.CmbDimSet, self.BtnSetSave,
+                        self.PnlSetSave):
                 ctl.IsEnabled = dims_on
+            rl = getattr(self, "_rules", None)
+            self.BtnSetDelete.IsEnabled = bool(
+                dims_on and rl is not None and rl.selected_set() is not None)
             self.StatusText.Text = ""
         except Exception:
             pass
@@ -614,6 +619,28 @@ class PipeWindow(forms.WPFWindow):
 
     def on_rule_cancel(self, sender, args):
         self._rules.on_cancel()
+
+    def on_set_changed(self, sender, args):
+        r = getattr(self, "_rules", None)
+        if r is not None:
+            r.on_set_changed()
+
+    def on_set_save(self, sender, args):
+        self._rules.on_set_save()
+
+    def on_set_save_ok(self, sender, args):
+        self._rules.on_set_save_ok()
+
+    def on_set_save_cancel(self, sender, args):
+        self._rules.on_set_save_cancel()
+
+    def on_set_delete(self, sender, args):
+        self._rules.on_set_delete()
+
+    def on_pipes_changed(self, sender, args):
+        r = getattr(self, "_rules", None)
+        if r is not None:
+            r.on_pipes_changed()
 
     def _fail(self, text):
         self.StatusText.Text = text

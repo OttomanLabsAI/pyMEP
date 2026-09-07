@@ -111,7 +111,49 @@
 
                 <GroupBox Header="Dimensions to add">
                     <StackPanel>
-                        <CheckBox x:Name="ChkPipes" Margin="0,4,0,0"
+                        <Grid Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}"
+                                       Margin="0,0,10,0" Text="Saved set"/>
+                            <ComboBox x:Name="CmbDimSet" Grid.Column="1"
+                                      SelectionChanged="on_set_changed"/>
+                            <Button x:Name="BtnSetSave" Grid.Column="2" Content="Save as..."
+                                    MinWidth="86" Margin="8,0,0,0" Padding="10,3"
+                                    Click="on_set_save"/>
+                            <Button x:Name="BtnSetDelete" Grid.Column="3" Content="Delete"
+                                    MinWidth="70" Margin="8,0,0,0" Padding="10,3"
+                                    Click="on_set_delete"/>
+                        </Grid>
+                        <Border x:Name="PnlSetSave" BorderBrush="#ABADB3" BorderThickness="1"
+                                Padding="10,8" Margin="0,6,0,0" Background="#FAFAFA"
+                                Visibility="Collapsed">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}"
+                                           Margin="0,0,10,0" Text="Save the pipe tick and the list below as"/>
+                                <TextBox x:Name="TxtSetName" Grid.Column="1"/>
+                                <Button x:Name="BtnSetSaveOk" Grid.Column="2" Content="Save"
+                                        MinWidth="80" Margin="8,0,0,0" Padding="10,3"
+                                        Click="on_set_save_ok"/>
+                                <Button x:Name="BtnSetSaveCancel" Grid.Column="3" Content="Cancel"
+                                        MinWidth="70" Margin="8,0,0,0" Padding="10,3"
+                                        Click="on_set_save_cancel"/>
+                            </Grid>
+                        </Border>
+                        <TextBlock x:Name="TxtSetStatus" Style="{StaticResource Hint}"
+                                   Margin="0,4,0,0" TextWrapping="Wrap" Text=""/>
+                        <CheckBox x:Name="ChkPipes" Margin="0,10,0,0"
+                                  Checked="on_pipes_changed" Unchecked="on_pipes_changed"
                                   Content="pipe centreline strings: column spacing above the bank, row spacing to its left"/>
                         <TextBlock Margin="0,10,0,0"
                                    Text="Reference plane strings - the chamber family's planes named x1, x2..., y1, y2... or z1, z2...:"/>

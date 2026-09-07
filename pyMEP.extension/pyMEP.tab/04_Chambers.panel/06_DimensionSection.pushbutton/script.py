@@ -721,7 +721,8 @@ class DimWindow(forms.WPFWindow):
         if first is not None:
             self.CmbDimType.SelectedItem = first
         self.ChkPipes.IsChecked = bool(remembered["pipes"])
-        self._rules = RuleList(self, remembered["rules"])
+        self._rules = RuleList(self, remembered["rules"],
+                               settings=_settings, save=save_settings)
         self._rebuild()
         self._ready = True
 
@@ -803,6 +804,28 @@ class DimWindow(forms.WPFWindow):
 
     def on_rule_cancel(self, sender, args):
         self._rules.on_cancel()
+
+    def on_set_changed(self, sender, args):
+        r = getattr(self, "_rules", None)
+        if r is not None:
+            r.on_set_changed()
+
+    def on_set_save(self, sender, args):
+        self._rules.on_set_save()
+
+    def on_set_save_ok(self, sender, args):
+        self._rules.on_set_save_ok()
+
+    def on_set_save_cancel(self, sender, args):
+        self._rules.on_set_save_cancel()
+
+    def on_set_delete(self, sender, args):
+        self._rules.on_set_delete()
+
+    def on_pipes_changed(self, sender, args):
+        r = getattr(self, "_rules", None)
+        if r is not None:
+            r.on_pipes_changed()
 
     def on_go(self, sender, args):
         if active_is_section:

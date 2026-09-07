@@ -63,6 +63,7 @@ SETTINGS_DIM_Z_MODE = "dimension_section_z_mode"    # Z_CHAIN | Z_DIRECT
 SETTINGS_DIM_Z_SKIP = "dimension_section_z_skip"    # skip planes a view can't take
 SETTINGS_DIM_RULES = "dimension_section_rules"      # list of plane-string rules
 SETTINGS_DIM_PIPES = "dimension_section_pipes"      # pipe centreline strings on/off
+SETTINGS_DIM_SETS = "dimension_section_sets"        # {name: {"pipes", "rules"}} saved sets
 DIM_AXES = ("z", "x", "y")
 Z_CHAIN = "chain"
 Z_DIRECT = "direct"
@@ -539,6 +540,95 @@ def dim_pipes(settings):
     """Whether the pipe centreline strings are on (default yes)."""
     settings = settings or {}
     return bool(settings.get(SETTINGS_DIM_PIPES, True))
+
+
+CUSTOM_SET_LABEL = u"(custom - the list below)"
+
+
+def normalise_dim_set(raw):
+    """A saved dimension set cleaned: {'pipes': bool, 'rules': [rule...]}.
+    None when it is not a dict."""
+    if not isinstance(raw, dict):
+        return None
+    rules = []
+    for r in raw.get("rules") or []:
+        n = normalise_rule(r)
+        if n is not None:
+            rules.append(n)
+    return {"pipes": bool(raw.get("pipes", True)), "rules": rules}
+
+
+def clean_set_name(name):
+    """The set name trimmed to one line; u'' when there is nothing in it."""
+    if name is None:
+        return u""
+    return u" ".join(u"{0}".format(name).split())
+
+
+def dim_sets(settings):
+    """{name: set} of the saved dimension sets, cleaned; bad entries and
+    blank names dropped."""
+    raw = (settings or {}).get(SETTINGS_DIM_SETS)
+    out = {}
+    if isinstance(raw, dict):
+        for name, one in raw.items():
+            key = clean_set_name(name)
+            n = normalise_dim_set(one)
+            if key and n is not None:
+                out[key] = n
+    return out
+
+
+def dim_set_names(sets):
+    """The set names in dropdown order (case-insensitive alphabetical)."""
+    return sorted(sets or {}, key=lambda n: (n.lower(), n))
+
+
+def same_dim_set(a, b):
+    """True when two sets ask for the same dimensions."""
+    a = normalise_dim_set(a)
+    b = normalise_dim_set(b)
+    if a is None or b is None:
+        return False
+    return a["pipes"] == b["pipes"] and a["rules"] == b["rules"]
+
+
+def matching_dim_set(sets, pipes, rules):
+    """The name of the saved set equal to (pipes, rules), or None: what the
+    dropdown shows when the dialog opens with the last-used dimensions."""
+    want = {"pipes": pipes, "rules": rules}
+    for name in dim_set_names(sets):
+        if same_dim_set(sets[name], want):
+            return name
+    return None
+
+
+def store_dim_set(settings, name, pipes, rules):
+    """Save (pipes, rules) under name in settings. Returns (name, replaced)
+    with the cleaned name, or (None, False) when the name is blank."""
+    key = clean_set_name(name)
+    if not key:
+        return None, False
+    sets = dim_sets(settings)
+    replaced = key in sets
+    sets[key] = normalise_dim_set({"pipes": pipes, "rules": rules})
+    settings[SETTINGS_DIM_SETS] = dict(
+        (k, {"pipes": v["pipes"], "rules": [dict(r) for r in v["rules"]]})
+        for k, v in sets.items())
+    return key, replaced
+
+
+def drop_dim_set(settings, name):
+    """Remove a saved set; True when there was one to remove."""
+    key = clean_set_name(name)
+    sets = dim_sets(settings)
+    if key not in sets:
+        return False
+    del sets[key]
+    settings[SETTINGS_DIM_SETS] = dict(
+        (k, {"pipes": v["pipes"], "rules": [dict(r) for r in v["rules"]]})
+        for k, v in sets.items())
+    return True
 
 
 def positions_from_segments(origins, values, line_dir, along):

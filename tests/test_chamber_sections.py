@@ -297,6 +297,77 @@ class PlaneRules(unittest.TestCase):
         self.assertFalse(CS.dim_pipes({CS.SETTINGS_DIM_PIPES: False}))
 
 
+class DimSets(unittest.TestCase):
+    """Named sets of dimensions: saved, listed, matched and removed."""
+
+    RZ = {"axis": "z", "spec": "1-5", "mode": CS.Z_CHAIN,
+          "skip": True, "inside": True}
+    RX = {"axis": "x", "spec": "all", "mode": CS.Z_DIRECT,
+          "skip": False, "inside": False}
+
+    def test_normalise_and_clean_name(self):
+        self.assertIsNone(CS.normalise_dim_set(None))
+        self.assertIsNone(CS.normalise_dim_set([1]))
+        got = CS.normalise_dim_set({"rules": [self.RZ, {"axis": "q"}]})
+        self.assertEqual(got, {"pipes": True,
+                               "rules": [CS.normalise_rule(self.RZ)]})
+        self.assertEqual(CS.normalise_dim_set({"pipes": 0}),
+                         {"pipes": False, "rules": []})
+        self.assertEqual(CS.clean_set_name(u"  Levels\n only "), u"Levels only")
+        self.assertEqual(CS.clean_set_name(None), u"")
+
+    def test_dim_sets_cleaned_and_ordered(self):
+        settings = {CS.SETTINGS_DIM_SETS: {
+            u"b set": {"pipes": True, "rules": [self.RZ]},
+            u"A set": {"pipes": False, "rules": []},
+            u"   ": {"pipes": True, "rules": []},
+            u"broken": "not a set"}}
+        sets = CS.dim_sets(settings)
+        self.assertEqual(sorted(sets), [u"A set", u"b set"])
+        self.assertEqual(CS.dim_set_names(sets), [u"A set", u"b set"])
+        self.assertEqual(CS.dim_sets({}), {})
+        self.assertEqual(CS.dim_sets({CS.SETTINGS_DIM_SETS: []}), {})
+
+    def test_store_replace_and_drop(self):
+        settings = {}
+        self.assertEqual(CS.store_dim_set(settings, u"  ", True, []),
+                         (None, False))
+        self.assertNotIn(CS.SETTINGS_DIM_SETS, settings)
+        self.assertEqual(CS.store_dim_set(settings, u" Levels ", True,
+                                          [self.RZ]), (u"Levels", False))
+        self.assertEqual(CS.store_dim_set(settings, u"Levels", False,
+                                          [self.RZ, self.RX]),
+                         (u"Levels", True))
+        sets = CS.dim_sets(settings)
+        self.assertEqual(sets[u"Levels"]["pipes"], False)
+        self.assertEqual([r["axis"] for r in sets[u"Levels"]["rules"]],
+                         ["z", "x"])
+        # what is stored is plain dicts / lists (JSON friendly)
+        raw = settings[CS.SETTINGS_DIM_SETS][u"Levels"]
+        self.assertIsInstance(raw["rules"], list)
+        self.assertIsInstance(raw["rules"][0], dict)
+        self.assertTrue(CS.drop_dim_set(settings, u"Levels"))
+        self.assertFalse(CS.drop_dim_set(settings, u"Levels"))
+        self.assertEqual(CS.dim_sets(settings), {})
+
+    def test_matching_set(self):
+        settings = {}
+        CS.store_dim_set(settings, u"Levels", True, [self.RZ])
+        CS.store_dim_set(settings, u"Plan", False, [self.RX])
+        sets = CS.dim_sets(settings)
+        self.assertEqual(CS.matching_dim_set(sets, True,
+                                             [CS.normalise_rule(self.RZ)]),
+                         u"Levels")
+        self.assertEqual(CS.matching_dim_set(sets, False, [self.RX]), u"Plan")
+        # pipes differ -> no match; rule order matters
+        self.assertIsNone(CS.matching_dim_set(sets, False, [self.RZ]))
+        self.assertIsNone(CS.matching_dim_set(sets, True, [self.RZ, self.RX]))
+        self.assertIsNone(CS.matching_dim_set({}, True, []))
+        self.assertTrue(CS.same_dim_set({"pipes": 1, "rules": [self.RZ]},
+                                        {"pipes": True, "rules": [self.RZ]}))
+        self.assertFalse(CS.same_dim_set(None, {"pipes": True, "rules": []}))
+
+
 class DimSettings(unittest.TestCase):
     def test_remembered_and_default(self):
         self.assertEqual(CS.dim_settings({})["dim_type"], "RHD_2.5")
