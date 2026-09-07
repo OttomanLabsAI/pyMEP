@@ -240,8 +240,28 @@
                                               Content="column spacing - one string above the bank through the top centreline of each column"/>
                                     <CheckBox x:Name="ChkPipeRows" Margin="0,6,0,0"
                                               Content="row spacing - one string to the left of the bank through the leftmost centreline of each row"/>
+                                    <CheckBox x:Name="ChkPipeSetout" Margin="0,8,0,0"
+                                              Content="setting-out - a separate dimension on the same line from a named reference plane of the chamber to the nearest run"/>
+                                    <Grid Margin="22,6,0,0" IsEnabled="{Binding IsChecked, ElementName=ChkPipeSetout}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="110"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="110"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}"
+                                                   Margin="0,0,8,0" Text="Across"/>
+                                        <TextBox x:Name="TxtSetoutAcross" Grid.Column="1"/>
+                                        <TextBlock Grid.Column="2" Style="{StaticResource FieldLabel}"
+                                                   Margin="14,0,8,0" Text="Up"/>
+                                        <TextBox x:Name="TxtSetoutUp" Grid.Column="3"/>
+                                        <TextBlock Grid.Column="4" Style="{StaticResource Hint}"
+                                                   Margin="10,6,0,0" TextWrapping="Wrap"
+                                                   Text="x1, y1 - the first this view can dimension - on the column line; z1 on the row line"/>
+                                    </Grid>
                                     <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0" TextWrapping="Wrap"
-                                               Text="Only runs passing through the chamber count; a single column or a single row gets no string."/>
+                                               Text="Only runs passing through the chamber count; a single column or a single row gets no spacing string. Strings sit just off the bank of runs."/>
                                 </StackPanel>
                                 <Grid Margin="0,8,0,0">
                                     <Grid.ColumnDefinitions>

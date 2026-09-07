@@ -263,7 +263,8 @@ class PlaneRules(unittest.TestCase):
         r = CS.pipes_rule()
         self.assertEqual(r, {"kind": CS.RULE_PIPES,
                              "cats": ["pipe", "conduit", "duct"],
-                             "cols": True, "rows": True})
+                             "cols": True, "rows": True, "setout": False,
+                             "across": u"", "up": u""})
         self.assertEqual(CS.rule_label(r),
                          "pipes + conduits + ducts  centrelines: "
                          "columns above + rows left")
@@ -281,6 +282,32 @@ class PlaneRules(unittest.TestCase):
         self.assertIsNone(CS.pipes_rule(cols=False, rows=False))
         # a pipes rule has no plane fields
         self.assertNotIn("axis", CS.pipes_rule())
+
+    def test_setting_out(self):
+        self.assertEqual(CS.parse_plane_names(u" X1, y1 ;z12 "),
+                         [("x", 1), ("y", 1), ("z", 12)])
+        self.assertEqual(CS.parse_plane_names(u""), [])
+        self.assertEqual(CS.parse_plane_names(None), [])
+        self.assertIsNone(CS.parse_plane_names(u"x1, wall"))
+        self.assertIsNone(CS.parse_plane_names(u"x"))
+        self.assertEqual(CS.plane_names_text([("x", 1), ("y", 1)]), u"x1, y1")
+        r = CS.pipes_rule(setout=True, across=u"X1 y1", up=u"z1")
+        self.assertTrue(r["setout"])
+        self.assertEqual((r["across"], r["up"]), (u"x1, y1", u"z1"))
+        self.assertEqual(CS.rule_label(r),
+                         "pipes + conduits + ducts  centrelines: columns "
+                         "above + rows left + setting-out from x1, y1 / z1")
+        # setting-out alone is enough to keep the rule
+        r = CS.pipes_rule(cols=False, rows=False, setout=True, up=u"z1")
+        self.assertEqual(r["up"], u"z1")
+        self.assertEqual(CS.rule_label(r), "pipes + conduits + ducts  "
+                                           "centrelines: setting-out from z1")
+        # ticked with no planes, or bad text, means no setting-out
+        self.assertFalse(CS.pipes_rule(setout=True)["setout"])
+        self.assertFalse(CS.pipes_rule(setout=True, across=u"wall")["setout"])
+        # planes typed but the tick off are dropped
+        r = CS.pipes_rule(across=u"x1")
+        self.assertEqual((r["setout"], r["across"]), (False, u""))
 
     def test_rules_settings_and_migration(self):
         # nothing saved: the z string only - no centreline rule by default

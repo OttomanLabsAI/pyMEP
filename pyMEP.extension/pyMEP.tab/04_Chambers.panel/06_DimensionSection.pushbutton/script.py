@@ -36,10 +36,14 @@ is remembered, and can be saved under a name and picked from a dropdown):
     (inside the chamber's footprint when a chamber family is in view) is
     located where it crosses the section plane and grouped into COLUMNS
     (same position across the view) and ROWS (same height). The column
-    string goes ABOVE the bank through one centreline per column, the row
-    string to the LEFT of the bank through one centreline per row. A
-    single column or a single row gets no string. Nothing is added unless
-    such a rule is in the list.
+    string goes just ABOVE the bank through one centreline per column,
+    the row string just to the LEFT of the bank through one centreline
+    per row (10 mm on paper off the runs, times the scale). A single
+    column or a single row gets no spacing string. With SETTING-OUT on,
+    a separate dimension on the same line runs from a named reference
+    plane of the chamber to the nearest run: across ('x1, y1' - the
+    first this view can dimension) on the column line, up ('z1') on the
+    row line. Nothing is added unless such a rule is in the list.
   * The dimension type is picked in the dialog (remembered; the house
     'RHD_2.5' is offered first when the project has it).
 
@@ -508,7 +512,7 @@ def dimension_view(v, dim_type, rules):
             text, n = _dimension_pipes(v, dim_type, chamber, rule,
                                        along_right, along_up, right, up,
                                        plane_origin, view_dir, slots,
-                                       res["notes"], ext)
+                                       res["notes"])
         else:
             text = _dimension_rule(v, dim_type, chamber, rule, along_right,
                                    along_up, right, up, slots, ext, at)
@@ -519,10 +523,15 @@ def dimension_view(v, dim_type, rules):
 
 
 def _dimension_pipes(v, dim_type, chamber, rule, along_right, along_up,
-                     right, up, plane_origin, view_dir, slots, notes, ext):
-    # The centreline strings for one rule: column spacing above the
-    # chamber (or the bank when it sticks out / there is no chamber), row
-    # spacing to the left of it. Returns (row text, strings created).
+                     right, up, plane_origin, view_dir, slots, notes):
+    # The centreline strings for one rule, placed close to the bank of
+    # runs: the column spacing string just above its top run, the row
+    # spacing string just left of its leftmost run (10 mm on paper, times
+    # the scale; further rules step outward). With setting-out on, a
+    # separate dimension on the same line runs from a named reference
+    # plane of the chamber to the nearest run: an x or y plane on the
+    # column line, a z plane on the row line. Returns (row text,
+    # dimensions created).
     label = " + ".join(c + "s" for c in rule["cats"])
     cats = set(CAT_BY_KEY[c] for c in rule["cats"])
     margin_ft = DUCT_MARGIN_MM / MM_PER_FOOT
@@ -550,17 +559,24 @@ def _dimension_pipes(v, dim_type, chamber, rule, along_right, along_up,
 
     # One representative per column (its topmost run) and per row (its
     # leftmost run), so each chain shows one spacing only.
-    col_reps = [max(cl["items"], key=lambda d: along_up(d[1]))
-                for cl in columns]
-    row_reps = [min(rw["items"], key=lambda d: along_right(d[1]))
-                for rw in rows]
+    col_reps = sorted((max(cl["items"], key=lambda d: along_up(d[1]))
+                       for cl in columns), key=lambda d: along_right(d[1]))
+    row_reps = sorted((min(rw["items"], key=lambda d: along_right(d[1]))
+                       for rw in rows), key=lambda d: along_up(d[1]))
 
     bank_top_u = max(along_up(c) for _el, c in ducts)
     bank_left_r = min(along_right(c) for _el, c in ducts)
-    if ext is not None:
-        bank_top_u = max(bank_top_u, ext[3])
-        bank_left_r = min(bank_left_r, ext[0])
     scale = _view_scale(v)
+    anchor = ducts[0][1]
+    a_r = along_right(anchor)
+    a_u = along_up(anchor)
+
+    def at(r_val, u_val):
+        dr = r_val - a_r
+        du = u_val - a_u
+        return XYZ(anchor.X + right.X * dr + up.X * du,
+                   anchor.Y + right.Y * dr + up.Y * du,
+                   anchor.Z + right.Z * dr + up.Z * du)
 
     def refs_of(reps):
         arr = ReferenceArray()
@@ -575,78 +591,126 @@ def _dimension_pipes(v, dim_type, chamber, rule, along_right, along_up,
             pts.append(c)
         return arr, pts, missing
 
-    def make(line, arr):
+    def make(p0, p1, arr):
+        line = Line.CreateBound(p0, p1)
         if dim_type is not None:
             return doc.Create.NewDimension(v, line, arr, dim_type)
         return doc.Create.NewDimension(v, line, arr)
 
+    def chain(what, reps, along, on_line, horizontal):
+        # The spacing string through the representatives. (text, made)
+        if len(reps) < 2:
+            return "{0} skipped (single {1})".format(
+                what, what.rstrip("s")), 0
+        arr, pts, missing = refs_of(reps)
+        if missing:
+            notes.append("{0} {1} gave no centreline reference".format(
+                missing, what.rstrip("s") + "(s)"))
+        if arr.Size < 2:
+            return "{0} NOT created - fewer than two references".format(
+                what), 0
+        lo, hi = along(pts[0]), along(pts[-1])
+        p0 = at(lo, on_line) if horizontal else at(on_line, lo)
+        p1 = at(hi, on_line) if horizontal else at(on_line, hi)
+        try:
+            d = make(p0, p1, arr)
+        except Exception as ex:
+            return "{0} NOT created - {1}".format(what, ex), 0
+        if d is None:
+            return "{0} NOT created".format(what), 0
+        return "{0} created".format(what), 1
+
+    def setting_out(spec, reps, along, axis_vec, on_line, horizontal):
+        # One dimension from the first plane in `spec` this view can take
+        # to the nearest run, on the string's line. (text, made)
+        if chamber is None:
+            return "setting-out {0}: no chamber in view".format(spec), 0
+        tried = []
+        for axis, num in (CS.parse_plane_names(spec) or []):
+            hit = _named_planes(chamber, axis).get(num)
+            if hit is None:
+                tried.append("{0}{1} not in the family".format(axis, num))
+                continue
+            nm, ref = hit
+            geo = _plane_geometry(ref)
+            if geo is None:
+                tried.append("{0} has no geometry".format(nm))
+                continue
+            normal, origin = geo
+            try:
+                faces = abs(normal.DotProduct(axis_vec)) > 0.99
+            except Exception:
+                faces = False
+            if not faces:
+                tried.append("{0} does not face this view".format(nm))
+                continue
+            p_pos = along(origin)
+            el, c = min(reps, key=lambda d: abs(along(d[1]) - p_pos))
+            cref = _get_centreline_ref(el, v)
+            if cref is None:
+                tried.append("nearest run to {0} has no centreline "
+                             "reference".format(nm))
+                continue
+            r_pos = along(c)
+            arr = ReferenceArray()
+            arr.Append(ref)
+            arr.Append(cref)
+            p0 = at(p_pos, on_line) if horizontal else at(on_line, p_pos)
+            p1 = at(r_pos, on_line) if horizontal else at(on_line, r_pos)
+            try:
+                d = make(p0, p1, arr)
+            except Exception as ex:
+                tried.append("{0}: {1}".format(nm, ex))
+                continue
+            if d is None:
+                tried.append("{0}: nothing made".format(nm))
+                continue
+            return "setting-out from {0} created".format(nm), 1
+        return "setting-out {0} NOT created ({1})".format(
+            spec, "; ".join(tried) or "no plane given"), 0
+
     parts = ["{0} run(s), {1} column(s) x {2} row(s)".format(
         len(ducts), len(columns), len(rows))]
     made = 0
+    setout = bool(rule.get("setout"))
+    across = rule.get("across") or ""
+    upward = rule.get("up") or ""
 
-    # --- column spacing, above the bank ---
-    if rule["cols"]:
-        if len(columns) < 2:
-            parts.append("columns skipped (single column)")
-        else:
-            arr, pts, missing = refs_of(col_reps)
-            if missing:
-                notes.append("{0} column(s) gave no centreline "
-                             "reference".format(missing))
-            if arr.Size < 2:
-                parts.append("columns NOT created - fewer than two "
-                             "references")
-            else:
-                left_pt = pts[0]
-                lift = (bank_top_u - along_up(left_pt)) + \
-                    CS.string_offset_mm(scale, slots["pipe_col"]) / MM_PER_FOOT
-                o = XYZ(left_pt.X + up.X * lift, left_pt.Y + up.Y * lift,
-                        left_pt.Z + up.Z * lift)
-                span = along_right(pts[-1]) - along_right(left_pt)
-                e = XYZ(o.X + right.X * (span + 1.0),
-                        o.Y + right.Y * (span + 1.0),
-                        o.Z + right.Z * (span + 1.0))
-                try:
-                    d = make(Line.CreateBound(o, e), arr)
-                    if d is not None:
-                        parts.append("columns created")
-                        made += 1
-                        slots["pipe_col"] += 1
-                    else:
-                        parts.append("columns NOT created")
-                except Exception as ex:
-                    parts.append("columns NOT created - {0}".format(ex))
+    # --- the column line, just above the bank ---
+    if rule["cols"] or (setout and across):
+        line_u = bank_top_u + \
+            CS.string_offset_mm(scale, slots["pipe_col"]) / MM_PER_FOOT
+        drawn = 0
+        if rule["cols"]:
+            text, n = chain("columns", col_reps, along_right, line_u, True)
+            parts.append(text)
+            drawn += n
+        if setout and across:
+            text, n = setting_out(across, col_reps, along_right, right,
+                                  line_u, True)
+            parts.append(text)
+            drawn += n
+        made += drawn
+        if drawn:
+            slots["pipe_col"] += 1
 
-    # --- row spacing, left of the bank ---
-    if rule["rows"]:
-        if len(rows) < 2:
-            parts.append("rows skipped (single row)")
-        else:
-            arr, pts, missing = refs_of(row_reps)
-            if missing:
-                notes.append("{0} row(s) gave no centreline "
-                             "reference".format(missing))
-            if arr.Size < 2:
-                parts.append("rows NOT created - fewer than two references")
-            else:
-                low_pt = pts[0]
-                shift = (along_right(low_pt) - bank_left_r) + \
-                    CS.string_offset_mm(scale, slots["pipe_row"]) / MM_PER_FOOT
-                o = XYZ(low_pt.X - right.X * shift, low_pt.Y - right.Y * shift,
-                        low_pt.Z - right.Z * shift)
-                vspan = along_up(pts[-1]) - along_up(low_pt)
-                e = XYZ(o.X + up.X * (vspan + 1.0), o.Y + up.Y * (vspan + 1.0),
-                        o.Z + up.Z * (vspan + 1.0))
-                try:
-                    d = make(Line.CreateBound(o, e), arr)
-                    if d is not None:
-                        parts.append("rows created")
-                        made += 1
-                        slots["pipe_row"] += 1
-                    else:
-                        parts.append("rows NOT created")
-                except Exception as ex:
-                    parts.append("rows NOT created - {0}".format(ex))
+    # --- the row line, just left of the bank ---
+    if rule["rows"] or (setout and upward):
+        line_r = bank_left_r - \
+            CS.string_offset_mm(scale, slots["pipe_row"]) / MM_PER_FOOT
+        drawn = 0
+        if rule["rows"]:
+            text, n = chain("rows", row_reps, along_up, line_r, False)
+            parts.append(text)
+            drawn += n
+        if setout and upward:
+            text, n = setting_out(upward, row_reps, along_up, up, line_r,
+                                  False)
+            parts.append(text)
+            drawn += n
+        made += drawn
+        if drawn:
+            slots["pipe_row"] += 1
     return "{0}: {1}".format(label, ", ".join(parts)), made
 
 

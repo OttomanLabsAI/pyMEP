@@ -480,12 +480,36 @@ def wanted_numbers(parsed, available):
     return list(parsed["nums"])
 
 
-def pipes_rule(cats=None, cols=True, rows=True):
-    """A centreline-string rule: which categories (default all three) and
-    which strings (column spacing above the bank, row spacing left of it).
-    None when nothing is left to draw."""
+def parse_plane_names(text):
+    """'x1, y1' -> [('x', 1), ('y', 1)]. [] for blank text; None when a
+    token is not <axis><number> (axis x, y or z)."""
+    out = []
+    for tok in re.split(r"[,\s;/]+", u"{0}".format(text or u"").strip()):
+        if not tok:
+            continue
+        m = re.match(r"^([xyzXYZ])(\d+)$", tok)
+        if m is None:
+            return None
+        out.append((m.group(1).lower(), int(m.group(2))))
+    return out
+
+
+def plane_names_text(pairs):
+    """[('x', 1), ('y', 1)] -> 'x1, y1'."""
+    return u", ".join(u"{0}{1}".format(a, n) for a, n in (pairs or []))
+
+
+def pipes_rule(cats=None, cols=True, rows=True, setout=False, across=None,
+               up=None):
+    """A centreline-string rule: which categories (default all three),
+    which strings (column spacing above the bank, row spacing left of it)
+    and, with setout, the named planes a setting-out dimension runs from
+    to the nearest run: across ('x1, y1' - the first this view can take)
+    on the column line, up ('z1') on the row line. None when nothing is
+    left to draw."""
     return normalise_rule({"kind": RULE_PIPES, "cats": cats, "cols": cols,
-                           "rows": rows})
+                           "rows": rows, "setout": setout, "across": across,
+                           "up": up})
 
 
 def normalise_rule(rule):
@@ -506,9 +530,14 @@ def normalise_rule(rule):
         cats = [c for c in PIPE_CATS if c in have]
         cols = bool(rule.get("cols", True))
         rows = bool(rule.get("rows", True))
-        if not cats or not (cols or rows):
+        across = plane_names_text(parse_plane_names(rule.get("across")))
+        upward = plane_names_text(parse_plane_names(rule.get("up")))
+        setout = bool(rule.get("setout", False)) and bool(across or upward)
+        if not cats or not (cols or rows or setout):
             return None
-        return {"kind": RULE_PIPES, "cats": cats, "cols": cols, "rows": rows}
+        return {"kind": RULE_PIPES, "cats": cats, "cols": cols, "rows": rows,
+                "setout": setout, "across": across if setout else u"",
+                "up": upward if setout else u""}
     if kind != RULE_PLANES:
         return None
     axis = u"{0}".format(rule.get("axis") or u"").strip().lower()
@@ -535,6 +564,9 @@ def rule_label(rule):
     if r["kind"] == RULE_PIPES:
         strings = ([u"columns above"] if r["cols"] else []) + \
                   ([u"rows left"] if r["rows"] else [])
+        if r["setout"]:
+            strings.append(u"setting-out from {0}".format(
+                u" / ".join(x for x in (r["across"], r["up"]) if x)))
         return u"{0}  centrelines: {1}".format(
             u" + ".join(c + u"s" for c in r["cats"]), u" + ".join(strings))
     return u"{0}  {1}  {2}{3}{4}".format(

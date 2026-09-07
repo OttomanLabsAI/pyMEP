@@ -13,7 +13,8 @@ The window must carry these named controls (same names in both XAMLs):
   RbKindPlanes, RbKindPipes, PnlPlanesFields, PnlPipesFields,
   RbAxisZ, RbAxisX, RbAxisY, TxtSpec, RbRuleChain, RbRuleDirect,
   ChkRuleSkip, ChkRuleInside, ChkCatPipe, ChkCatConduit, ChkCatDuct,
-  ChkPipeCols, ChkPipeRows, TxtRuleStatus, BtnRuleSave, BtnRuleCancel
+  ChkPipeCols, ChkPipeRows, ChkPipeSetout, TxtSetoutAcross, TxtSetoutUp,
+  TxtRuleStatus, BtnRuleSave, BtnRuleCancel
 and, for the named SETS of dimensions (a rule list saved under a name,
 picked from a dropdown):
   CmbDimSet, BtnSetSave, BtnSetDelete, PnlSetSave, TxtSetName,
@@ -95,6 +96,9 @@ class RuleList(object):
             w.ChkCatDuct.IsChecked = "duct" in cent["cats"]
             w.ChkPipeCols.IsChecked = bool(cent["cols"])
             w.ChkPipeRows.IsChecked = bool(cent["rows"])
+            w.ChkPipeSetout.IsChecked = bool(cent["setout"])
+            w.TxtSetoutAcross.Text = cent["across"] or u"x1, y1"
+            w.TxtSetoutUp.Text = cent["up"] or u"z1"
             w.TxtRuleStatus.Text = u""
             self.sync_kind()
             w.BtnRuleSave.Content = (u"Save" if self._editing is not None
@@ -147,13 +151,27 @@ class RuleList(object):
                     cats.append("duct")
                 cols = bool(w.ChkPipeCols.IsChecked)
                 rows = bool(w.ChkPipeRows.IsChecked)
+                setout = bool(w.ChkPipeSetout.IsChecked)
+                across = (w.TxtSetoutAcross.Text or u"").strip()
+                upward = (w.TxtSetoutUp.Text or u"").strip()
             except Exception:
-                cols = rows = False
+                cols = rows = setout = False
+                across = upward = u""
             if not cats:
                 return None, u"Tick at least one of pipes, conduits, ducts."
-            if not (cols or rows):
-                return None, u"Tick the column string, the row string or both."
-            return CS.pipes_rule(cats, cols, rows), u""
+            if setout:
+                pa = CS.parse_plane_names(across)
+                pu = CS.parse_plane_names(upward)
+                if pa is None or pu is None:
+                    return None, (u"Setting-out planes: an axis and a number, "
+                                  u"like x1, y1 across and z1 up.")
+                if not pa and not pu:
+                    return None, (u"Setting-out: type a plane across (x1, "
+                                  u"y1) and / or up (z1), or untick it.")
+            if not (cols or rows or setout):
+                return None, (u"Tick the column string, the row string or "
+                              u"the setting-out.")
+            return CS.pipes_rule(cats, cols, rows, setout, across, upward), u""
         axis = "z"
         try:
             if w.RbAxisX.IsChecked:
