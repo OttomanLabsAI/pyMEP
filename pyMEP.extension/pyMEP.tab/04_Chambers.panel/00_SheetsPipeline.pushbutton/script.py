@@ -71,10 +71,10 @@ out = script.get_output()
 
 XAML_PATH = os.path.join(os.path.dirname(os.path.abspath(CS.__file__)),
                          "pymep_sheets_pipeline.xaml")
-STEP_PLANS = "00_ChamberPlans.pushbutton"
+STEP_PLANS = "01_ChamberPlans.pushbutton"
 STEP_SECTIONS = "02_CreateSections.pushbutton"
-STEP_SHEET = "01_SheetSetup.pushbutton"
-STEP_DIMS = "05_DimensionSection.pushbutton"
+STEP_SHEET = "03_SheetSetup.pushbutton"
+STEP_DIMS = "06_DimensionSection.pushbutton"
 NO_TITLEBLOCK = u"(no title block)"
 SIDE_LETTERS = ("A", "B", "C", "D")
 PLAN_TYPES = (ViewType.FloorPlan, ViewType.CeilingPlan,

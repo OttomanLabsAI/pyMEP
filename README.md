@@ -8,6 +8,15 @@ Automation kit for MEP modelling with [pyRevit](https://github.com/pyrevitlabs/p
 
 ## Install
 
+**Single installer (recommended for colleagues):** download
+`pyMEP_Setup_v<version>.exe` from the newest
+[GitHub Release](https://github.com/OttomanLabsAI/pyMEP/releases) and run it.
+It installs the pyRevit runtime if the machine does not have it, puts pyMEP
+in place and attaches it to every installed Revit, per user and without
+admin rights. Restart Revit afterwards. See `installer/README.md` for how
+it is built and which pyRevit it bundles.
+
+
 Copy (or clone) `pyMEP.extension/` into your pyRevit extensions directory:
 
 ```

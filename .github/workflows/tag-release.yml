@@ -4,6 +4,12 @@ name: tag-release
 # (v0.x scheme). Dev environments can't push tags directly (the git proxy
 # blocks refs/tags), so this runs server-side instead.
 #
+# A second job then builds the single installer (installer/build.ps1) on a
+# Windows runner and publishes it on the GitHub Release for that tag, so
+# colleagues can install pyMEP + the pyRevit runtime from one file. It runs
+# in this workflow (not on the tag event) because tags pushed with the
+# workflow token do not trigger other workflows.
+#
 # Also manually dispatchable to (re)tag any commit:
 #   Actions > tag-release > Run workflow  (tag + sha inputs, both optional).
 #
@@ -82,3 +88,57 @@ jobs:
           git tag -a "$VER" -m "pyMEP $VER" "$TARGET"
           git push $PUSH_ARGS origin "refs/tags/$VER"
           echo "Tagged $TARGET as $VER (date: ${TAG_DATE:-now})"
+
+      - name: Resolve the version for the installer job
+        id: ver
+        env:
+          IN_TAG: ${{ github.event.inputs.tag }}
+          IN_SHA: ${{ github.event.inputs.sha }}
+        run: |
+          TARGET="${IN_SHA:-$GITHUB_SHA}"
+          VER="$IN_TAG"
+          if [ -z "$VER" ]; then
+            VER=$(git show "$TARGET:pyMEP.extension/version.txt" | tr -d ' \r\n')
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "sha=$TARGET" >> "$GITHUB_OUTPUT"
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      sha: ${{ steps.ver.outputs.sha }}
+
+  installer:
+    needs: tag
+    if: needs.tag.outputs.version != ''
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.sha }}
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ISCC.exe -ErrorAction SilentlyContinue) -and
+              -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Build the installer
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: powershell -ExecutionPolicy Bypass -File installer\build.ps1
+
+      - name: Publish on the release for this tag
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.tag.outputs.version }}
+          name: pyMEP ${{ needs.tag.outputs.version }}
+          body: |
+            pyMEP ${{ needs.tag.outputs.version }}.
+
+            **pyMEP_Setup_*.exe** is the single installer: it installs the pyRevit
+            runtime when missing, puts pyMEP in place and attaches it to every
+            installed Revit. Per user, no admin rights. Restart Revit afterwards.
+          files: dist/pyMEP_Setup_*.exe
+          fail_on_unmatched_files: true
