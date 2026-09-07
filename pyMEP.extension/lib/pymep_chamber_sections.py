@@ -60,6 +60,7 @@ DEFAULT_PIPE_PER_SHEET = 2
 SETTINGS_DIM_TYPE = "dimension_section_dim_type"
 SETTINGS_DIM_Z_PLANES = "dimension_section_z_planes"
 SETTINGS_DIM_Z_MODE = "dimension_section_z_mode"    # Z_CHAIN | Z_DIRECT
+SETTINGS_DIM_Z_SKIP = "dimension_section_z_skip"    # skip planes a view can't take
 Z_CHAIN = "chain"
 Z_DIRECT = "direct"
 DEFAULT_DIM_TYPE_NAME = u"RHD_2.5"
@@ -181,7 +182,8 @@ def dim_settings(settings):
     return {"dim_type": u"{0}".format(settings.get(SETTINGS_DIM_TYPE)
                                       or DEFAULT_DIM_TYPE_NAME),
             "z_planes": bool(settings.get(SETTINGS_DIM_Z_PLANES, True)),
-            "z_mode": mode}
+            "z_mode": mode,
+            "z_skip": bool(settings.get(SETTINGS_DIM_Z_SKIP, True))}
 
 
 _Z_PLANE_RE = re.compile(r"^\s*[zZ]\s*0*(\d+)\s*$")

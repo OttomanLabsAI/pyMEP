@@ -205,6 +205,9 @@ class ZPlanes(unittest.TestCase):
             {CS.SETTINGS_DIM_Z_MODE: CS.Z_DIRECT})["z_mode"], CS.Z_DIRECT)
         self.assertEqual(CS.dim_settings(
             {CS.SETTINGS_DIM_Z_MODE: "odd"})["z_mode"], CS.Z_CHAIN)
+        self.assertTrue(CS.dim_settings({})["z_skip"])
+        self.assertFalse(CS.dim_settings(
+            {CS.SETTINGS_DIM_Z_SKIP: False})["z_skip"])
 
 
 class DimSettings(unittest.TestCase):

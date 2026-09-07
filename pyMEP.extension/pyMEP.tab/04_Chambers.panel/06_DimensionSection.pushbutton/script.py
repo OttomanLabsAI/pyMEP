@@ -23,8 +23,12 @@ WHAT it does in each section:
     reference planes named z1, z2, z3... are found by name and dimensioned
     to the right of the chamber, either as one chain through every plane
     in number order or as one overall dimension from z1 straight to the
-    highest - the dialog asks which. The planes must be named in the
-    family and set as a reference. Skipped when fewer than two are found.
+    highest - the dialog asks which. A view can only dimension the planes
+    it sees; with 'skip the planes this view cannot dimension' on (the
+    default) the ones Revit refuses are dropped and the rest are used,
+    smallest number first (z2, z3, z5...). The planes must be named in
+    the family and set as a reference. Fewer than two usable planes is
+    reported and skipped.
   * The dimension type is picked in the dialog (remembered; the house
     'RHD_2.5' is offered first when the project has it).
 
@@ -290,7 +294,8 @@ def _group(items, key, tol):
 # ---------------------------------------------------------------------------
 # 2. One section: analyse + dimension (inside the caller's transaction)
 # ---------------------------------------------------------------------------
-def dimension_view(v, dim_type, z_planes=True, z_mode=CS.Z_CHAIN):
+def dimension_view(v, dim_type, z_planes=True, z_mode=CS.Z_CHAIN,
+                   z_skip=True):
     res = {"view": _name(v), "ducts": 0, "cols": 0, "rows": 0,
            "col": "-", "row": "-", "z": "-", "notes": []}
     right = v.RightDirection
@@ -311,7 +316,7 @@ def dimension_view(v, dim_type, z_planes=True, z_mode=CS.Z_CHAIN):
     # --- chamber levels: z1, z2, ... reference planes, right of the chamber
     if z_planes:
         res["z"] = _dimension_z_planes(v, dim_type, chamber, along_right,
-                                       along_up, right, up, z_mode)
+                                       along_up, right, up, z_mode, z_skip)
 
     ducts = []
     rejected = 0
@@ -419,21 +424,19 @@ def dimension_view(v, dim_type, z_planes=True, z_mode=CS.Z_CHAIN):
 
 
 def _dimension_z_planes(v, dim_type, chamber, along_right, along_up, right,
-                        up, z_mode=CS.Z_CHAIN):
-    # The chamber's z planes in number order: one chain through all of
-    # them, or one overall dimension from the first to the last. Tried
-    # along the view's up direction first (level planes), then along right
-    # (if the family's z planes turn out vertical). Returns the row text.
+                        up, z_mode=CS.Z_CHAIN, z_skip=True):
+    # The chamber's z planes in number order: one chain through them, or
+    # one overall dimension from the first to the last. Tried along the
+    # view's up direction first (level planes), then along right (if the
+    # family's z planes turn out vertical). With z_skip, the planes this
+    # view cannot dimension (parallel to it, or outside its crop) are found
+    # by probing and dropped. Returns the row text.
     if chamber is None:
         return "no chamber in view"
     planes = _z_planes(chamber)
     if len(planes) < 2:
         return ("no z planes on '{0}'".format(_name(chamber)) if not planes
                 else "only {0} found".format(planes[0][0]))
-    used = planes if z_mode == CS.Z_CHAIN else [planes[0], planes[-1]]
-    arr = ReferenceArray()
-    for _nm, ref in used:
-        arr.Append(ref)
     ext = _bbox_frame(chamber, along_right, along_up)
     if ext is None:
         return "chamber has no bounding box"
@@ -454,27 +457,86 @@ def _dimension_z_planes(v, dim_type, chamber, along_right, along_up, right,
                    anchor.Y + right.Y * dr + up.Y * du,
                    anchor.Z + right.Z * dr + up.Z * du)
 
-    label = "{0} to {1} ({2})".format(
-        planes[0][0], planes[-1][0],
-        "chain of {0}".format(len(planes)) if z_mode == CS.Z_CHAIN
-        else "direct")
     attempts = (
         ("vertical", at(max_r + off, min_u - 1.0), at(max_r + off, max_u + 1.0)),
         ("horizontal", at(min_r - 1.0, min_u - off), at(max_r + 1.0, min_u - off)),
     )
+
+    def make(line, refs):
+        arr = ReferenceArray()
+        for _nm, ref in refs:
+            arr.Append(ref)
+        if dim_type is not None:
+            return doc.Create.NewDimension(v, line, arr, dim_type)
+        return doc.Create.NewDimension(v, line, arr)
+
+    def usable(line):
+        # The planes this view can dimension along `line`: a plane counts
+        # when a probe dimension between it and some other plane succeeds
+        # (the probe is deleted again).
+        ok = []
+        for i, p in enumerate(planes):
+            good = False
+            for j, q in enumerate(planes):
+                if i == j:
+                    continue
+                try:
+                    d = make(line, [p, q])
+                except Exception:
+                    continue
+                if d is not None:
+                    try:
+                        doc.Delete(d.Id)
+                    except Exception:
+                        pass
+                    good = True
+                    break
+            if good:
+                ok.append(p)
+        return ok
+
     last = ""
     for how, p0, p1 in attempts:
         try:
             line = Line.CreateBound(p0, p1)
-            if dim_type is not None:
-                d = doc.Create.NewDimension(v, line, arr, dim_type)
-            else:
-                d = doc.Create.NewDimension(v, line, arr)
-            if d is not None:
-                return "created {0}, {1}".format(label, how)
-            last = "NewDimension returned nothing"
         except Exception as ex:
             last = "{0}".format(ex)
+            continue
+        chosen = planes
+        skipped = []
+        # 1) everything at once; 2) if refused and skipping is on, probe
+        #    each plane and use the ones this view can take.
+        try:
+            d = make(line, chosen if z_mode == CS.Z_CHAIN
+                     else [chosen[0], chosen[-1]])
+        except Exception as ex:
+            d = None
+            last = "{0}".format(ex)
+            if z_skip:
+                chosen = usable(line)
+                skipped = [p[0] for p in planes if p not in chosen]
+                if len(chosen) >= 2:
+                    try:
+                        d = make(line, chosen if z_mode == CS.Z_CHAIN
+                                 else [chosen[0], chosen[-1]])
+                    except Exception as ex2:
+                        d = None
+                        last = "{0}".format(ex2)
+                elif chosen:
+                    last = "only {0} can be dimensioned here".format(
+                        chosen[0][0])
+                else:
+                    last = "none of the z planes can be dimensioned here"
+        if d is not None:
+            label = "{0} to {1} ({2})".format(
+                chosen[0][0], chosen[-1][0],
+                "chain of {0}".format(len(chosen)) if z_mode == CS.Z_CHAIN
+                else "direct")
+            note = "created {0}, {1}".format(label, how)
+            if skipped:
+                note += ", skipped {0}".format(", ".join(skipped))
+            return note
+    label = "{0} to {1}".format(planes[0][0], planes[-1][0])
     return "NOT created {0} - {1}".format(label, last)
 
 
@@ -567,6 +629,7 @@ class DimWindow(forms.WPFWindow):
             self.RbZDirect.IsChecked = True
         else:
             self.RbZChain.IsChecked = True
+        self.ChkZSkip.IsChecked = bool(remembered["z_skip"])
         self._rebuild()
         self._ready = True
 
@@ -650,7 +713,8 @@ class DimWindow(forms.WPFWindow):
         self.result = {"views": views, "dim_type": name,
                        "z_planes": bool(self.ChkZPlanes.IsChecked),
                        "z_mode": (CS.Z_DIRECT if self.RbZDirect.IsChecked
-                                  else CS.Z_CHAIN)}
+                                  else CS.Z_CHAIN),
+                       "z_skip": bool(self.ChkZSkip.IsChecked)}
         self.Close()
 
     def on_cancel(self, sender, args):
@@ -669,6 +733,9 @@ if _HEADLESS:
     if want_z is None:
         want_z = CS.dim_settings(_settings)["z_planes"]
     z_mode = _HEADLESS.get("z_mode") or CS.dim_settings(_settings)["z_mode"]
+    z_skip = _HEADLESS.get("z_skip")
+    if z_skip is None:
+        z_skip = CS.dim_settings(_settings)["z_skip"]
 else:
     win = DimWindow(CS.dim_settings(_settings))
     win.ShowDialog()
@@ -678,12 +745,14 @@ else:
     dim_name = win.result["dim_type"]
     want_z = win.result["z_planes"]
     z_mode = win.result["z_mode"]
+    z_skip = win.result["z_skip"]
 dim_type = dim_types.get(dim_name) if dim_name else None
 try:
     if dim_name:
         _settings[CS.SETTINGS_DIM_TYPE] = dim_name
     _settings[CS.SETTINGS_DIM_Z_PLANES] = bool(want_z)
     _settings[CS.SETTINGS_DIM_Z_MODE] = z_mode
+    _settings[CS.SETTINGS_DIM_Z_SKIP] = bool(z_skip)
     save_settings(_settings)
 except Exception:
     pass
@@ -699,7 +768,8 @@ t.Start()
 try:
     for v in target_views:
         try:
-            results.append(dimension_view(v, dim_type, want_z, z_mode))
+            results.append(dimension_view(v, dim_type, want_z, z_mode,
+                                          z_skip))
         except Exception as ex:
             results.append({"view": _name(v), "ducts": 0, "cols": 0,
                             "rows": 0, "col": "FAILED", "row": "FAILED",

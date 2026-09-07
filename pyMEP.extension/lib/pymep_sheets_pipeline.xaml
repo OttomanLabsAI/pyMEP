@@ -468,6 +468,8 @@
                                     <RadioButton x:Name="RbZDirect" GroupName="ZMode"
                                                  Margin="0,4,0,0"
                                                  Content="one overall dimension: z1 straight to the highest"/>
+                                    <CheckBox x:Name="ChkZSkip" Margin="0,8,0,0"
+                                              Content="skip the planes a view cannot dimension and use the rest, smallest number first (z2, z3, z5 ...)"/>
                                 </StackPanel>
                                 <TextBlock Style="{StaticResource Hint}"
                                            Text="Two chained dimensions through the pipe centrelines in every new section: the column spacing above the bank and the row spacing to its left. The chamber levels string runs through the family's z-numbered reference planes, right of the chamber."/>

@@ -446,6 +446,7 @@ class PipeWindow(forms.WPFWindow):
             self.RbZDirect.IsChecked = True
         else:
             self.RbZChain.IsChecked = True
+        self.ChkZSkip.IsChecked = bool(rem_dim["z_skip"])
 
         self._fill_types()
         self._ready = True
@@ -724,6 +725,7 @@ class PipeWindow(forms.WPFWindow):
         o["dim_type"] = self.CmbDimType.SelectedItem
         o["z_planes"] = bool(self.ChkZPlanes.IsChecked)
         o["z_mode"] = CS.Z_DIRECT if self.RbZDirect.IsChecked else CS.Z_CHAIN
+        o["z_skip"] = bool(self.ChkZSkip.IsChecked)
         if o["dims"] and dim_names and not o["dim_type"]:
             return self._fail("Dimensions tab: pick a dimension type.")
         self.result = o
@@ -781,6 +783,7 @@ try:
         S[CS.SETTINGS_DIM_TYPE] = opt["dim_type"]
     S[CS.SETTINGS_DIM_Z_PLANES] = opt["z_planes"]
     S[CS.SETTINGS_DIM_Z_MODE] = opt["z_mode"]
+    S[CS.SETTINGS_DIM_Z_SKIP] = opt["z_skip"]
     save_settings(S)
 except Exception as ex:
     out.print_md("- Could not save the settings: {0}".format(ex))
@@ -954,7 +957,8 @@ try:
                                      "dims", {"views": views,
                                               "dim_type": opt["dim_type"],
                                               "z_planes": opt["z_planes"],
-                                              "z_mode": opt["z_mode"]})
+                                              "z_mode": opt["z_mode"],
+                                              "z_skip": opt["z_skip"]})
             summary.append(("Dimension Section",
                             "{0} string(s) in {1} section(s)".format(
                                 res.get("strings", 0),

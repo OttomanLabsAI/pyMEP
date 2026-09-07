@@ -119,6 +119,8 @@
                             <RadioButton x:Name="RbZDirect" GroupName="ZMode"
                                          Margin="0,4,0,0"
                                          Content="one overall dimension: z1 straight to the highest"/>
+                            <CheckBox x:Name="ChkZSkip" Margin="0,8,0,0"
+                                      Content="skip the planes this view cannot dimension and use the rest, smallest number first (z2, z3, z5 ...)"/>
                         </StackPanel>
                         <TextBlock Style="{StaticResource Hint}"
                                    Text="Finds the chamber family's reference planes named z followed by a number (they must be named in the family and set as a reference), and runs one string through them in number order, to the right of the chamber. Skipped when fewer than two are found."/>
