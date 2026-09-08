@@ -19,11 +19,24 @@ units millimetres):
                                 "family_x_axis": [x, y, z],
                                 "family_y_axis": [x, y, z],
                                 "rotation_deg": <family X in project XY>,
-                                "mirrored": true | false}]}]}
+                                "mirrored": true | false,
+                                "params": {"obstacle_around": true|false|null,
+                                           "obstacle_under": ...,
+                                           "obstacle_over": ...}}],
+                 "param_defaults": {same three keys - the family's
+                                    default (the "(default)" column of
+                                    the Family Types dialog)}}]}
 
 Planes exported, by exact name (case-insensitive): a1-a7, b1-b7, z1-z6
 and the six <axis>_conduit_boundary_<n> planes; every other reference
 plane is ignored.
+
+The obstacle flags are the family's Yes/No instance parameters
+obstacle_around / obstacle_under / obstacle_over, matched
+case-insensitively; the misspelling "obstable_..." found in the family
+is accepted and written under the correct key. A flag the instance does
+not carry is null. "params" and "param_defaults" are additions to the
+original contract - every earlier key is unchanged.
 """
 
 import math
@@ -36,6 +49,41 @@ EXPECTED_PLANES = (
     "b_conduit_boundary_1/2, z_conduit_boundary_1/2")
 
 MM_PER_FOOT = 304.8
+
+OBSTACLE_PARAMS = ("obstacle_around", "obstacle_under", "obstacle_over")
+
+
+def param_key(name):
+    """The JSON key a family parameter name maps to, or None when it is
+    not one of the obstacle flags. Case-insensitive; 'obstable_' (the
+    family's misspelling) counts as 'obstacle_'."""
+    if not name:
+        return None
+    key = u"{0}".format(name).strip().lower().replace(u"obstable_",
+                                                      u"obstacle_")
+    return key if key in OBSTACLE_PARAMS else None
+
+
+def as_flag(value):
+    """A Yes/No parameter value (int, bool or None) as True / False /
+    None."""
+    if value is None:
+        return None
+    try:
+        return int(value) != 0
+    except (TypeError, ValueError):
+        return bool(value)
+
+
+def obstacle_flags(named_values):
+    """{'obstacle_around': True|False|None, ...} from {parameter name:
+    value} - every key present, None when the parameter is missing."""
+    out = dict((k, None) for k in OBSTACLE_PARAMS)
+    for name, value in (named_values or {}).items():
+        key = param_key(name)
+        if key is not None and out[key] is None:
+            out[key] = as_flag(value)
+    return out
 
 
 def plane_wanted(name):
@@ -91,8 +139,10 @@ def rotation_deg(basis_x):
 
 
 def instance_record(elem_id, mark, type_name, origin, basis_x, basis_y,
-                    mirrored, to_mm):
-    """One placed-instance entry from plain values (internal units)."""
+                    mirrored, to_mm, params=None):
+    """One placed-instance entry from plain values (internal units).
+    params: {parameter name: value} of the instance's parameters, from
+    which the obstacle flags are picked."""
     return {"id": int(elem_id),
             "mark": mark if mark else None,
             "type": u"{0}".format(type_name),
@@ -101,12 +151,16 @@ def instance_record(elem_id, mark, type_name, origin, basis_x, basis_y,
             "family_x_axis": round_vec(*basis_x),
             "family_y_axis": round_vec(*basis_y),
             "rotation_deg": rotation_deg(basis_x),
-            "mirrored": bool(mirrored)}
+            "mirrored": bool(mirrored),
+            "params": obstacle_flags(params)}
 
 
-def family_record(name, planes, instances=None):
+def family_record(name, planes, instances=None, param_defaults=None):
+    """param_defaults: {parameter name: default value} read from the
+    family document; the obstacle flags are picked from it."""
     return {"family": u"{0}".format(name), "planes": sort_planes(planes),
-            "instances": list(instances or [])}
+            "instances": list(instances or []),
+            "param_defaults": obstacle_flags(param_defaults)}
 
 
 def export_document(source, families):

@@ -82,10 +82,45 @@ class Records(unittest.TestCase):
         self.assertIsNone(r["mark"])
         self.assertTrue(r["mirrored"])
         self.assertEqual(r["rotation_deg"], 0.0)
+        # no parameters given -> every flag present and null
+        self.assertEqual(r["params"], {"obstacle_around": None,
+                                       "obstacle_under": None,
+                                       "obstacle_over": None})
         # a 180 degree placement
         r = M.instance_record(6, None, "T", (0, 0, 0), (-1, 0, 0),
                               (0, -1, 0), False, to_mm)
         self.assertEqual(r["rotation_deg"], 180.0)
+
+    def test_obstacle_flags(self):
+        self.assertEqual(M.param_key("Obstacle_Over"), "obstacle_over")
+        self.assertEqual(M.param_key("obstable_around"), "obstacle_around")
+        self.assertIsNone(M.param_key("obstacle_sideways"))
+        self.assertIsNone(M.param_key("Mark"))
+        self.assertIsNone(M.param_key(None))
+        self.assertIs(M.as_flag(1), True)
+        self.assertIs(M.as_flag(0), False)
+        self.assertIs(M.as_flag(None), None)
+        self.assertIs(M.as_flag(True), True)
+        flags = M.obstacle_flags({"obstable_around": 1, "obstacle_under": 0,
+                                  "Width": 1200, "Mark": "MH01"})
+        self.assertEqual(flags, {"obstacle_around": True,
+                                 "obstacle_under": False,
+                                 "obstacle_over": None})
+        # carried on the instance record and the family defaults
+        r = M.instance_record(7, "MH02", "T", (0, 0, 0), (1, 0, 0),
+                              (0, 1, 0), False, to_mm,
+                              {"obstacle_over": 1})
+        self.assertEqual(r["params"]["obstacle_over"], True)
+        self.assertIsNone(r["params"]["obstacle_under"])
+        f = M.family_record("MH", [], [], {"obstable_around": 1,
+                                           "obstacle_under": 1,
+                                           "obstacle_over": 1})
+        self.assertEqual(f["param_defaults"], {"obstacle_around": True,
+                                               "obstacle_under": True,
+                                               "obstacle_over": True})
+        self.assertEqual(M.family_record("MH", [])["param_defaults"],
+                         {"obstacle_around": None, "obstacle_under": None,
+                          "obstacle_over": None})
 
     def test_export_document_keeps_only_families_with_planes(self):
         p = M.plane_record("a1", (0, 0, 0), (1, 0, 0), to_mm)

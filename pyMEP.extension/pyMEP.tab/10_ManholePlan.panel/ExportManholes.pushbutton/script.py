@@ -10,7 +10,11 @@ shape, see pymep_manhole_export):
     its signed offset from the family origin along that normal and a
     point on it;
   * per placed instance: element id, Mark, type name, origin, family X
-    and Y axes, rotation of the family X axis in project XY, mirrored.
+    and Y axes, rotation of the family X axis in project XY, mirrored,
+    and the Yes/No obstacle flags obstacle_around / obstacle_under /
+    obstacle_over (the family's misspelt "obstable_around" is accepted;
+    a flag the instance lacks is null); per family the same flags'
+    defaults, read from the family document.
 
 WHERE it runs:
   * In a PROJECT: every distinct placed family is opened once with
@@ -123,6 +127,53 @@ def plane_records(famdoc):
     return M.sort_planes(out)
 
 
+def _obstacle_values(inst):
+    # {parameter name: int | None} of the instance's obstacle flags.
+    out = {}
+    try:
+        params = list(inst.Parameters)
+    except Exception:
+        return out
+    for p in params:
+        try:
+            name = p.Definition.Name
+        except Exception:
+            continue
+        if M.param_key(name) is None:
+            continue
+        try:
+            out[name] = p.AsInteger() if p.HasValue else None
+        except Exception:
+            out[name] = None
+    return out
+
+
+def _obstacle_defaults(famdoc):
+    # {parameter name: int | None} of the family's obstacle flag
+    # defaults - the "(default)" column of the Family Types dialog.
+    out = {}
+    try:
+        fm = famdoc.FamilyManager
+        current = fm.CurrentType
+        fparams = list(fm.Parameters)
+    except Exception:
+        return out
+    for fp in fparams:
+        try:
+            name = fp.Definition.Name
+        except Exception:
+            continue
+        if M.param_key(name) is None:
+            continue
+        try:
+            out[name] = (current.AsInteger(fp)
+                         if current is not None and current.HasValue(fp)
+                         else None)
+        except Exception:
+            out[name] = None
+    return out
+
+
 def instance_record(inst):
     t = inst.GetTransform()
     mark = None
@@ -138,7 +189,7 @@ def instance_record(inst):
         mirrored = False
     return M.instance_record(eid(inst.Id), mark, _name(inst.Symbol),
                              _xyz(t.Origin), _xyz(t.BasisX), _xyz(t.BasisY),
-                             mirrored, to_mm)
+                             mirrored, to_mm, _obstacle_values(inst))
 
 
 def _skip_reason(fam):
@@ -163,11 +214,11 @@ def _skip_reason(fam):
 
 
 def family_planes(fam):
-    # The wanted planes of a loadable family, read from its own document
-    # which is always closed again without saving.
+    # (wanted planes, obstacle flag defaults) of a loadable family, read
+    # from its own document which is always closed again without saving.
     famdoc = doc.EditFamily(fam)
     try:
-        return plane_records(famdoc)
+        return plane_records(famdoc), _obstacle_defaults(famdoc)
     finally:
         try:
             famdoc.Close(False)
@@ -213,7 +264,7 @@ def collect_project():
             skipped += 1
             continue
         try:
-            planes = family_planes(fam)
+            planes, defaults = family_planes(fam)
         except Exception as ex:
             failed += 1
             output.print_md("- '{0}': could not be opened ({1})".format(
@@ -230,7 +281,7 @@ def collect_project():
                     fname, eid(inst.Id), ex))
         output.print_md("- **{0}**: {1} plane(s), {2} instance(s)".format(
             fname, len(planes), len(records)))
-        found.append(M.family_record(fname, planes, records))
+        found.append(M.family_record(fname, planes, records, defaults))
     if skipped:
         output.print_md("- {0} family(ies) skipped (in-place, not editable "
                         "or annotation)".format(skipped))
@@ -243,7 +294,10 @@ def collect_family():
     planes = plane_records(doc)
     output.print_md("Family document **{0}**: {1} wanted plane(s).".format(
         _name_of_doc(), len(planes)))
-    return [M.family_record(_name_of_doc(), planes, [])] if planes else []
+    if not planes:
+        return []
+    return [M.family_record(_name_of_doc(), planes, [],
+                            _obstacle_defaults(doc))]
 
 
 def _name_of_doc():
