@@ -19,6 +19,7 @@ for _mod in [m for m in list(sys.modules.keys()) if m.startswith("pymep_")]:
 from pyrevit import revit, DB, forms, script
 
 import pymep_chamber_links as links
+from pymep_revit import id_value, make_id
 
 doc = revit.doc
 out = script.get_output()
@@ -68,13 +69,13 @@ def _find_chamber(rec, mark_index):
             eid = rec.get("chamber_eid")
             if eid is not None:
                 for fi in hits:
-                    if fi.Id.IntegerValue == eid:
+                    if id_value(fi.Id) == eid:
                         return fi, "mark+eid"
             # Still ambiguous: return None so it is reported, not guessed.
             return None, "ambiguous-mark"
     eid = rec.get("chamber_eid")
     if eid is not None:
-        el = doc.GetElement(DB.ElementId(eid))
+        el = doc.GetElement(make_id(eid))
         if el is not None and isinstance(el, DB.FamilyInstance):
             return el, "eid"
     return None, "not-found"
@@ -120,7 +121,7 @@ for sid_str, rec in data.items():
     except Exception:
         bad_records += 1
         continue
-    view = doc.GetElement(DB.ElementId(sid))
+    view = doc.GetElement(make_id(sid))
     if (view is None or not isinstance(view, DB.View)
             or not isinstance(view, DB.ViewSection)):
         missing_section.append(rec.get("section_name", sid_str))

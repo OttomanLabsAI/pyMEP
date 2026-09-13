@@ -65,6 +65,8 @@ import pymep_chamber_sections as CS
 import pymep_sheet_setup as SS
 from pymep_dim_rules_ui import RuleList
 from pymep_config import load_settings, save_settings
+from pymep_revit import id_value, make_id
+from pymep_revit import quiet
 
 doc = revit.doc
 uidoc = revit.uidoc
@@ -214,7 +216,7 @@ for fi in FilteredElementCollector(doc).OfClass(FamilyInstance)\
     tid = fi.GetTypeId()
     if tid is None or tid == ElementId.InvalidElementId:
         continue
-    key = tid.IntegerValue
+    key = id_value(tid)
     inst_by_typeid.setdefault(key, []).append(fi)
     if key not in sym_by_typeid:
         sym_by_typeid[key] = doc.GetElement(tid)
@@ -511,9 +513,9 @@ class PipeWindow(forms.WPFWindow):
             label, fi = rows[i]
             cb = CheckBox()
             cb.Content = label
-            cb.IsChecked = self._chamber_state.get(fi.Id.IntegerValue, False)
+            cb.IsChecked = self._chamber_state.get(id_value(fi.Id), False)
             cb.Margin = Thickness(0, 2, 0, 2)
-            cb.Tag = fi.Id.IntegerValue
+            cb.Tag = id_value(fi.Id)
             cb.Checked += self._on_chamber_box
             cb.Unchecked += self._on_chamber_box
             self.PnlChambers.Children.Add(cb)
@@ -530,7 +532,7 @@ class PipeWindow(forms.WPFWindow):
     def _chambers(self):
         # Ticked chambers, in Mark order, restricted to the ticked types.
         return [fi for _label, fi in self._pool
-                if self._chamber_state.get(fi.Id.IntegerValue)]
+                if self._chamber_state.get(id_value(fi.Id))]
 
     def _set_all(self, on):
         for cb in self._chamber_boxes:
@@ -943,6 +945,7 @@ try:
         name = CS.sheet_text(opt["name"], n) if opt["name"] else number
         sheet = None
         t = Transaction(doc, "pyMEP: Sheet {0}".format(number))
+        quiet(t)
         t.Start()
         try:
             sheet = ViewSheet.Create(doc, tb_id)
@@ -983,7 +986,7 @@ try:
         views = []
         for vid in section_ids:
             try:
-                v = doc.GetElement(ElementId(vid))
+                v = doc.GetElement(make_id(vid))
             except Exception:
                 v = None
             if v is not None:

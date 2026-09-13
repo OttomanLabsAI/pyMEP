@@ -48,6 +48,7 @@ from pyrevit import revit, DB, forms, script
 
 import pymep_json
 import pymep_manhole_export as M
+from pymep_revit import id_value, make_id
 
 output = script.get_output()
 
@@ -78,7 +79,7 @@ def to_mm(v):
 
 def eid(element_id):
     v = getattr(element_id, "Value", None)
-    return int(v) if v is not None else int(element_id.IntegerValue)
+    return int(v) if v is not None else int(id_value(element_id))
 
 
 def _name(el):

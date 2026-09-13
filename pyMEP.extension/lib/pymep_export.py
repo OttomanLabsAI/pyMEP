@@ -16,10 +16,11 @@ from pymep_revit import (
     PIPE_CATS, FIT_CATS,
 )
 from pymep_csv import write_csv, fmt
+from pymep_revit import id_value, make_id
 
 
 def _pipe_row(e, doc):
-    eid = e.Id.IntegerValue
+    eid = id_value(e.Id)
     try:
         tname = safe_name(doc.GetElement(e.GetTypeId()))
     except Exception:
@@ -46,7 +47,7 @@ def _pipe_row(e, doc):
 
 
 def _fitting_row(e, doc):
-    eid = e.Id.IntegerValue
+    eid = id_value(e.Id)
     try:
         tname = safe_name(doc.GetElement(e.GetTypeId()))
     except Exception:
@@ -93,7 +94,7 @@ def export_pipework(doc, uidoc, output_folder, log=None):
         cat = e.Category
         if not cat:
             continue
-        bi = cat.Id.IntegerValue
+        bi = id_value(cat.Id)
         if bi in PIPE_CATS:
             pipes.append(e)
         elif bi in FIT_CATS:

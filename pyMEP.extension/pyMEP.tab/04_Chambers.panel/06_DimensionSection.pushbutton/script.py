@@ -76,6 +76,8 @@ from pyrevit import revit, forms, script
 import pymep_chamber_sections as CS
 from pymep_dim_rules_ui import RuleList
 from pymep_config import load_settings, save_settings
+from pymep_revit import id_value, make_id
+from pymep_revit import quiet
 
 doc = revit.doc
 out = script.get_output()
@@ -106,7 +108,7 @@ def _cat_int(elem):
     try:
         return cid.Value
     except AttributeError:
-        return cid.IntegerValue
+        return id_value(cid)
 
 
 def _name(el):
@@ -915,10 +917,10 @@ all_sections.sort(key=lambda v: _name(v).lower())
 sheet_sections = []
 if isinstance(active, ViewSheet):
     try:
-        placed = set(i.IntegerValue for i in active.GetAllPlacedViews())
+        placed = set(id_value(i) for i in active.GetAllPlacedViews())
     except Exception:
         placed = set()
-    sheet_sections = [v for v in all_sections if v.Id.IntegerValue in placed]
+    sheet_sections = [v for v in all_sections if id_value(v.Id) in placed]
 
 if not _HEADLESS and not active_is_section and not all_sections:
     forms.alert("No section views in this project.\n\n"
@@ -967,7 +969,7 @@ class DimWindow(forms.WPFWindow):
                 self.ChkAllProject.IsChecked = True
                 self.ChkAllProject.IsEnabled = False
             for v in (sheet_sections or []):
-                self._state[v.Id.IntegerValue] = True
+                self._state[id_value(v.Id)] = True
         self.CmbDimType.Items.Clear()
         for n in dim_names:
             self.CmbDimType.Items.Add(n)
@@ -1000,9 +1002,9 @@ class DimWindow(forms.WPFWindow):
             v = pool[i]
             cb = CheckBox()
             cb.Content = _name(v)
-            cb.IsChecked = self._state.get(v.Id.IntegerValue, False)
+            cb.IsChecked = self._state.get(id_value(v.Id), False)
             cb.Margin = Thickness(0, 2, 0, 2)
-            cb.Tag = v.Id.IntegerValue
+            cb.Tag = id_value(v.Id)
             cb.Checked += self._on_box
             cb.Unchecked += self._on_box
             self.PnlSections.Children.Add(cb)
@@ -1085,7 +1087,7 @@ class DimWindow(forms.WPFWindow):
             views = [active]
         else:
             ids = set(k for k, on in self._state.items() if on)
-            views = [v for v in all_sections if v.Id.IntegerValue in ids]
+            views = [v for v in all_sections if id_value(v.Id) in ids]
             if not views:
                 self.StatusText.Text = "Tick at least one section."
                 return
@@ -1143,6 +1145,7 @@ except Exception:
 results = []
 t = Transaction(doc, "pyMEP: Dimension {0} section(s)".format(
     len(target_views)))
+quiet(t)
 t.Start()
 try:
     for v in target_views:

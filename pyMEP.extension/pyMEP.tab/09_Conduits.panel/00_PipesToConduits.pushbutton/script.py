@@ -55,6 +55,7 @@ from Autodesk.Revit.DB.Electrical import (
     Conduit, ConduitType, ConduitSizeSettings, ConduitSize,
 )
 from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
+from pymep_revit import id_value, make_id
 
 output = script.get_output()
 log = Logger(output, "PipesToConduits")
@@ -321,9 +322,9 @@ if not pipes:
                 "drag a selection box, then press ENTER (or hit FINISH)")
         seen = set()
         for r in refs:
-            if r.ElementId.IntegerValue in seen:
+            if id_value(r.ElementId) in seen:
                 continue
-            seen.add(r.ElementId.IntegerValue)
+            seen.add(id_value(r.ElementId))
             el = doc.GetElement(r.ElementId)
             if isinstance(el, Pipe):
                 pipes.append(el)

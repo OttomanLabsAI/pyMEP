@@ -53,6 +53,8 @@ except ImportError:
     HAVE_WORKSET_API = False
 
 from pyrevit import revit, forms, script
+from pymep_revit import id_value, make_id
+from pymep_revit import quiet
 
 doc   = revit.doc
 uidoc = revit.uidoc
@@ -70,7 +72,7 @@ def _ws_id_int(ws_id):
     try:
         return ws_id.Value
     except AttributeError:
-        return ws_id.IntegerValue
+        return id_value(ws_id)
 
 
 class _WSChoice(object):
@@ -186,6 +188,7 @@ skipped_error   = 0    # Set() threw (wrong type, value rejected, etc.)
 last_error_msg  = ""
 
 t = Transaction(doc, "pyMEP: Write pipe dia/slope label")
+quiet(t)
 t.Start()
 try:
     for p in pipes:

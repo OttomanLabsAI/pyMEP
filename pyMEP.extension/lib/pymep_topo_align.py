@@ -37,6 +37,7 @@ except Exception:
     Toposolid = None      # pre-2024 Revit has no Toposolid class
 
 from pymep_revit import safe_name
+from pymep_revit import id_value, make_id
 
 
 def _say(log, m):
@@ -67,7 +68,7 @@ def list_leveled_family_types(doc):
             if not isinstance(inst.Location, LocationPoint):
                 continue
             sym = inst.Symbol
-            key = sym.Id.IntegerValue
+            key = id_value(sym.Id)
             if key not in groups:
                 groups[key] = [
                     "{} : {}".format(sym.Family.Name, safe_name(sym)),
@@ -121,12 +122,12 @@ def align_instances_to_surfaces(doc, symbol_ids, surface_ids, log=None):
       skipped   - no location point / host level / writable offset param,
       unchanged - already within 0.5 mm of the surface.
     """
-    sym_keys = set(s.IntegerValue for s in symbol_ids)
+    sym_keys = set(id_value(s) for s in symbol_ids)
 
     instances = []
     for inst in FilteredElementCollector(doc).OfClass(FamilyInstance):
         try:
-            if inst.Symbol.Id.IntegerValue in sym_keys:
+            if id_value(inst.Symbol.Id) in sym_keys:
                 instances.append(inst)
         except Exception:
             continue

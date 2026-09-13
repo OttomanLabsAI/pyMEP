@@ -51,6 +51,7 @@ from pyrevit import revit, forms, script
 
 import pymep_sheet_setup as SS
 from pymep_config import load_settings, save_settings
+from pymep_revit import quiet
 
 doc = revit.doc
 uidoc = revit.uidoc
@@ -421,6 +422,7 @@ ox, oy = outline.Min.U, outline.Min.V
 
 t = Transaction(doc, "pyMEP: Sheet setup ({0} chamber(s))".format(
     len(opt["keys"])))
+quiet(t)
 t.Start()
 try:
     # (a) which views go where, and their scale

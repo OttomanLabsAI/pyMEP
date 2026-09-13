@@ -97,6 +97,8 @@ XAML_PATH = os.path.join(
 
 
 from pymep_log import Logger
+from pymep_revit import id_value, make_id
+from pymep_revit import quiet
 
 output = script.get_output()
 log = Logger(output, "Annotate")
@@ -130,7 +132,7 @@ try:
         try:
             return cid.Value
         except AttributeError:
-            return cid.IntegerValue
+            return id_value(cid)
 
 
     PIPE_CAT = int(BuiltInCategory.OST_PipeCurves)
@@ -563,12 +565,25 @@ try:
                     "dialog.", exitscript=True)
 
     t = Transaction(doc, "pyMEP: Annotate {}s ({})".format(kind, len(labels)))
+    quiet(t)
     t.Start()
     placed = 0
+    not_placed = []
     try:
         for rec in labels:
-            note = TextNote.Create(
-                doc, view.Id, rec["anchor"], rec["text"], text_type_id)
+            # One bad label must not take the batch with it: a failed
+            # Create is recorded and the loop carries on.
+            try:
+                note = TextNote.Create(
+                    doc, view.Id, rec["anchor"], rec["text"], text_type_id)
+            except Exception as ex:
+                not_placed.append((rec["text"].replace("\n", " / "),
+                                   "{}: {}".format(type(ex).__name__, ex)))
+                continue
+            if note is None:
+                not_placed.append((rec["text"].replace("\n", " / "),
+                                   "TextNote.Create returned nothing"))
+                continue
 
             # Anchor any leader at the vertical MIDDLE of the text.
             if _LeaderAttach is not None:
@@ -597,11 +612,15 @@ try:
                     exitscript=True)
 
     log("Placed {} label(s).".format(placed))
-    forms.alert("Annotated {} bank(s) of {}s from {} run(s){}{}."
+    for text, why in not_placed:
+        log("  NOT placed: {}  -  {}".format(text, why))
+    forms.alert("Annotated {} bank(s) of {}s from {} run(s){}{}{}."
                 .format(placed, kind, len(items),
                         ", {} skipped".format(skipped) if skipped else "",
                         ", {} other element(s) ignored".format(ignored)
-                        if ignored else ""))
+                        if ignored else "",
+                        ", {} label(s) NOT placed (see the output window)"
+                        .format(len(not_placed)) if not_placed else ""))
 
     log.close()
 except SystemExit:

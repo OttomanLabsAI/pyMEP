@@ -31,6 +31,7 @@ from Autodesk.Revit.DB import (
 from Autodesk.Revit.DB.Plumbing import Pipe
 
 from pymep_revit import safe_name
+from pymep_revit import id_value, make_id
 
 PARAM_NAME = "pyMEP_Network"
 # Fixed forever - the shared-parameter GUID every project binds.
@@ -233,7 +234,7 @@ def with_connected_fittings(pipes):
                 for ref in c.AllRefs:
                     o = ref.Owner
                     if isinstance(o, FamilyInstance):
-                        key = o.Id.IntegerValue
+                        key = id_value(o.Id)
                         if key not in seen:
                             seen.add(key)
                             out.append(o)

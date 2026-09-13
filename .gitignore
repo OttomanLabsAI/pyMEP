@@ -3,3 +3,4 @@ __pycache__/
 .claude/settings.local.json
 dist/
 installer/stage/
+pyMEP.extension/exports/

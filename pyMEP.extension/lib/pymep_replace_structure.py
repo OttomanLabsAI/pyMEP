@@ -26,6 +26,7 @@ from Autodesk.Revit.DB import (
 from Autodesk.Revit.DB.Plumbing import Pipe, PipeType, PipingSystemType
 
 from pymep_revit import safe_name, ft2mm
+from pymep_revit import SwallowWarnings as _SwallowWarnings, quiet as _quiet
 
 
 DIA_NAMES = ["DIA", "Diameter", "dia", "Nominal Diameter", "D"]
@@ -163,32 +164,6 @@ def _first_system_type_id(doc):
     for st in FilteredElementCollector(doc).OfClass(PipingSystemType):
         return st.Id
     return None
-
-
-class _SwallowWarnings(IFailuresPreprocessor):
-    """Delete Revit's warning dialogs as they arrive. Errors still stop
-    the transaction - only warnings ('elements have duplicate Mark
-    values', 'pipe is slightly off axis' and friends) are dismissed, so
-    a batch of replacements runs start to finish without a single
-    click."""
-
-    def PreprocessFailures(self, accessor):
-        for f in accessor.GetFailureMessages():
-            if f.GetSeverity() == FailureSeverity.Warning:
-                accessor.DeleteWarning(f)
-        return FailureProcessingResult.Continue
-
-
-def _quiet(t):
-    """Point a transaction at the warning swallower."""
-    try:
-        opts = t.GetFailureHandlingOptions()
-        opts.SetFailuresPreprocessor(_SwallowWarnings())
-        opts.SetClearAfterRollback(True)
-        opts.SetDelayedMiniWarnings(True)
-        t.SetFailureHandlingOptions(opts)
-    except Exception:
-        pass
 
 
 def _build_pipe(doc, inst, pipe_type):

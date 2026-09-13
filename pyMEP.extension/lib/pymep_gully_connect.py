@@ -25,6 +25,7 @@ from Autodesk.Revit.DB import (
 from Autodesk.Revit.DB.Plumbing import Pipe, PipeType, PipingSystemType
 
 from pymep_revit import get_connectors, safe_name, mm2ft, ft2mm
+from pymep_revit import id_value, make_id
 
 
 # --------------------------------------------------------------------------
@@ -48,12 +49,12 @@ def _routing_sizes_ft(doc, pipe_type):
                 rule = rpm.GetRule(RoutingPreferenceRuleGroupType.Segments, i)
                 mid = rule.MEPPartId
                 if mid is not None and mid != ElementId.InvalidElementId:
-                    seg_ids.add(mid.IntegerValue)
+                    seg_ids.add(id_value(mid))
             except Exception:
                 pass
         segs = []
         for sid in seg_ids:
-            el = doc.GetElement(ElementId(sid))
+            el = doc.GetElement(make_id(sid))
             if el is not None:
                 segs.append(el)
         if not segs:

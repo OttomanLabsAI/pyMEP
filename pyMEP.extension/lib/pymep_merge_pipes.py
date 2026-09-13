@@ -34,6 +34,7 @@ from Autodesk.Revit.DB import (
 from Autodesk.Revit.DB.Plumbing import Pipe
 
 from pymep_revit import safe_name, ft2mm
+from pymep_revit import id_value, make_id
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +267,7 @@ def read_pipe_rows(pipes):
             pass
         p0 = (a.X, a.Y, a.Z)
         p1 = (b.X, b.Y, b.Z)
-        rows.append({"id": p.Id.IntegerValue, "p0": p0, "p1": p1,
+        rows.append({"id": id_value(p.Id), "p0": p0, "p1": p1,
                      "dia_ft": dia, "len_ft": _len(_sub(p1, p0))})
     return rows, notes
 
@@ -370,7 +371,7 @@ def merge_chain(doc, pipes_by_id, chain, log=None, slope_n=None,
     fit_elems = {}
     for rid in chain_ids:
         for own, org in _pipe_connections(pipes_by_id[rid]):
-            oid = own.Id.IntegerValue
+            oid = id_value(own.Id)
             if oid in [c for c in chain_ids]:
                 continue
             links.setdefault(oid, []).append(rid)
@@ -413,7 +414,7 @@ def merge_chain(doc, pipes_by_id, chain, log=None, slope_n=None,
     try:
         if doc.IsWorkshared:
             for rid in chain_ids:
-                ws_ids.append(pipes_by_id[rid].WorksetId.IntegerValue)
+                ws_ids.append(id_value(pipes_by_id[rid].WorksetId))
     except Exception:
         ws_ids = []
     ws_choice, ws_mixed = workset_decision(ws_ids)
@@ -422,8 +423,8 @@ def merge_chain(doc, pipes_by_id, chain, log=None, slope_n=None,
         ws_choice, ws_mixed = None, False
         try:
             if doc.IsWorkshared:
-                ws_choice = doc.GetWorksetTable() \
-                    .GetActiveWorksetId().IntegerValue
+                ws_choice = id_value(doc.GetWorksetTable() \
+                    .GetActiveWorksetId())
         except Exception:
             ws_choice = None
     elif workset not in (None, "keep"):

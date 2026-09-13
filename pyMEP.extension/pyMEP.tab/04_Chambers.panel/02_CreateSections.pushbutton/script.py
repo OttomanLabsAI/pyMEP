@@ -77,6 +77,8 @@ from pyrevit import revit, forms, script
 import pymep_section_cut as SC
 import pymep_chamber_sections as CS
 from pymep_config import load_settings, save_settings
+from pymep_revit import id_value, make_id
+from pymep_revit import quiet
 
 doc = revit.doc
 uidoc = revit.uidoc
@@ -280,7 +282,7 @@ for fi in FilteredElementCollector(doc).OfClass(FamilyInstance)\
     tid = fi.GetTypeId()
     if tid is None or tid == ElementId.InvalidElementId:
         continue
-    key = tid.IntegerValue
+    key = id_value(tid)
     inst_by_typeid.setdefault(key, [])
     inst_by_typeid[key].append(fi)
     if key not in sym_by_typeid:
@@ -436,7 +438,7 @@ class SectionsWindow(forms.WPFWindow):
         for fi in (tdict["insts"] if tdict else []):
             mk = _get_mark(fi)
             rows.append(("{0}   (Id {1})".format(mk if mk else "<no mark>",
-                                                  fi.Id.IntegerValue), fi))
+                                                  id_value(fi.Id)), fi))
         rows.sort(key=lambda r: r[0].lower())
         query = ""
         try:
@@ -515,10 +517,10 @@ class SectionsWindow(forms.WPFWindow):
         # Narrow the chamber tick list to the Marks matching the search;
         # ticks already made are kept on the boxes that stay listed.
         if getattr(self, "_ready", False) and not self._filling:
-            ticked = set(fi.Id.IntegerValue for fi in self._ticked())
+            ticked = set(id_value(fi.Id) for fi in self._ticked())
             self._fill_chambers(self._current_type())
             for cb, fi in self._boxes:
-                if ticked and fi.Id.IntegerValue not in ticked:
+                if ticked and id_value(fi.Id) not in ticked:
                     cb.IsChecked = False
             self._sync()
 
@@ -873,13 +875,13 @@ def _is_excluded(el, skip_ids):
     if not skip_ids:
         return False
     try:
-        if el.Id.IntegerValue in skip_ids:
+        if id_value(el.Id) in skip_ids:
             return True
     except Exception:
         pass
     try:
         sup = el.SuperComponent
-        if sup is not None and sup.Id.IntegerValue in skip_ids:
+        if sup is not None and id_value(sup.Id) in skip_ids:
             return True
     except Exception:
         pass
@@ -1019,15 +1021,15 @@ def _count_cuts(frame, runs):
 skip_ids = set()
 _target_typeids = set()
 for _inst in target_chambers:
-    skip_ids.add(_inst.Id.IntegerValue)
+    skip_ids.add(id_value(_inst.Id))
     try:
-        _target_typeids.add(_inst.GetTypeId().IntegerValue)
+        _target_typeids.add(id_value(_inst.GetTypeId()))
     except Exception:
         pass
 for _tid, _insts in inst_by_typeid.items():
     if _tid in _target_typeids:
         for _fi in _insts:
-            skip_ids.add(_fi.Id.IntegerValue)
+            skip_ids.add(id_value(_fi.Id))
 
 mep_runs, mep_tally, mep_links = _mep_geometry(skip_ids)
 have_mep = bool(mep_runs)
@@ -1038,19 +1040,19 @@ skipped = []
 for inst in target_chambers:
     pose = _chamber_pose(inst)
     if pose is None:
-        skipped.append(("Id {0}".format(inst.Id.IntegerValue),
+        skipped.append(("Id {0}".format(id_value(inst.Id)),
                         "no location point"))
         continue
     _origin_pt, angle = pose
     centre = _world_centre(inst)
     if centre is None:
-        skipped.append(("Id {0}".format(inst.Id.IntegerValue),
+        skipped.append(("Id {0}".format(id_value(inst.Id)),
                         "no centre"))
         continue
     mark = _get_mark(inst)
     # Names use the whole Mark (chamber_key trims it).
     stem = _sanitize(CS.chamber_key(mark)) if mark else "Id{0}".format(
-        inst.Id.IntegerValue)
+        id_value(inst.Id))
     half_lx, half_ly = _chamber_plan_halfspan(inst, angle)
     dims = None
     dims_note = ""
@@ -1117,6 +1119,7 @@ assoc_jobs = []       # (section view, chamber inst, mark, letter, local letter)
 errors = []           # (stem, letter, message)
 t = Transaction(doc, "pyMEP: Create chamber sections ({0} chamber(s))".format(
     len(chamber_jobs)))
+quiet(t)
 t.Start()
 try:
     for job in chamber_jobs:
@@ -1190,7 +1193,7 @@ try:
             continue
         rec["side"] = letter               # the letter in the view name
         rec["local_side"] = local_letter   # which chamber side it sits on
-        new_records[str(sec.Id.IntegerValue)] = rec
+        new_records[str(id_value(sec.Id))] = rec
     if new_records:
         try:
             data = links.load_links(doc)   # merge into any existing links
@@ -1324,7 +1327,7 @@ if _HEADLESS:
     _PIPE["out_sections"] = {
         "created": len(created), "failed": len(errors),
         "planned": planned_total,
-        "view_ids": [sec.Id.IntegerValue for sec, _i, _m, _l, _ll in
+        "view_ids": [id_value(sec.Id) for sec, _i, _m, _l, _ll in
                      assoc_jobs],
         "names": [name for _s, _i, _l, _c, name in created],
     }

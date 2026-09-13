@@ -4,8 +4,64 @@
 import math
 import clr
 clr.AddReference("RevitAPI")
+import System
 
-from Autodesk.Revit.DB import BuiltInParameter, BuiltInCategory, XYZ
+from Autodesk.Revit.DB import (BuiltInParameter, BuiltInCategory, XYZ,
+                               ElementId, IFailuresPreprocessor,
+                               FailureSeverity, FailureProcessingResult)
+
+# ------------- ids across Revit versions --------------
+
+def id_value(eid):
+    """The integer behind an ElementId (or WorksetId) on every Revit:
+    .Value from 2024 (64-bit ids), .IntegerValue before. Use this
+    instead of .IntegerValue, which is deprecated and will go."""
+    try:
+        return int(eid.Value)
+    except AttributeError:
+        return int(eid.IntegerValue)
+
+
+def make_id(value):
+    """An ElementId from a stored integer on every Revit (Int64 from
+    2024, int before)."""
+    try:
+        return ElementId(System.Int64(value))
+    except Exception:
+        return ElementId(int(value))
+
+
+# ------------- warning-free transactions --------------
+
+class SwallowWarnings(IFailuresPreprocessor):
+    """Delete Revit's WARNING dialogs as they arrive ('elements have
+    duplicate Mark values', 'dimension is not visible', 'pipe is
+    slightly off axis' and friends) so a batch runs start to finish
+    without a click. Errors still stop the transaction."""
+
+    def PreprocessFailures(self, accessor):
+        try:
+            for f in accessor.GetFailureMessages():
+                if f.GetSeverity() == FailureSeverity.Warning:
+                    accessor.DeleteWarning(f)
+        except Exception:
+            pass
+        return FailureProcessingResult.Continue
+
+
+def quiet(t):
+    """Point a Transaction at the warning swallower. Call it before
+    Start(). Never raises (a TransactionGroup has no such options and
+    is simply left alone)."""
+    try:
+        opts = t.GetFailureHandlingOptions()
+        opts.SetFailuresPreprocessor(SwallowWarnings())
+        opts.SetClearAfterRollback(True)
+        opts.SetDelayedMiniWarnings(True)
+        t.SetFailureHandlingOptions(opts)
+    except Exception:
+        pass
+
 
 # ------------- units --------------
 

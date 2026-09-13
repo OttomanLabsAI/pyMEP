@@ -36,6 +36,7 @@ from pyrevit import revit, forms, script
 from pymep_revit    import safe_name
 from pymep_log      import Logger
 from pymep_topo_cut import cut_toposolid_from_elements, CUTTER_MARK
+from pymep_revit import id_value, make_id
 
 
 output = script.get_output()
@@ -96,7 +97,7 @@ def _is_toposolid(elem):
         cat = elem.Category
         if cat is None:
             return False
-        return cat.Id.IntegerValue == int(BuiltInCategory.OST_Toposolid)
+        return id_value(cat.Id) == int(BuiltInCategory.OST_Toposolid)
     except Exception:
         # OST_Toposolid may not exist on very old API; fall back to name.
         return _cat_name(elem).strip().lower() == "toposolid"
@@ -162,7 +163,7 @@ if len(all_topo) == 1:
     only = all_topo[0]
     use_it = forms.alert(
         "Cut this Toposolid?\n\n  {}  (Id {})".format(
-            safe_name(only), only.Id.IntegerValue),
+            safe_name(only), id_value(only.Id)),
         title="Cut Toposolid", yes=True, no=True)
     if use_it:
         toposolid = only
@@ -186,7 +187,7 @@ if toposolid is None:
     toposolid = picked
 
 log("Toposolid: **{}** (Id {}).".format(
-    safe_name(toposolid), toposolid.Id.IntegerValue))
+    safe_name(toposolid), id_value(toposolid.Id)))
 
 
 # ---------------------------------------------------------------------------

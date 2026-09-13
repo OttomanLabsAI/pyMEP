@@ -47,15 +47,185 @@ from Autodesk.Revit.DB import (
     Transaction, ViewType, BuiltInCategory, XYZ, Options, Curve,
     GeometryInstance,
 )
+import System
+
+# Units machinery for the invert override: the 2021+ ForgeTypeId API
+# first, the pre-2021 UnitType API as the fallback, and None when a
+# piece is missing (the override is then skipped and reported, never
+# guessed).
+try:
+    from Autodesk.Revit.DB import UnitFormatUtils, FormatValueOptions
+except ImportError:
+    UnitFormatUtils = None
+    FormatValueOptions = None
+try:
+    from Autodesk.Revit.DB import UnitUtils
+except ImportError:
+    UnitUtils = None
+try:
+    from Autodesk.Revit.DB import SpecTypeId
+    _LENGTH_SPEC = SpecTypeId.Length
+except Exception:
+    _LENGTH_SPEC = None
+try:
+    from Autodesk.Revit.DB import UnitType
+    _LENGTH_UT = UnitType.UT_Length
+except Exception:
+    _LENGTH_UT = None
 
 from pyrevit import revit, forms, script
 
 from pymep_config import get_annotate_pipe_offset_mm
 from pymep_revit  import get_connectors, get_od, mm2ft
+from pymep_revit import id_value, make_id
+from pymep_revit import quiet
 
 doc    = revit.doc
 uidoc  = revit.uidoc
 view   = doc.ActiveView
+
+
+# ---------------------------------------------------------------------------
+# Invert override - the displayed number lowered by the outside radius
+# ---------------------------------------------------------------------------
+def _spot_format(spot):
+    # The FormatOptions the spot's own type formats its value with, or
+    # None when it follows the project units.
+    try:
+        st = doc.GetElement(spot.GetTypeId())
+        fo = st.GetUnitsFormatOptions()
+        if fo is not None and not fo.UseDefault:
+            return fo
+    except Exception:
+        pass
+    return None
+
+
+def _parse_length(units, text):
+    # Display text -> internal feet through Revit's own parser, or None.
+    if UnitFormatUtils is None:
+        return None
+    for spec in (_LENGTH_SPEC, _LENGTH_UT):
+        if spec is None:
+            continue
+        try:
+            out = clr.Reference[System.Double]()
+            if UnitFormatUtils.TryParse(units, spec, text, out):
+                return float(out.Value)
+        except Exception:
+            continue
+    return None
+
+
+def _format_length(units, fmt, value_ft):
+    # Internal feet -> display text, honouring the spot type's own
+    # format when it has one. None when no overload works.
+    if UnitFormatUtils is None:
+        return None
+    fvo = None
+    if fmt is not None and FormatValueOptions is not None:
+        try:
+            fvo = FormatValueOptions()
+            fvo.SetFormatOptions(fmt)
+        except Exception:
+            fvo = None
+    if _LENGTH_SPEC is not None:
+        try:
+            if fvo is not None:
+                return UnitFormatUtils.Format(units, _LENGTH_SPEC, value_ft,
+                                              False, fvo)
+            return UnitFormatUtils.Format(units, _LENGTH_SPEC, value_ft, False)
+        except Exception:
+            pass
+    if _LENGTH_UT is not None:
+        try:
+            if fvo is not None:
+                return UnitFormatUtils.Format(units, _LENGTH_UT, value_ft,
+                                              False, False, fvo)
+            return UnitFormatUtils.Format(units, _LENGTH_UT, value_ft,
+                                          False, False)
+        except Exception:
+            pass
+    return None
+
+
+def _number_in_unit(text, fmt):
+    # A plain number in the spot type's own display unit -> internal
+    # feet, for spot types formatted in a unit other than the project's.
+    if fmt is None or UnitUtils is None:
+        return None
+    try:
+        unit = fmt.GetUnitTypeId()
+    except Exception:
+        try:
+            unit = fmt.DisplayUnits
+        except Exception:
+            return None
+    dec = "."
+    try:
+        if "Comma" in str(doc.GetUnits().DecimalSymbol):
+            dec = ","
+    except Exception:
+        pass
+    m = re.search(r"-?\d[\d\s,.']*", text)
+    if m is None:
+        return None
+    kept = []
+    for ch in m.group(0):
+        if ch.isdigit() or ch == "-":
+            kept.append(ch)
+        elif ch == dec:
+            kept.append(".")
+    try:
+        return UnitUtils.ConvertToInternalUnits(float("".join(kept)), unit)
+    except Exception:
+        return None
+
+
+def _invert_text(spot, radius_ft):
+    """The spot's display text with its number lowered by the outside
+    radius, or (None, reason). The number is read with Revit's own unit
+    parser and written back with Revit's own formatter, and the rewrite
+    only goes ahead when the formatted current value is found verbatim
+    in the current text and the new text parses back to the new value -
+    so prefixes, suffixes, thousands separators and metre-formatted
+    spots either work or are left alone, never silently wrong."""
+    try:
+        current = spot.ValueString
+    except Exception:
+        current = None
+    if not current:
+        return None, "no value text"
+    units = doc.GetUnits()
+    fmt = _spot_format(spot)
+    candidates = []
+    for v in (_parse_length(units, current), _number_in_unit(current, fmt)):
+        if v is not None and v not in candidates:
+            candidates.append(v)
+    if not candidates:
+        return None, "value text not understood"
+    for value_ft in candidates:
+        old_txt = _format_length(units, fmt, value_ft)
+        if not old_txt or old_txt not in current:
+            continue
+        target = value_ft - radius_ft
+        new_txt = _format_length(units, fmt, target)
+        if not new_txt:
+            continue
+        back = _parse_length(units, new_txt)
+        if back is None:
+            back = _number_in_unit(new_txt, fmt)
+        back_old = _parse_length(units, old_txt)
+        if back_old is None:
+            back_old = _number_in_unit(old_txt, fmt)
+        # allow the display rounding seen on the current value, at least 5 mm
+        tol = mm2ft(5.0)
+        if back_old is not None:
+            tol = max(tol, 2.0 * abs(back_old - value_ft))
+        if back is None or abs(back - target) > tol:
+            continue
+        return current.replace(old_txt, new_txt, 1), ""
+    return None, "formatted value not found in the text"
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +252,7 @@ def _cat_int(elem):
     try:
         return cid.Value
     except AttributeError:
-        return cid.IntegerValue
+        return id_value(cid)
 
 PIPE_CAT = int(BuiltInCategory.OST_PipeCurves)
 
@@ -194,10 +364,14 @@ skip_no_endpoints  = 0
 skip_no_reference  = 0
 skip_api_returned_none = 0
 skip_api_exception     = 0
+override_ok            = 0     # invert value written
+override_skipped       = 0     # spot left showing the centreline level
+override_reasons       = {}
 vertical_pipes     = 0     # not a skip - we still try, with a default dir
 
 t = Transaction(doc, "pyMEP: Spot Elev at Pipe Ends ({} pipes)"
                     .format(len(pipes)))
+quiet(t)
 t.Start()
 placed = 0
 last_exception_msg = ""
@@ -263,50 +437,31 @@ try:
                 )
                 if spot is not None:
                     placed += 1
-                    # Revit reads the elevation from the centreline
-                    # reference even when we hand it an invert-shifted
-                    # origin (the origin gets projected back onto the
-                    # reference curve). So the auto-computed value is
-                    # the CENTRELINE elevation, not the invert.
-                    #
-                    # Patch this by overriding the displayed value:
-                    # parse the auto-computed number, subtract the
-                    # outside radius (mm), write the result back via
-                    # Dimension.ValueOverride. The elevation-base
-                    # offset (project base, shared coords, level) is
-                    # part of the same number on both sides so it
-                    # cancels out - we only need to subtract the
-                    # diameter half.
-                    #
-                    # Trade-off: ValueOverride is STATIC. If the pipe
-                    # diameter or elevation later changes, the override
-                    # stays stale - re-run the button to refresh.
+                    # Revit reads the elevation off the centreline
+                    # reference even with an invert-shifted origin, so
+                    # the auto value is the CENTRELINE level. The
+                    # displayed number is lowered by the outside radius
+                    # through Revit's own unit parser and formatter; when
+                    # the text cannot be understood the spot is left
+                    # showing the centreline level and reported - never
+                    # a guessed number. ValueOverride is STATIC: re-run
+                    # after a diameter or level change.
                     if od_mm > 0:
-                        try:
-                            current_str = spot.ValueString
-                        except Exception:
-                            current_str = None
-                        if current_str:
-                            m = re.search(r"-?\d+(?:\.\d+)?", current_str)
-                            if m is not None:
-                                try:
-                                    current_val = float(m.group(0))
-                                    new_val = current_val - (od_mm * 0.5)
-                                    if "." in m.group(0):
-                                        decimals = len(m.group(0).split(".")[1])
-                                        new_num = "{:.{}f}".format(new_val, decimals)
-                                    else:
-                                        new_num = str(int(round(new_val)))
-                                    new_str = (current_str[:m.start()]
-                                               + new_num
-                                               + current_str[m.end():])
-                                    spot.ValueOverride = new_str
-                                except Exception:
-                                    # Override unsupported on this spot
-                                    # or parse failed - leave the spot
-                                    # showing the centreline value
-                                    # rather than rolling anything back.
-                                    pass
+                        new_str, why = _invert_text(spot, radius_ft)
+                        if new_str is None:
+                            override_skipped += 1
+                            override_reasons[why] = \
+                                override_reasons.get(why, 0) + 1
+                        else:
+                            try:
+                                spot.ValueOverride = new_str
+                                override_ok += 1
+                            except Exception as ex:
+                                override_skipped += 1
+                                why = "ValueOverride refused ({})".format(
+                                    type(ex).__name__)
+                                override_reasons[why] = \
+                                    override_reasons.get(why, 0) + 1
                 else:
                     skip_api_returned_none += 1
             except Exception as ex:
@@ -325,8 +480,15 @@ except Exception as ex:
 # 3. REPORT
 # ---------------------------------------------------------------------------
 if placed == 0 or (skip_no_reference + skip_api_returned_none
-                   + skip_api_exception + skip_no_endpoints) > 0:
+                   + skip_api_exception + skip_no_endpoints
+                   + override_skipped) > 0:
     lines = ["Placed: {}    Pipes selected: {}".format(placed, len(pipes))]
+    if override_skipped:
+        lines.append("Invert value NOT written on {} spot(s) - they show "
+                     "the CENTRELINE level: {}".format(
+                         override_skipped,
+                         "; ".join("{} x {}".format(n, why) for why, n in
+                                   sorted(override_reasons.items()))))
     if vertical_pipes:
         lines.append("Vertical pipes (placed with default +Y offset): {}"
                      .format(vertical_pipes))

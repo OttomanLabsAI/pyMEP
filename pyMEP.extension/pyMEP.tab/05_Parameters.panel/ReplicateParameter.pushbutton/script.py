@@ -21,6 +21,7 @@
 #      reported, not forced.
 
 from pyrevit import revit, DB, forms, script
+from pymep_revit import id_value, make_id
 
 doc = revit.doc
 out = script.get_output()
@@ -62,7 +63,7 @@ def _param_value_repr(p):
             return str(p.AsInteger())
         if st == DB.StorageType.ElementId:
             eid = p.AsElementId()
-            return str(eid.IntegerValue) if eid is not None else ""
+            return str(id_value(eid)) if eid is not None else ""
     except Exception:
         pass
     return ""
@@ -255,7 +256,7 @@ for fi in inst_collector:
     tid = fi.GetTypeId()
     if tid is None or tid == DB.ElementId.InvalidElementId:
         continue
-    key = tid.IntegerValue
+    key = id_value(tid)
     inst_by_typeid.setdefault(key, [])
     inst_by_typeid[key].append(fi)
     if key not in sym_by_typeid:
@@ -460,7 +461,7 @@ for fi in instances:
     sp = params.get(src_name)
     tp = params.get(tgt_name)
     if sp is None or tp is None:
-        skipped.append((fi.Id.IntegerValue, "missing source or target param"))
+        skipped.append((id_value(fi.Id), "missing source or target param"))
         continue
     st, val = _read_value(sp)
     wst, wval = _convert(st, val)
@@ -487,7 +488,7 @@ if unit_note:
 
 rows = []
 for r in plan[:200]:
-    rows.append([str(r["inst"].Id.IntegerValue), r["src_disp"],
+    rows.append([str(id_value(r["inst"].Id)), r["src_disp"],
                  r["write_disp"], r["tgt_old"]])
 out.print_table(
     table_data=rows,
@@ -521,7 +522,7 @@ try:
         if ok:
             written += 1
         else:
-            errors.append("Id {0}: {1}".format(r["inst"].Id.IntegerValue, err))
+            errors.append("Id {0}: {1}".format(id_value(r["inst"].Id), err))
     t.Commit()
 except Exception as ex:
     t.RollBack()

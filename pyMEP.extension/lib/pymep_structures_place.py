@@ -31,6 +31,7 @@ from pymep_landxml_place2 import (
     choose_survey_transform, survey_transform_error, make_survey_fn,
     model_survey_position,
 )
+from pymep_revit import id_value, make_id
 
 
 def _say(log, m):
@@ -209,7 +210,7 @@ def place_structures(doc, rows, symbol, host_level_name, workset_name="",
             if ws_id is not None:
                 wp = inst.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM)
                 if wp is not None and not wp.IsReadOnly:
-                    wp.Set(ws_id.IntegerValue)
+                    wp.Set(id_value(ws_id))
             created += 1
             placed.append((inst, r))
         except Exception:

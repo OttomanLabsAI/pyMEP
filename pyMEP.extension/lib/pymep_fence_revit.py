@@ -34,15 +34,12 @@ from Autodesk.Revit.DB import (
 from Autodesk.Revit.DB.Structure import StructuralType
 
 import pymep_fence as F
+from pymep_revit import id_value, make_id
 
 MIN_HIT_PROXIMITY = 1e-9
 
 
-def id_value(eid):
-    try:
-        return eid.Value            # Revit 2024+
-    except AttributeError:
-        return eid.IntegerValue     # Revit 2023 and earlier
+     # Revit 2023 and earlier
 
 
 def element_name(el):

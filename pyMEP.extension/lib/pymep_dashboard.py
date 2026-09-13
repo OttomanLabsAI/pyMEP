@@ -46,6 +46,7 @@ from pymep_structures_place import (
     RIM_PARAM_NAMES, INVERT_PARAM_NAMES,
     _activate, _set_named_param_length_m,
 )
+from pymep_revit import id_value, make_id
 
 __version__ = "2.0"
 
@@ -86,7 +87,7 @@ def list_chamber_symbols(doc):
     for lbl, sym in list_family_symbols(doc):
         try:
             cat = sym.Category
-            if cat is not None and cat.Id.IntegerValue in _curtain_cat_ids():
+            if cat is not None and id_value(cat.Id) in _curtain_cat_ids():
                 continue
         except Exception:
             pass
@@ -764,7 +765,7 @@ def place_dashboard_structures(doc, rows, symbols_by_layer, host_level_name,
             if ws_id is not None:
                 wp = inst.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM)
                 if wp is not None and not wp.IsReadOnly:
-                    wp.Set(ws_id.IntegerValue)
+                    wp.Set(id_value(ws_id))
         except Exception:
             pass
         created += 1

@@ -31,6 +31,7 @@ from pymep_log import Logger
 import clr
 clr.AddReference("RevitAPI")
 from Autodesk.Revit.DB.Plumbing import Pipe
+from pymep_revit import id_value, make_id
 
 output = script.get_output()
 log = Logger(output, "QuickMerge")
@@ -72,7 +73,7 @@ else:
         for w in FilteredWorksetCollector(doc).OfKind(
                 WorksetKind.UserWorkset):
             if w.Name == ws_name:
-                ws_arg = w.Id.IntegerValue
+                ws_arg = id_value(w.Id)
                 found = True
                 break
         if not found:
@@ -131,7 +132,7 @@ if len(pipes) < 2:
     script.exit()
 
 log("Working on **{}** pipe(s).".format(len(pipes)))
-pipes_by_id = dict((p.Id.IntegerValue, p) for p in pipes)
+pipes_by_id = dict((id_value(p.Id), p) for p in pipes)
 
 rows, notes = read_pipe_rows(pipes)
 for n in notes:

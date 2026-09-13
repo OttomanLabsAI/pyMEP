@@ -47,6 +47,7 @@ from Autodesk.Revit.DB import (
     XYZ,
 )
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
+from pymep_revit import id_value, make_id
 
 doc = revit.doc
 uidoc = revit.uidoc
@@ -257,8 +258,8 @@ def get_floors():
         except Exception:               # ESC / right-click: done
             break
         el = doc.GetElement(r.ElementId)
-        if isinstance(el, Floor) and el.Id.IntegerValue not in seen:
-            seen.add(el.Id.IntegerValue)
+        if isinstance(el, Floor) and id_value(el.Id) not in seen:
+            seen.add(id_value(el.Id))
             got.append(el)
     return got
 
@@ -394,11 +395,7 @@ def find_view3d():
     return None
 
 
-def id_value(eid):
-    try:
-        return eid.Value            # Revit 2024+
-    except AttributeError:
-        return eid.IntegerValue     # Revit 2023 and earlier
+     # Revit 2023 and earlier
 
 
 def terrain_category_ids():

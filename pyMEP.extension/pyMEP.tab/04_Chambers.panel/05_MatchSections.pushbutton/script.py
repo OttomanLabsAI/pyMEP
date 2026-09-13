@@ -45,6 +45,7 @@ from pyrevit import revit, DB, forms, script
 from pymep_chamber_sections import chamber_key
 
 import pymep_chamber_links as links
+from pymep_revit import id_value, make_id
 
 doc = revit.doc
 out = script.get_output()
@@ -121,13 +122,13 @@ def _inst_workset_id(inst):
     try:
         wid = inst.WorksetId
         if wid is not None:
-            return wid.IntegerValue
+            return id_value(wid)
     except Exception:
         pass
     try:
         wid = doc.GetWorksetId(inst.Id)
         if wid is not None:
-            return wid.IntegerValue
+            return id_value(wid)
     except Exception:
         pass
     return None
@@ -190,7 +191,7 @@ for fi in inst_collector:
     tid = fi.GetTypeId()
     if tid is None or tid == DB.ElementId.InvalidElementId:
         continue
-    key = tid.IntegerValue
+    key = id_value(tid)
     inst_by_typeid.setdefault(key, [])
     inst_by_typeid[key].append(fi)
     if key not in sym_by_typeid:
@@ -313,7 +314,7 @@ for v in sections_all:
     side = _side_from_type_name(tname)
     if side is None:
         continue
-    sid = v.Id.IntegerValue
+    sid = id_value(v.Id)
     sec_side_of[sid] = side
     groups.setdefault(tname, [])
     groups[tname].append(v)
@@ -403,7 +404,7 @@ claimed_sections = set()
 fam_side_claimed = set()
 pairs = []          # (section view, chamber inst, mark, side, dist_ft)
 for d2, fi_idx, sec in candidates:
-    sid = sec.Id.IntegerValue
+    sid = id_value(sec.Id)
     if sid in claimed_sections:
         continue
     side = sec_side_of.get(sid)
@@ -458,7 +459,7 @@ for sec, inst, mark, side, dist_ft in pairs:
     if rec is None:
         continue
     rec["side"] = side
-    new_records[str(sec.Id.IntegerValue)] = rec
+    new_records[str(id_value(sec.Id))] = rec
 
 if do_assoc and not new_records:
     forms.alert("Could not build any association records.", exitscript=True)
@@ -489,12 +490,12 @@ for sec, inst, mark, side, dist_ft in pairs:
 # new name collide with it and blow up the rename pass.
 batch_ids = set()
 for r in plan:
-    batch_ids.add(r["view"].Id.IntegerValue)
+    batch_ids.add(id_value(r["view"].Id))
 
 used_names = set()
 for v in all_views:
     try:
-        if v.Id.IntegerValue in batch_ids:
+        if id_value(v.Id) in batch_ids:
             continue
         used_names.add(v.Name)
     except Exception:
@@ -513,7 +514,7 @@ unchanged_count = len(plan) - len(changed_plan)
 
 plan_by_sid = {}
 for r in plan:
-    plan_by_sid[r["view"].Id.IntegerValue] = r
+    plan_by_sid[id_value(r["view"].Id)] = r
 
 
 # ---------------------------------------------------------------------------
@@ -525,7 +526,7 @@ out.print_md("**Chamber type:** {0}  |  **Workset:** {1}  |  "
                  _type_label(fam_choice["symbol"]), ws_display, chosen_vft))
 rows = []
 for sec, inst, mark, side, dist_ft in pairs:
-    sid = sec.Id.IntegerValue
+    sid = id_value(sec.Id)
     r = plan_by_sid.get(sid)
     if not do_rename:
         new_name = "-"
@@ -603,7 +604,7 @@ if do_rename and changed_plan:
             # Temp name is unique per element (keyed on the section's
             # ElementId), so it can never collide with a leftover temp name
             # from a previous failed run.
-            eid = r["view"].Id.IntegerValue
+            eid = id_value(r["view"].Id)
             try:
                 r["view"].Name = "__pymep_tmp_{0}".format(eid)
                 temp_map[eid] = r
@@ -661,7 +662,7 @@ if do_assoc:
     # Keep the stored section names in sync with any renames just applied
     # (reads the LIVE view name, so retries/restores are reflected too).
     for r in plan:
-        key = str(r["view"].Id.IntegerValue)
+        key = str(id_value(r["view"].Id))
         if key in new_records:
             try:
                 new_records[key]["section_name"] = r["view"].Name

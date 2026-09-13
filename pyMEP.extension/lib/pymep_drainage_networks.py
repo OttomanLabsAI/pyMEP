@@ -53,6 +53,7 @@ from pymep_net_param import (
     ensure_network_param, stamp_network, with_connected_fittings,
     node_network_name, collect_by_network, network_value,
 )
+from pymep_revit import id_value, make_id
 
 
 NETWORKS_JSON = "drainage_networks.json"
@@ -349,7 +350,7 @@ def _workset_id_int(doc, name):
         for ws in FilteredWorksetCollector(doc).OfKind(
                 WorksetKind.UserWorkset):
             if ws.Name == name:
-                return ws.Id.IntegerValue
+                return id_value(ws.Id)
     except Exception:
         pass
     return None

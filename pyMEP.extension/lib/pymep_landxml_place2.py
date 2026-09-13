@@ -39,6 +39,7 @@ from Autodesk.Revit.DB import (
 from Autodesk.Revit.DB.Plumbing import Pipe, PipeType, PipingSystemType
 
 from pymep_revit import safe_name, mm2ft
+from pymep_revit import id_value, make_id
 
 
 # ===========================================================================
@@ -321,12 +322,12 @@ def _routing_sizes_ft(doc, pipe_type):
                 rule = rpm.GetRule(RoutingPreferenceRuleGroupType.Segments, i)
                 mid = rule.MEPPartId
                 if mid is not None and mid != ElementId.InvalidElementId:
-                    seg_ids.add(mid.IntegerValue)
+                    seg_ids.add(id_value(mid))
             except Exception:
                 pass
         segs = []
         for sid in seg_ids:
-            el = doc.GetElement(ElementId(sid))
+            el = doc.GetElement(make_id(sid))
             if el is not None:
                 segs.append(el)
         if not segs:
@@ -561,8 +562,8 @@ def place_landxml_pipes(doc, rows, network_workset_map,
             if wsid is not None:
                 wp = pipe.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM)
                 if wp is not None and not wp.IsReadOnly:
-                    wp.Set(wsid.IntegerValue)
-            created.append(pipe.Id.IntegerValue)
+                    wp.Set(id_value(wsid))
+            created.append(id_value(pipe.Id))
             placed.append((pipe, snap_ft(dia), name))
         except Exception:
             failed += 1

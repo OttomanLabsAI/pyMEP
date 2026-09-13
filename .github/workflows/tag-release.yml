@@ -10,6 +10,9 @@ name: tag-release
 # in this workflow (not on the tag event) because tags pushed with the
 # workflow token do not trigger other workflows.
 #
+# The tag job waits for the test job: the CPython suite and a
+# byte-compile of every script must pass before anything is tagged.
+#
 # Also manually dispatchable to (re)tag any commit:
 #   Actions > tag-release > Run workflow  (tag + sha inputs, both optional).
 #
@@ -43,7 +46,24 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Byte-compile every script and lib module
+        run: |
+          python -m compileall -q pyMEP.extension/lib pyMEP.extension/pyMEP.tab pyMEP.extension/startup.py
+
+      - name: Run the test suite
+        run: python -m unittest discover -s tests -v
+
   tag:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

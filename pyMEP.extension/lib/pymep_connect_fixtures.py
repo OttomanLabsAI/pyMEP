@@ -44,6 +44,7 @@ from pymep_revit import get_connectors, safe_name, mm2ft, ft2mm
 from pymep_gully_connect import (
     gully_outlet, _snap_dia_ft, _conn_near, _set_dia, _host_level,
 )
+from pymep_revit import id_value, make_id
 
 
 MIN_LEN_FT = mm2ft(50.0)
@@ -358,7 +359,7 @@ def list_node_types(doc):
             if not get_connectors(inst) and not _has_point(inst):
                 continue
             sym = inst.Symbol
-            key = sym.Id.IntegerValue
+            key = id_value(sym.Id)
             if key not in groups:
                 try:
                     fam = safe_name(sym.Family)

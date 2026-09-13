@@ -99,6 +99,8 @@ from pymep_chamber_sections import (
     SETTINGS_PLANS_WORKSET, CURRENT_WORKSET,
 )
 from pymep_config import load_settings, save_settings
+from pymep_revit import id_value, make_id
+from pymep_revit import quiet
 
 doc = revit.doc
 uidoc = revit.uidoc
@@ -504,7 +506,7 @@ def _try_set_box(v, sb):
                 "cut plane)")
     try:
         got = p.AsElementId()
-        if not _valid_id(got) or got.IntegerValue != sb.Id.IntegerValue:
+        if not _valid_id(got) or id_value(got) != id_value(sb.Id):
             return "the view did not keep the scope box"
     except Exception:
         pass
@@ -550,7 +552,7 @@ def _apply_scope_box(v, sb):
                     got = p.AsElementId() if p is not None else None
                 except Exception:
                     got = None
-                if _valid_id(got) and got.IntegerValue == sb.Id.IntegerValue:
+                if _valid_id(got) and id_value(got) == id_value(sb.Id):
                     return True, "template detached and re-applied"
                 why = "the view template resets the scope box"
             else:
@@ -597,7 +599,7 @@ def _set_workset(el, ws_id):
         p = el.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM)
         if p is None or p.IsReadOnly:
             return "workset parameter not editable"
-        p.Set(ws_id.IntegerValue)
+        p.Set(id_value(ws_id))
     except Exception as ex:
         return "workset not set: {0}".format(ex)
     return None
@@ -631,7 +633,7 @@ for fi in FilteredElementCollector(doc).OfClass(FamilyInstance)\
     tid = fi.GetTypeId()
     if tid is None or tid == ElementId.InvalidElementId:
         continue
-    key = tid.IntegerValue
+    key = id_value(tid)
     inst_by_typeid.setdefault(key, [])
     inst_by_typeid[key].append(fi)
     if key not in sym_by_typeid:
@@ -741,7 +743,7 @@ def _build_jobs(instances, seed):
         mark = _get_mark(inst)
         if not mark:
             no_mark.append(("Id {0} ({1})".format(
-                inst.Id.IntegerValue, _elem_name(inst)), inst))
+                id_value(inst.Id), _elem_name(inst)), inst))
             continue
         base = _sanitize(chamber_key(mark))   # the whole Mark, trimmed
         if base in seen:
@@ -757,7 +759,7 @@ def _build_jobs(instances, seed):
         else:
             sb = sb_by_name.get(base)
             if sb is None or (seed is not None
-                              and sb.Id.IntegerValue == seed.Id.IntegerValue):
+                              and id_value(sb.Id) == id_value(seed.Id)):
                 job["box_state"] = "create"
             else:
                 job["box"] = sb
@@ -970,7 +972,7 @@ class PlansWindow(forms.WPFWindow):
         for fi in (tdict["insts"] if tdict else []):
             mk = _get_mark(fi)
             rows.append(("{0}   (Id {1})".format(mk if mk else "<no mark>",
-                                                  fi.Id.IntegerValue), fi))
+                                                  id_value(fi.Id)), fi))
         rows.sort(key=lambda r: r[0].lower())
         query = ""
         try:
@@ -1100,10 +1102,10 @@ class PlansWindow(forms.WPFWindow):
         # Narrow the chamber tick list to the Marks matching the search;
         # ticks already made are kept on the boxes that stay listed.
         if getattr(self, "_ready", False) and not self._filling:
-            ticked = set(fi.Id.IntegerValue for fi in self._ticked())
+            ticked = set(id_value(fi.Id) for fi in self._ticked())
             self._fill_chambers(self._current_type())
             for cb, fi in self._boxes:
-                if ticked and fi.Id.IntegerValue not in ticked:
+                if ticked and id_value(fi.Id) not in ticked:
                     cb.IsChecked = False
             self._sync()
 
@@ -1375,16 +1377,16 @@ def _crop_element_id(v):
         was = v.CropBoxVisible
         v.CropBoxVisible = False
         doc.Regenerate()
-        before = set(e.IntegerValue for e in
+        before = set(id_value(e) for e in
                      FilteredElementCollector(doc, v.Id).ToElementIds())
         v.CropBoxVisible = True
         doc.Regenerate()
-        after = set(e.IntegerValue for e in
+        after = set(id_value(e) for e in
                     FilteredElementCollector(doc, v.Id).ToElementIds())
         v.CropBoxVisible = was
         diff = after - before
         if len(diff) == 1:
-            return ElementId(diff.pop())
+            return make_id(diff.pop())
     except Exception:
         pass
     return None
@@ -1570,6 +1572,7 @@ template_notes = []       # (view name, why the template was not applied)
 
 t = Transaction(doc, "pyMEP: Chamber plans ({0} chamber(s))".format(
     len(jobs)))
+quiet(t)
 t.Start()
 try:
     # --- (a) a scope box per chamber (scope-box route only) ---

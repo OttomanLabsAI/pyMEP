@@ -7,20 +7,24 @@ chamber's LOCAL (rotation-corrected) frame, plus the section's own rotation
 relative to the chamber. This lets Update re-place sections after a chamber is
 moved or rotated.
 
-JSON lives at <ext root>/exports/<model>/chamber_section_links.json and is keyed
-by section ElementId (as a string). Each record also stores the chamber Mark and
-ElementId so the chamber can be re-found even if its ElementId changes.
+JSON lives at %APPDATA%\pyRevit\pyMEP_exports\<model>\chamber_section_links.json
+- the durable home Install Update never touches - keyed by section ElementId
+(as a string). Each record also stores the chamber Mark and ElementId so the
+chamber can be re-found even if its ElementId changes. A file left by an older
+version inside the extension folder is copied in on first use.
 
 IronPython 2.7: pure ASCII, no f-strings, LF endings.
 """
 
 import os
 import json
+import shutil
 
 import pymep_json
 import math
 
 from Autodesk.Revit import DB
+from pymep_revit import id_value, make_id
 
 MM_PER_FOOT = 304.8
 LINK_FILENAME = "chamber_section_links.json"
@@ -39,18 +43,42 @@ def _safe_name(text):
     return "".join(keep).strip() or "model"
 
 
+def _title(doc):
+    try:
+        return u"{0}".format(doc.Title or u"")
+    except Exception:
+        return u""
+
+
 def links_path(doc):
-    # <ext root>/exports/<model>/chamber_section_links.json
-    # This file lives at <ext root>/lib/, so ext root is one level up.
-    lib_dir = os.path.dirname(os.path.abspath(__file__))
-    ext_root = os.path.dirname(lib_dir)
-    folder = os.path.join(ext_root, "exports", _safe_name(doc.Title))
-    if not os.path.isdir(folder):
-        try:
-            os.makedirs(folder)
-        except Exception:
-            pass
-    return os.path.join(folder, LINK_FILENAME)
+    """The project's links file in the durable per-model home
+    (`%APPDATA%\\pyRevit\\pyMEP_exports\\<model>\\`), created on demand.
+
+    Older versions kept it inside the extension folder, which Install
+    Update replaces - and the updater's rescue copied it under the old
+    folder naming. The first time the durable file is missing, either of
+    those is copied in; an existing durable file is never overwritten."""
+    from pymep_config import (get_export_folder, EXPORTS_ROOT,
+                              LEGACY_EXPORTS_ROOT)
+    folder = get_export_folder(doc)
+    path = os.path.join(folder, LINK_FILENAME)
+    if not os.path.exists(path):
+        old_name = _safe_name(_title(doc))
+        for legacy_dir in (os.path.join(LEGACY_EXPORTS_ROOT, old_name),
+                           os.path.join(EXPORTS_ROOT, old_name)):
+            old = os.path.join(legacy_dir, LINK_FILENAME)
+            try:
+                same = os.path.abspath(old) == os.path.abspath(path)
+            except Exception:
+                same = False
+            if same or not os.path.isfile(old):
+                continue
+            try:
+                shutil.copy2(old, path)
+                break
+            except Exception:
+                continue
+    return path
 
 
 class LinksReadError(Exception):
@@ -331,7 +359,7 @@ def make_record(view, chamber_inst, chamber_mark):
     rec = {
         "section_name": view.Name,
         "chamber_mark": chamber_mark if chamber_mark else "",
-        "chamber_eid": chamber_inst.Id.IntegerValue,
+        "chamber_eid": id_value(chamber_inst.Id),
         "local_offset_ft": [local[0], local[1], local[2]],
         "rel_angle_rad": rel_angle,
         # Stored for reference/debugging (mm, degrees).

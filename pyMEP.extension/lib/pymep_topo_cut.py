@@ -55,6 +55,7 @@ except Exception:
     StructuralType = None
 
 from pymep_revit import mm2ft, ft2mm, safe_name
+from pymep_revit import id_value, make_id
 
 
 # Comment stamped on every cutter instance so they can be found / removed later.
@@ -504,7 +505,7 @@ def cut_toposolid_from_elements(doc, element_ids, toposolid,
             result.silhouette_failed.append(eid)
             continue
 
-        family_name = "pyMEP_TopoCutVoid_{}".format(eid.IntegerValue)
+        family_name = "pyMEP_TopoCutVoid_{}".format(id_value(eid))
 
         # Build + load the void family for this element.
         try:
@@ -520,13 +521,13 @@ def cut_toposolid_from_elements(doc, element_ids, toposolid,
                 continue
         except Exception as ex:
             _say(log, "  - element {}: family build failed ({})".format(
-                eid.IntegerValue, ex))
+                id_value(eid), ex))
             result.family_failed.append(eid)
             continue
 
         # Place the instance at the origin (void carries world coords) and cut.
         t = Transaction(doc, "Cut Toposolid with element {}".format(
-            eid.IntegerValue))
+            id_value(eid)))
         t.Start()
         try:
             # Generic-model void: the 2-arg (location, symbol) overload is the
@@ -555,7 +556,7 @@ def cut_toposolid_from_elements(doc, element_ids, toposolid,
         except Exception as ex:
             t.RollBack()
             _say(log, "  - element {}: cut failed ({})".format(
-                eid.IntegerValue, ex))
+                id_value(eid), ex))
             result.cut_failed.append(eid)
 
     return result
