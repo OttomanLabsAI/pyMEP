@@ -1,0 +1,2 @@
+title: "COBie\nUniclass"
+tooltip: "Populate COBie and Uniclass parameters from rules: which categories, families, types and systems get which Uniclass Pr / Ss / EF codes and COBie values. Dry run reports every change first; Apply writes them in one undo step and can create and bind the missing shared parameters."

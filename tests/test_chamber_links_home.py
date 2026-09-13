@@ -24,6 +24,8 @@ import unittest
 LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                    "..", "pyMEP.extension", "lib")
 LINKS_SRC = os.path.join(LIB, "pymep_chamber_links.py")
+if LIB not in sys.path:            # pymep_config imports pymep_json
+    sys.path.insert(0, LIB)
 
 
 def load_config(appdata):

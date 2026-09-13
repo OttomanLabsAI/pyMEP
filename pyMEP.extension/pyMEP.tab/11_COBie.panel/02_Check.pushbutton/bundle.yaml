@@ -1,0 +1,2 @@
+title: "COBie\nCheck"
+tooltip: "Report the state of the COBie data in this model: how many elements are flagged COBie, which flagged elements lack a Uniclass Pr or Ss code or a Mark, and Marks shared by several COBie elements. Reads only; writes a CSV report."

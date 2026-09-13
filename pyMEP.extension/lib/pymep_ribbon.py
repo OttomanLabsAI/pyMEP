@@ -22,7 +22,7 @@ HIDEABLE_PANELS = ["Civil 3D Conversion", "Electrical", "Drainage",
                    "Pipe Networks", "Networks", "Topography",
                    "Fencing", "Path", "Chamber Drawing Setup",
                    "Parameters", "Project Data Transfer",
-                   "Annotate", "Conduits", "Manhole Plan"]
+                   "Annotate", "Conduits", "Manhole Plan", "COBie"]
 
 
 def _panel_key(title):

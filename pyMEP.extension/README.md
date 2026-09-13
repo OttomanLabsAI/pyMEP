@@ -767,6 +767,32 @@ scramble the tab. (Buttons INSIDE a panel that were renamed by an
 update still sit at the panel's end until the next full Revit
 restart - that one is not fixable in-session.)
 
+### COBie
+
+**COBie / Uniclass** - populate COBie and Uniclass parameters from a rule
+set. A rule names the elements it is for (categories, a family / type /
+system pattern - contains, or a regular expression) and what to write:
+Uniclass Pr / Ss / EF codes and a table of parameter -> value, with tokens
+(`{family}` `{type}` `{category}` `{mark}` `{system}` `{level}` `{id}`
+`{pr}` `{pr_title}` `{ss}` `{ss_title}` `{ef}` `{ef_title}` `{uniclass}`).
+A new rule starts from the conventional set (the `COBie` flag,
+`COBie.Type.Category`, `COBie.Type.Name`, `COBie.Type.AssetType`,
+`COBie.Component.Name`, `COBie.Component.Description` and the six
+`Classification.Uniclass.*` parameters). Rules apply top to bottom, a
+later one overriding an earlier one per parameter. Missing parameters
+can be created as shared parameters (group `pyMEP COBie`, GUIDs derived
+from the names, bound to the rules' categories); an existing one is used
+as it is. Uniclass codes are searched in CSV exports of the official
+tables (a folder you point at - nothing is bundled). **Dry run** reports
+every change without touching the model; **Apply** writes them in one
+undo step. Both save a CSV report to the model's pyMEP folder. The rule
+set lives in `project_files/cobie_rules.json` there and can be exported /
+imported.
+
+**COBie Check** - read-only report: elements per category flagged yes /
+no / unset, flagged elements without a Mark, Pr or Ss code, and Marks
+shared by several flagged elements. Two CSVs.
+
 ## Lib modules
 
 | module | purpose |
