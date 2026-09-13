@@ -1,0 +1,43 @@
+name: delete-release
+
+# Removes a tag AND its GitHub Release. Dev environments cannot touch
+# refs/tags through the git proxy, so this runs server-side instead:
+#   Actions > delete-release > Run workflow  (tag input, required).
+# Use it to pull a release that should not have gone out.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag (and its GitHub Release) to delete, e.g. v1.261.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Delete the release and the tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -e
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes
+            echo "Deleted release $TAG"
+          else
+            echo "No release named $TAG"
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            git push origin ":refs/tags/$TAG"
+            echo "Deleted tag $TAG"
+          else
+            echo "No tag $TAG"
+          fi
