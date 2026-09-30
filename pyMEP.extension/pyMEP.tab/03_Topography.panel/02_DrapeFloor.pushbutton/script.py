@@ -10,6 +10,14 @@ openings are handled - hole loops are respected when generating the
 interior grid. One dialog collects everything; every value is
 remembered between runs.
 
+Each floor's previous shape edits are reset first and shape editing is
+switched on AFTER the reset (the reset switches it off and wipes the
+vertices - the other order leaves the editor off and every point is
+refused). The floor's own sketch corners are lifted onto the terrain,
+then the sampled points are added; a point Revit refuses at the
+terrain level is added on the slab and lifted instead, and Revit's
+own refusal text is shown when nothing could be added.
+
 Works in Revit 2022-2026: targets OST_Toposolid where it exists and
 falls back to legacy OST_Topography.
 """
@@ -645,18 +653,75 @@ def terrain_triangles(topo_items, target):
 
 
 # --------------------------------------------------------------- shape editor
-def get_shape_editor(floor):
+def fresh_editor(floor):
+    """The floor's slab shape editor, read anew (Revit 2024+ method, or
+    the 2023-and-earlier property)."""
     try:
-        editor = floor.GetSlabShapeEditor()     # Revit 2024+
+        return floor.GetSlabShapeEditor()
     except AttributeError:
-        editor = floor.SlabShapeEditor          # Revit 2023 and earlier
+        return floor.SlabShapeEditor
+
+
+def enable_editor(editor):
+    """Switch shape editing on. True when the editor reports it is on
+    (or this build has no IsEnabled to ask)."""
     try:
-        if not editor.IsEnabled:
-            editor.Enable()
+        if editor.IsEnabled:
+            return True
     except Exception:
-        pass    # Enable() deprecated in newer APIs; adding a point
-                # enables it
-    return editor
+        return True
+    fn = getattr(editor, "Enable", None)
+    if fn is not None:
+        try:
+            fn()
+        except Exception:
+            pass
+    try:
+        return bool(editor.IsEnabled)
+    except Exception:
+        return True
+
+
+def prepare_editor(floor):
+    """The floor's shape editor CLEAN, ENABLED and with its own
+    vertices readable: (editor, facts) where facts is {'reset',
+    'enabled', 'vertices'}.
+
+    ORDER MATTERS. ResetSlabShape wipes the previous edits AND switches
+    shape editing OFF (the vertices go with it), so it has to run
+    BEFORE Enable. Enable-then-reset leaves the editor off: no vertex
+    to lift and every AddPoint refused - the 'slab REJECTED every
+    point' failure. Some builds only surface the vertices after a
+    second enable + regenerate round, so two rounds are allowed."""
+    editor = fresh_editor(floor)
+    reset = False
+    fn = getattr(editor, "ResetSlabShape", None)
+    if fn is not None:
+        try:
+            fn()
+            reset = True
+        except Exception:
+            pass        # never shape-edited - nothing to reset
+    enabled = False
+    verts = []
+    for _round in range(2):
+        enabled = enable_editor(editor)
+        try:
+            doc.Regenerate()
+        except Exception:
+            pass
+        try:
+            editor = fresh_editor(floor)
+        except Exception:
+            pass
+        try:
+            verts = list(editor.SlabShapeVertices)
+        except Exception:
+            verts = []
+        if enabled and verts:
+            break
+    return editor, {"reset": reset, "enabled": enabled,
+                    "vertices": len(verts)}
 
 
 def point_drawer(editor):
@@ -681,16 +746,6 @@ def vertex_modifier(editor):
     return getattr(editor, "ModifySubElement", None)
 
 
-def reset_shape(editor):
-    """Wipe any previous shape edits so a re-run starts CLEAN instead
-    of stacking new points on old spikes."""
-    fn = getattr(editor, "ResetSlabShape", None)
-    if fn is None:
-        return False
-    fn()
-    return True
-
-
 VERTEX_Z_TOL = 0.003        # ft (~1 mm) - close enough counts as ON
 VERTEX_XY_TOL = 0.033       # ft (~10 mm) - a sample THIS near an
                             # existing vertex IS that vertex
@@ -710,6 +765,134 @@ def set_vertex_z(modify, v, want_z):
             modify(v, want_z - cur)
         return abs(v.Position.Z - want_z) <= VERTEX_Z_TOL
     except Exception:
+        return False
+
+
+def delete_point(editor, v):
+    """Remove a vertex this run added, where the build allows it."""
+    fn = getattr(editor, "DeletePoint", None)
+    if fn is None or v is None:
+        return False
+    try:
+        fn(v)
+        return True
+    except Exception:
+        return False
+
+
+class PointAdder(object):
+    """Adds draped points to ONE slab, learning on the first point
+    which way this Revit's add-a-point call accepts them:
+
+      'abs'  - at the terrain Z itself. The first vertex is read back:
+               a build that measures that Z from the slab instead is
+               compensated for every later point.
+      'face' - on the flat slab top (face_z), then moved onto the
+               terrain with ModifySubElement. Tried only when 'abs' is
+               refused; a point that would not move is deleted again so
+               no spike to the level is left behind.
+
+    A refusal while shape editing reports OFF switches it back on and
+    retries once. first_error keeps Revit's own words for the report.
+    Once a way has worked, a later refusal is that point's own problem
+    (off the slab, say) and the other way is not tried."""
+
+    def __init__(self, floor, editor, draw, modify, face_z, regen,
+                 say=None):
+        self.floor = floor
+        self.editor = editor
+        self.draw = draw
+        self.modify = modify
+        self.face_z = face_z
+        self.regen = regen
+        self.say = say or (lambda _m: None)
+        self.modes = ["abs"]
+        if modify is not None and face_z is not None:
+            self.modes.append("face")
+        self.good = None
+        self.zadj = None
+        self.first_error = None
+        self.healed = False
+
+    def _abs(self, x, y, z):
+        v = self.draw(XYZ(x, y, z - (self.zadj or 0.0)))
+        if self.zadj is None:
+            self.zadj = 0.0
+            try:
+                if v is not None:
+                    off = v.Position.Z - z
+                    if abs(off) > VERTEX_Z_TOL:
+                        self.zadj = off
+                        self.say("- AddPoint here measures Z from the "
+                                 "SLAB, not absolutely - compensating "
+                                 "by {:+.3f} m.".format(off * 0.3048))
+                        if self.modify is not None:
+                            set_vertex_z(self.modify, v, z)
+            except Exception:
+                pass
+        return v
+
+    def _face(self, x, y, z):
+        v = self.draw(XYZ(x, y, self.face_z))
+        if v is None:
+            raise ValueError("AddPoint gave no vertex back")
+        if not set_vertex_z(self.modify, v, z):
+            delete_point(self.editor, v)
+            raise ValueError("the point went onto the slab but would "
+                             "not move onto the terrain")
+        return v
+
+    def _once(self, mode, x, y, z):
+        try:
+            if mode == "abs":
+                self._abs(x, y, z)
+            else:
+                self._face(x, y, z)
+            return True
+        except Exception as ex:
+            if self.first_error is None:
+                self.first_error = "{}".format(ex)
+            return False
+
+    def _heal(self):
+        # shape editing found OFF after a refusal: on again, once
+        if self.healed:
+            return False
+        self.healed = True
+        try:
+            if self.editor.IsEnabled:
+                return False
+        except Exception:
+            return False
+        if not enable_editor(self.editor):
+            return False
+        try:
+            self.regen()
+        except Exception:
+            pass
+        try:
+            self.editor = fresh_editor(self.floor)
+            self.draw = point_drawer(self.editor)
+            self.modify = vertex_modifier(self.editor)
+        except Exception:
+            return False
+        self.say("- shape editing had switched off - switched back on.")
+        return True
+
+    def add(self, x, y, z):
+        modes = [self.good] if self.good else list(self.modes)
+        for mode in modes:
+            ok = self._once(mode, x, y, z)
+            if not ok and self._heal():
+                ok = self._once(mode, x, y, z)
+            if ok:
+                if self.good is None:
+                    self.good = mode
+                    if mode == "face":
+                        self.say("- Revit refused points AT the terrain "
+                                 "level, so each point is added on the "
+                                 "slab and lifted onto the terrain.")
+                return True
         return False
 
 
@@ -825,6 +1008,7 @@ def main():
         return XYZ(x, y, z)
 
     total_added, total_missed, total_rejected = 0, 0, 0
+    first_reject = [None]
     with revit.Transaction("Drape floors to topo"):
         for floor in floors:
             try:
@@ -850,8 +1034,11 @@ def main():
                 pts = dedupe(pts + grid_points(floor, polys,
                                                gx_ft, gy_ft))
 
+            # start CLEAN and ENABLED: previous shape edits wiped so a
+            # re-run heals a spiked floor, THEN shape editing on (the
+            # reset switches it off - see prepare_editor)
             try:
-                editor = get_shape_editor(floor)
+                editor, ed = prepare_editor(floor)
                 draw = point_drawer(editor)
             except Exception as err:
                 log("! floor {}: cannot be shape-edited (slope arrow "
@@ -859,14 +1046,28 @@ def main():
                     .format(floor.Id, err))
                 continue
             modify = vertex_modifier(editor)
+            if not ed["enabled"]:
+                log("- floor {}: Revit did not report shape editing ON "
+                    "after the reset - trying anyway.".format(floor.Id))
+            elif not ed["vertices"]:
+                log("- floor {}: shape editing is on but Revit lists no "
+                    "corner vertices - only added points will drape."
+                    .format(floor.Id))
 
-            # start CLEAN: wipe previous shape edits so a re-run heals
-            # a spiked floor instead of stacking new points on top
+            # the flat top the 'add on the slab, then lift' fallback
+            # starts from - read BEFORE any corner moves
+            face_z = None
             try:
-                if reset_shape(editor):
-                    doc.Regenerate()
+                for v in editor.SlabShapeVertices:
+                    face_z = v.Position.Z
+                    break
             except Exception:
-                pass
+                face_z = None
+            if face_z is None:
+                try:
+                    face_z = floor.get_BoundingBox(None).Max.Z
+                except Exception:
+                    face_z = None
 
             # 1) MOVE the slab's OWN vertices (sketch corners - outer
             #    boundary AND hole loops) onto the terrain. Only ever
@@ -915,38 +1116,8 @@ def main():
             if corners_only and modify is not None:
                 pts = []    # the slab's vertices ARE the corners
 
-            first_err = [None]
-            zadj = [None]   # measured AddPoint Z datum: None = untested
-
-            def try_draw(pt):
-                want = pt.Z
-                try:
-                    if zadj[0]:
-                        pt = XYZ(pt.X, pt.Y, pt.Z - zadj[0])
-                    v = draw(pt)
-                except Exception as ex:
-                    if first_err[0] is None:
-                        first_err[0] = "{}".format(ex)
-                    return False
-                if zadj[0] is None:
-                    # calibrate on the FIRST added vertex: an AddPoint
-                    # that measures Z from the slab instead of
-                    # absolutely would land every point wrong
-                    zadj[0] = 0.0
-                    try:
-                        if v is not None:
-                            off = v.Position.Z - want
-                            if abs(off) > VERTEX_Z_TOL:
-                                zadj[0] = off
-                                log("- AddPoint here measures Z from "
-                                    "the SLAB, not absolutely - "
-                                    "compensating by {:+.3f} m."
-                                    .format(off * 0.3048))
-                                if modify is not None:
-                                    set_vertex_z(modify, v, want)
-                    except Exception:
-                        pass
-                return True
+            adder = PointAdder(floor, editor, draw, modify, face_z,
+                               doc.Regenerate, log)
 
             added, rejected, nudged = 0, 0, 0
             for p in pts:
@@ -954,7 +1125,7 @@ def main():
                 if hit is None:
                     missed += 1
                     continue
-                if try_draw(hit):
+                if adder.add(hit.X, hit.Y, hit.Z):
                     added += 1
                     continue
                 # the slab rejected the point (curved edges are
@@ -965,7 +1136,7 @@ def main():
                 h2 = None
                 if q is not None:
                     h2 = ground_hit(q.X, q.Y)
-                if h2 is not None and try_draw(h2):
+                if h2 is not None and adder.add(h2.X, h2.Y, h2.Z):
                     added += 1
                     nudged += 1
                     continue
@@ -985,9 +1156,11 @@ def main():
                     if rejected else "",
                     ", {} corner(s) would not move".format(corners_left)
                     if corners_left else ""))
-            if rejected and first_err[0]:
+            if rejected and adder.first_error:
                 log("- the slab's FIRST rejection said: **{}**".format(
-                    first_err[0]))
+                    adder.first_error))
+                if first_reject[0] is None:
+                    first_reject[0] = adder.first_error
 
     if state["from_mesh"]:
         log("**{}** point(s) came from the terrain's own geometry - "
@@ -995,11 +1168,12 @@ def main():
     log.close()
     if total_added == 0 and total_rejected > 0:
         forms.alert("The terrain WAS found, but the slab REJECTED every "
-                    "point ({}).\n\nThe report shows the slab's own "
-                    "reason (first rejection). Usual causes: the floor "
-                    "is in a GROUP, has a SLOPE ARROW or a sloped "
-                    "sketch line, or its type blocks shape editing."
-                    .format(total_rejected))
+                    "point ({}).\n\nRevit's reason (first refusal):\n"
+                    "{}\n\nOther causes: the floor is in a GROUP, has a "
+                    "SLOPE ARROW or a sloped sketch line, or its type "
+                    "blocks shape editing.".format(
+                        total_rejected,
+                        first_reject[0] or "(none given)"))
     elif total_added == 0:
         forms.alert('No terrain hits found - not by ray-casting in '
                     'view "{}", and not in the terrain geometry under '
